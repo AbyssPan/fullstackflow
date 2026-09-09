@@ -25,7 +25,7 @@ Agent 注册名 **`task-planner`**（任务规划师，OpenSpec tasks 驱动）�
 |------|------|------|
 | `task-dag.md` | — | 必需 |
 | `task-dag.json` | ✅ | 必需 |
-| `openspec/tasks.md` | — | run 模式建议产出（prompt 级要求，Phase 2 勾选进度，归档时同步） |
+| `openspec/tasks.md` | — | run 模式建议产出（prompt 级要求，Phase 2 勾选进度） |
 | `figma-frame-inventory.json` | ✅ | `requiredWhen: hasFigmaDesign` —— 状态位为 true 时转必需 |
 
 推进 Phase 1→2 成功时，`advance-phase.js` **自动签发 dev-pass**，限域到 `task-dag.json` 的 `files[]`。

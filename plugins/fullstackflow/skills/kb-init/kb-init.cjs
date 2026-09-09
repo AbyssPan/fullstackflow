@@ -35,9 +35,25 @@ const PROFILE_PATH = path.join(KB_ROOT, '.profile.yaml')
  * @returns {'frontend'|'plugin'|'backend'|'library'}
  */
 function inferProjectType () {
-  // 插件：存在 plugin.json / .claude-plugin / skills 目录
+  // 插件：根目录存在 plugin.json / .claude-plugin
   if (fs.existsSync(path.join(PROJECT_ROOT, 'plugin.json')) ||
       fs.existsSync(path.join(PROJECT_ROOT, '.claude-plugin'))) return 'plugin'
+
+  // 插件市场仓：plugins/<name>/ 下存在 plugin.json（或 .claude-plugin）且含 agents/skills/hooks 之一
+  const pluginsDir = path.join(PROJECT_ROOT, 'plugins')
+  if (fs.existsSync(pluginsDir)) {
+    try {
+      const subs = fs.readdirSync(pluginsDir).filter(d => fs.statSync(path.join(pluginsDir, d)).isDirectory())
+      const isPluginRepo = subs.some(d => {
+        const sub = path.join(pluginsDir, d)
+        const hasManifest = fs.existsSync(path.join(sub, 'plugin.json')) ||
+                            fs.existsSync(path.join(sub, '.claude-plugin'))
+        const hasStruct = ['agents', 'skills', 'hooks'].some(s => fs.existsSync(path.join(sub, s)))
+        return hasManifest && hasStruct
+      })
+      if (isPluginRepo) return 'plugin'
+    } catch (e) { /* ignore */ }
+  }
 
   // 前端：存在 src/ + package.json 且含 vue/react 依赖
   const pkg = readJson(path.join(PROJECT_ROOT, 'package.json'))

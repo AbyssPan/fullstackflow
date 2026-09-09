@@ -1,6 +1,6 @@
 const fs = require('fs');
 const https = require('https');
-const SwaggerToJSDoc = require('./scripts/swagger-parser');
+const SwaggerToJSDoc = require('../../skills/api-generator/scripts/swagger-parser');
 
 const url = 'https://ai-dev.vzan.com/platform/v2/api-docs?group=ai-platform';
 

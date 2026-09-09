@@ -73,13 +73,15 @@ function parseMetaYaml (content) {
   return result
 }
 
-/** 判断变更文件是否属于指定域（前缀匹配 meta.yaml 中的文件字段，v2：字段通用化） */
+/** 判断变更文件是否属于指定域（前缀匹配 meta.yaml 中的文件字段，v2：字段通用化）
+ *  通配符语义：以第一个 * 为界，* 之前的部分作为目录前缀匹配
+ *  （如 "plugins/harness/agents/*.md" → 前缀 "plugins/harness/agents/"） */
 function matchFileToDomain (file, domain) {
   const sources = domain.files || []
-  // 通配符支持：entry_files 里的 "plugins/harness/agents/*.md" 去掉 *.md 后做前缀匹配
   return sources.some(s => {
-    const normalized = s.replace(/\*/g, '')  // 去掉通配符
-    return file.startsWith(normalized) || file.includes(normalized.replace(/\/$/, ''))
+    const starIdx = s.indexOf('*')
+    const prefix = starIdx >= 0 ? s.slice(0, starIdx) : s
+    return prefix === '' || file === s || file.startsWith(prefix)
   })
 }
 
@@ -100,11 +102,17 @@ if (fs.existsSync(META_PATH)) {
 try {
   const diff = execSync(`git diff --name-only ${lastHash}..${currentHash}`, { cwd: PROJECT_ROOT, encoding: 'utf-8', timeout: 10000 }).trim()
   changedFiles = diff ? diff.split('\n').filter(Boolean) : []
-  if (changedFiles.length === 0) {
+} catch (e) {
+  // lastHash 无效（如 rebase 后消失）或 diff 失败：记录并走兜底
+  if (lastHash && lastHash !== currentHash) errors.push(`git diff ${lastHash.slice(0, 8)}..${currentHash.slice(0, 8)} 失败，回退 HEAD~1..HEAD`)
+}
+// 兜底：diff 为空或失败时，退回最近一次提交的变更
+if (changedFiles.length === 0) {
+  try {
     const d = execSync('git diff --name-only HEAD~1..HEAD', { cwd: PROJECT_ROOT, encoding: 'utf-8', timeout: 10000 }).trim()
     changedFiles = d ? d.split('\n').filter(Boolean) : []
-  }
-} catch (e) { /* no diff available */ }
+  } catch (e) { /* 单提交仓库等场景，无 diff 可用 */ }
+}
 
 // 加载 meta.yaml（始终加载，后面的原型文档匹配也需要）
 let meta = {}
@@ -156,18 +164,10 @@ if (fs.existsSync(PLANS_DIR)) {
       } catch (e) {}
     }
 
-    // 无显式 domain 时，遍历受影响域检查文件关联
-    if (!targetDomain) {
-      for (const ad of affectedDomains) {
-        if (ad.matchedFiles.some(f => f.includes('settings') || ad.id === 'settings')) {
-          targetDomain = ad.id
-          break
-        }
-      }
-      // 兜底：第一个受影响域
-      if (!targetDomain && affectedDomains.length > 0) {
-        targetDomain = affectedDomains[0].id
-      }
+    // 无显式 domain 时，取匹配变更文件数最多的受影响域（数据驱动，不硬编码域 id）
+    if (!targetDomain && affectedDomains.length > 0) {
+      const best = affectedDomains.reduce((a, b) => b.matchedFiles.length > a.matchedFiles.length ? b : a)
+      targetDomain = best.id
     }
 
     const docFileName = (title || storyId).replace(/[^\w\u4e00-\u9fff-]/g, '-').replace(/-+/g, '-').toLowerCase() + '.md'

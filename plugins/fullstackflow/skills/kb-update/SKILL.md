@@ -9,6 +9,10 @@ description: "任务完成后自动增量更新知识库。接收 git commit has
 
 > 本 Skill 自包含：脚本 `./kb-update.cjs` → 数据驱动域匹配（基于 meta.yaml），不硬编码任何路径规则。
 > "AI 负责认知，脚本负责执行" — git diff + 域匹配由脚本完成，文档更新由 AI 完成。
+>
+> **知识库唯一根目录为项目 `.docs/llm-knowledge/`**（脚本以 `process.cwd()` 为项目根）。
+> 本文与脚本输出中出现的 `business/<domain>/...` 等相对路径，一律相对该根解析；
+> 所有更新、新增的设计文档也必须落在这个根下，禁止写到项目根 / `docs/` / `.codebuddy/`。
 
 ---
 
@@ -22,7 +26,7 @@ description: "任务完成后自动增量更新知识库。接收 git commit has
 
 ## 前置条件
 
-项目需有 `meta.yaml`（kb-init 或手动创建），每个 domain 配置了文件字段（字段名按项目类型，如 `entry_files` / `files`，不再是固定的 `stores/apis/components`）。
+项目需有 `.docs/llm-knowledge/meta.yaml`（kb-init 或手动创建），每个 domain 配置了文件字段（字段名按项目类型，如 `entry_files` / `files`，不再是固定的 `stores/apis/components`）。
 
 ```yaml
 domains:

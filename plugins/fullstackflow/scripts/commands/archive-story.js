@@ -51,11 +51,9 @@ const path = require('path')
 const {
   getStoryDir,
   readStateFile,
-  writeStateFile,
-  PROJECT_ROOT
+  writeStateFile
 } = require('../lib/state')
 const trace = require('../lib/trace')
-const { validateOpenspecDir } = require('./validate-openspec')
 
 // ─── 常量 ──────────────────────────────────────────────────────
 
@@ -64,15 +62,6 @@ const DELETE_FILES = ['dev-pass.json']
 
 /** archive/ 目录内的子目录（不参与递归扫描的顶层目录） */
 const ARCHIVE_DIR = 'archive'
-
-/** OpenSpec 规格产物目录名（story 目录内） */
-const OPENSPEC_DIR = 'openspec'
-
-/** OpenSpec 归档根目录（项目根下，与 OpenSpec CLI 的 changes/archive 约定一致） */
-const OPENSPEC_ARCHIVE_ROOT = path.join(PROJECT_ROOT, 'openspec', 'changes', 'archive')
-
-/** 需同步到 openspec/changes/archive/ 的规格产物（文件或目录） */
-const OPENSPEC_ARTIFACTS = ['proposal.md', 'design.md', 'tasks.md', 'specs']
 
 // ─── 工具函数 ──────────────────────────────────────────────────
 
@@ -309,96 +298,8 @@ function cmdArchive(storyId, opts) {
     archiveDir: state.archiveDir,
     archivedFiles: movedCount,
     deletedFiles,
-    openspecSync: syncOpenspecArchive(roundDir, storyId, state.title),
     hint: 'root 目录已清空，所有文件（含 e2e-state.json / trace.jsonl / repos.json）均归档到 archive/round-' + round + '/'
   }, null, 2))
-}
-
-/**
- * 同步 OpenSpec 规格产物到项目级 openspec/changes/archive/{yyyy-MM-dd}-{需求名称}/
- *
- * 每个 Story（需求）在归档时，把 story 目录下的 openspec 规格产物
- * （proposal.md / design.md / tasks.md / specs/）复制一份到项目根的
- * openspec/changes/archive/ 下，目录名固定为 `yyyy-MM-dd-{需求名称}`，
- * 与 OpenSpec CLI 的归档约定保持一致。story 目录内的原件仍按 round-{N} 归档。
- *
- * @param {string} roundDir - 本轮归档目录（archive/round-{N}）绝对路径
- * @param {string} storyId - Story ID
- * @param {string} title - 需求名称（story 标题，用于目录命名）
- * @returns {{ synced: boolean, targetDir: string|null, files: string[], reason: string|null }}
- */
-function syncOpenspecArchive(roundDir, storyId, title) {
-  const result = { synced: false, targetDir: null, files: [], reason: null }
-
-  // 1. 归档目录中必须存在 openspec/ 规格产物，否则跳过（不阻断归档）
-  const srcDir = path.join(roundDir, OPENSPEC_DIR)
-  if (!fs.existsSync(srcDir)) {
-    result.reason = 'story 无 openspec 规格产物（requirement-analyst / task-planner 未产出或需求极简），跳过同步'
-    return result
-  }
-
-  // 2. 至少存在一个规格产物才算有效
-  const present = OPENSPEC_ARTIFACTS.filter(a => fs.existsSync(path.join(srcDir, a)))
-  if (present.length === 0) {
-    result.reason = 'openspec/ 目录存在但无有效产物（proposal/design/tasks/specs 均缺失），跳过同步'
-    return result
-  }
-
-  // 3. 目录名：yyyy-MM-dd-{需求名称}；需求名称做文件系统安全化处理
-  const dateStr = new Date().toISOString().slice(0, 10)
-  const safeTitle = String(title || storyId)
-    .trim()
-    .replace(/[\\/:*?"<>|\s]+/g, '-')   // 非法字符与空白转连字符
-    .replace(/^-+|-+$/g, '')            // 去首尾连字符
-    .slice(0, 60)                       // 限长，避免路径过长
-  const dirName = `${dateStr}-${safeTitle || storyId}`
-  const targetDir = path.join(OPENSPEC_ARCHIVE_ROOT, dirName)
-
-  // 4. 防覆盖：同名归档目录已存在时追加时间后缀
-  let finalDir = targetDir
-  if (fs.existsSync(finalDir)) {
-    const stamp = new Date().toISOString().replace(/[:.]/g, '').slice(11, 17)
-    finalDir = `${targetDir}-${stamp}`
-  }
-
-  // 4.5 内置规则校验（提炼自 OpenSpec validate，零依赖）：不阻断归档，如实报告
-  let validation = null
-  try {
-    validation = validateOpenspecDir(srcDir)
-  } catch (err) {
-    validation = { valid: false, errors: [`校验执行异常: ${err.message}`], warnings: [], stats: {} }
-  }
-
-  // 5. 递归复制规格产物
-  const copied = []
-  const copyRecursive = (src, dest) => {
-    const stat = fs.statSync(src)
-    if (stat.isDirectory()) {
-      fs.mkdirSync(dest, { recursive: true })
-      for (const e of fs.readdirSync(src)) {
-        copyRecursive(path.join(src, e), path.join(dest, e))
-      }
-    } else {
-      fs.mkdirSync(path.dirname(dest), { recursive: true })
-      fs.copyFileSync(src, dest)
-      copied.push(path.relative(OPENSPEC_ARCHIVE_ROOT, dest))
-    }
-  }
-  try {
-    for (const artifact of present) {
-      copyRecursive(path.join(srcDir, artifact), path.join(finalDir, artifact))
-    }
-    result.synced = true
-    result.targetDir = path.relative(PROJECT_ROOT, finalDir)
-    result.files = copied
-    result.validation = validation
-    if (validation && !validation.valid) {
-      result.warning = `openspec 规格存在结构问题（error ${validation.errors.length} / warning ${validation.warnings.length}），已照实归档供追溯`
-    }
-  } catch (err) {
-    result.reason = `openspec 同步失败（不阻断归档）: ${err.message}`
-  }
-  return result
 }
 
 // ─── 命令: restore ────────────────────────────────────────────

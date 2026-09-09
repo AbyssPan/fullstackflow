@@ -117,21 +117,28 @@ for (const domain of domains) {
  * @returns {string[]} 匹配到的绝对路径列表
  */
 function expandGlob (pattern) {
-  // 先尝试相对 PROJECT_ROOT 的绝对路径
+  // 候选根：先按相对 PROJECT_ROOT 解析；未命中且为裸文件名时，回退到源码根（旧前端约定，如 "pc.request.js" → src/pc.request.js）
+  const candidates = []
   const abs = path.isAbsolute(pattern) ? pattern : path.join(PROJECT_ROOT, pattern)
-  if (!pattern.includes('*')) {
-    return fs.existsSync(abs) ? [abs] : []
+  candidates.push(abs)
+  if (!path.isAbsolute(pattern) && !pattern.includes('/') && !pattern.includes('*')) {
+    candidates.push(path.join(SRC_ROOT, pattern))
   }
-  // 含通配符：拆目录 + 文件名模式，扫描匹配
-  const dir = path.dirname(abs)
-  const base = path.basename(abs)
-  const regex = new RegExp('^' + base.replace(/\*/g, '.*') + '$')
-  if (!fs.existsSync(dir)) return []
-  try {
-    return fs.readdirSync(dir)
-      .filter(f => regex.test(f))
-      .map(f => path.join(dir, f))
-  } catch (e) { return [] }
+  if (!pattern.includes('*')) {
+    return candidates.filter(p => fs.existsSync(p))
+  }
+  // 含通配符：对每个候选根拆目录 + 文件名模式，扫描匹配
+  const results = []
+  for (const base of candidates) {
+    const dir = path.dirname(base)
+    const name = path.basename(base)
+    const regex = new RegExp('^' + name.replace(/\./g, '\\.').replace(/\*/g, '.*') + '$')
+    if (!fs.existsSync(dir)) continue
+    try {
+      results.push(...fs.readdirSync(dir).filter(f => regex.test(f)).map(f => path.join(dir, f)))
+    } catch (e) { /* ignore */ }
+  }
+  return results
 }
 
 console.log(JSON.stringify(result, null, 2))

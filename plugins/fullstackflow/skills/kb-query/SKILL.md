@@ -30,6 +30,8 @@ description: "渐进式分层知识库检索。三层检索：L1 overview关键�
 
 ### 兜底
 - `search_content` + `search_file`：仅当上述两路都没定位到文件时使用。
+- **graphify 未安装**（`use_skill("graphify")` 失败）：降级为 kb-query 单源 + `search_content`
+  文本检索，并在收尾汇报中提示用户安装 graphify 以恢复双源交叉验证；不要反复重试调用。
 
 ---
 

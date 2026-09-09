@@ -1,6 +1,6 @@
 {
   "name": "fullstackflow",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "FullstackFlow 8-Phase 全栈研发流水线插件",
   "main": "index.js",
   "scripts": {

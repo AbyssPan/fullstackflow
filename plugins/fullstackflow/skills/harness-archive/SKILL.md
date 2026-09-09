@@ -48,15 +48,9 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/commands/archive-story.js <storyId> archive [
 6. 将全部文件移入 `archive/round-{N}/`（含 e2e-state.json / trace.jsonl / repos.json）
 7. 删除 `dev-pass.json`（不归档）
 8. 清理 root 空子目录
-9. **OpenSpec 规格同步（全栈扩展）**：story 目录下若有 `openspec/` 规格产物
-   （proposal.md / design.md / tasks.md / specs/），自动**复制**一份到项目根的
-   `openspec/changes/archive/{yyyy-MM-dd}-{需求名称}/` —— 每个需求对应一个文件夹，
-   目录名按归档日期 + story 标题生成；story 内原件仍随 round-{N} 归档，互不影响。
-   输出的 `openspecSync` 字段会报告同步结果（`synced` / 跳过原因）；同步失败不阻断归档。
-   同步前会用**内置校验器**（`scripts/commands/validate-openspec.js`，规则提炼自 OpenSpec
-   开源项目，无需安装 openspec CLI）程序化检查规格结构（Requirement 含 SHALL/MUST、
-   Scenario 块、Why 长度、复选框任务），结果在 `openspecSync.validation` 中如实报告，
-   error 级问题不阻断归档但会以 `warning` 字段提示追溯
+
+> story 目录下的 `openspec/` 规格产物随全量归档一并进入 `archive/round-{N}/`，
+> 不再向项目根 `openspec/changes/archive/` 同步。
 
 **建议**：先执行 `--dry-run` 预览确认无误后再正式归档。
 

@@ -28,6 +28,24 @@ description: "自动生成项目结构化知识库文档。按项目画像（pro
 
 ---
 
+## 输出路径（铁律）
+
+所有知识库生成文档**必须**落在目标项目的 `.docs/llm-knowledge/` 下（脚本以 `process.cwd()` 为项目根，执行前先确认 cwd 是目标项目根）：
+
+| 文档 | 落盘路径 |
+|------|---------|
+| 项目总览 | `.docs/llm-knowledge/overview.md` |
+| 索引 | `.docs/llm-knowledge/meta.yaml` |
+| 域文档（overview/architecture/api/…） | `.docs/llm-knowledge/business/<domain>/<doc>.md` |
+| 通用切面（conventions/config/…） | `.docs/llm-knowledge/common/<doc>.md` |
+| 手工批注文档 | `.docs/llm-knowledge/business/<domain>/custom/` |
+
+- 🚫 禁止把知识库文档写到项目根、`docs/`、`.codebuddy/`、Skill 自身目录或其他任何位置
+- 🚫 禁止在 `.docs/llm-knowledge/` 之外另建平行的知识库目录
+- 文中后续出现的 `business/<domain>/...` 等相对路径，一律相对 `.docs/llm-knowledge/` 解析
+
+---
+
 ## 4 种模式
 
 | 模式 | 命令 | 用途 |

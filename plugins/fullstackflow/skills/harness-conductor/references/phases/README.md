@@ -9,7 +9,7 @@
 |---|------|-------------|--------|------------|
 | 0 | 需求分析 | `requirement-analyst` | `requirement-analysis.md` `acceptance-criteria.json` `open-questions.json` （+`prototype-analysis.md` 条件性） | `checkPhase0Gate` |
 | 1 | 任务规划 | `task-planner` | `task-dag.md` `task-dag.json` （+`figma-frame-inventory.json` 条件性） | `checkPhase1Gate` |
-| 2 | 代码开发 | `frontend-developer` | 代码变更（git diff） | `checkPhase2Gate` |
+| 2 | 代码开发 | `fullstack-developer` | 代码变更（git diff） | `checkPhase2Gate` |
 | 3 | 代码审查 | `code-reviewer` | `code-review.json` | `checkPhase3Gate` |
 | 4 | 功能测试 | `test-engineer` | `test-report.md` `acceptance-verification.json` | `checkPhase4Gate` |
 | 5 | Git 提交 | `release-assistant` | commit + push + MR | 仅产出物存在性 |

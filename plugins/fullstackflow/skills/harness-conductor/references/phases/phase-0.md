@@ -24,7 +24,7 @@ Agent 内部需调用 `use_skill("kb-query")` 检索项目知识库。
 | `requirement-analysis.md` | — | 必需（含 Grill 决策摘要固定小节） |
 | `acceptance-criteria.json` | ✅ | 必需 |
 | `open-questions.json` | ✅ | 必需 |
-| `openspec/proposal.md` | — | run 模式建议产出（prompt 级要求，归档时同步到 openspec/changes/archive/） |
+| `openspec/proposal.md` | — | run 模式建议产出（prompt 级要求） |
 | `openspec/specs/<capability>/spec.md` | — | run 模式建议产出（同上） |
 | `openspec/design.md` | — | 跨模块 / 新依赖 / 数据模型变更时建议产出 |
 | `prototype-analysis.md` | — | 仅当 `gateChecks.prototypeRequired=true` |

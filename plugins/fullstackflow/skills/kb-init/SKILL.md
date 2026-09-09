@@ -85,7 +85,7 @@ AI 需**读取这些来源文件，总结编码规范**，填充 `common/convent
 
 ### Step 5: 生成 meta.yaml（AI 认知操作）
 
-基于扫描到的域，填充 `meta.yaml` 的 `domains[]`（每个域含 `id/path/entry_files/description`）和 `git.hash`。
+写入 **`.docs/llm-knowledge/meta.yaml`**。基于扫描到的域，填充 `meta.yaml` 的 `domains[]`（每个域含 `id/path/entry_files/description`）和 `git.hash`。
 
 ### Step 6: 输出报告
 
@@ -142,6 +142,7 @@ domain_axis: "feature"      # 域划分依据：business | feature | service | p
 
 ## 注意事项
 
+- **所有知识库生成物（骨架、overview.md、meta.yaml、编码规范、后续域文档）一律落在项目 `.docs/llm-knowledge/` 下**——这是知识库唯一根目录，禁止在 `.docs/` 之外另建知识库目录
 - kb-init **不扫描源码生成内容**（由 gen-project-docs 负责）
 - 已有 `custom/` 手工文档不被覆盖
 - 脚本为 CommonJS（`.cjs`），兼容 ES module 项目

@@ -19,7 +19,7 @@
 | 宿主 | Claude Code 或 CodeBuddy Code（任一） | 启动宿主 CLI / IDE |
 | Node.js | ≥ 16（推荐 18+），`node` 在 PATH 中 | `node -v` |
 | Git | ≥ 2.20，`git` 在 PATH 中 | `git --version` |
-| 网络 | 可访问 GitHub（市场仓库克隆） | `git ls-remote https://github.com/<you>/fullstackflow.git` |
+| 网络 | 可访问 GitHub（市场仓库克隆） | `git ls-remote https://github.com/AbyssPan/fullstackflow.git` |
 
 **无需准备**：openspec CLI、npm install、额外 LLM Key——插件零外部依赖
 （ajv 已内置为 `vendor/ajv.bundle.js` 单文件）。
@@ -34,7 +34,7 @@
 在 Claude Code / CodeBuddy Code 会话中执行：
 
 ```
-/plugin marketplace add https://github.com/<you>/fullstackflow.git
+/plugin marketplace add https://github.com/AbyssPan/fullstackflow.git
 ```
 
 > ⚠️ 使用 **Git 型地址**（以 `.git` 结尾或仓库根 URL），不要用 URL 型市场——

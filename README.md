@@ -130,7 +130,7 @@ AI 修改源码受 dev-pass 通行证约束：仅在开发阶段由脚本自动�
 ## 安装
 
 ```
-/plugin marketplace add https://github.com/<you>/fullstackflow.git
+/plugin marketplace add https://github.com/AbyssPan/fullstackflow.git
 ```
 
 安装后 `/plugin list` 确认包含 `fullstackflow` 即成功，随后输入 `/fullstack` 应能看到

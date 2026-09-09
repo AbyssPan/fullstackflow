@@ -1,37 +1,131 @@
-# FullstackFlow Marketplace
+# FullstackFlow
 
 **全栈研发自动化工作流插件市场。** 整合规格驱动方法论与
 [open-code-review](https://github.com/alibaba/open-code-review) 审查规则集（Apache-2.0）、
 [OpenSpec](https://github.com/Fission-AI/OpenSpec) 规格规范（MIT）。
 
-通过安装 **FullstackFlow** 插件，为你的 AI 编程助手（Claude Code / CodeBuddy Code）接入一条覆盖
-「需求分析（Grill 拷问 × OpenSpec 规格）→ 任务规划 → 全栈代码开发（前端 + 后端 + DB）→
-代码审查（前端人工 + 后端内置规则库）→ 功能测试（前端实跑 + 后端三层验证）→ Git 提交 + MR（用户确认）
-→ 知识库更新 → 发布收尾（前端云端部署 / 后端跳过部署）」全流程的自动化开发流水线。
+安装 **FullstackFlow** 插件后，你的 AI 编程助手（Claude Code / CodeBuddy Code）获得一条
+门控式全流程研发流水线：需求分析 → 任务规划 → 全栈开发 → 代码审查 → 功能测试 →
+Git/MR → 知识库更新 → 发布收尾 → 归档。用 `/fullstack` 一条命令拉起全流程，
+也可以直接对 AI 说自然语言触发词。
 
 > 兼容 Claude Code 与 CodeBuddy Code，安装步骤完全一致。
 > 市场清单分别位于 `.claude-plugin/marketplace.json` 与 `.codebuddy-plugin/marketplace.json`，内容一致。
+> 当前版本 **1.2.0**。
+
+## 目录
+
+- [核心特性](#核心特性)
+- [环境要求](#环境要求)
+- [安装](#安装)
+- [快速上手](#快速上手)
+- [常用命令](#常用命令)
+- [最佳实践](#最佳实践)
+- [6 个角色 Agent](#6-个角色-agent)
+- [11 个 Skill](#11-个-skill)
+- [Hook 安全护栏](#hook-安全护栏)
+- [零外部依赖设计](#零外部依赖设计)
+- [故障排除与卸载](#故障排除与卸载)
+- [仓库结构](#仓库结构)
 
 ## 核心特性
 
-- **全栈覆盖**：Phase 2 全栈开发工程师（GLM-5.3）贯通前端 / 后端 / DB——分层架构、类型化 VO、DTO 校验、事务并发、SQL 规范
-- **规格驱动**：Phase 0 先做 Grill 四阶段结构化面试（目标对齐→架构决策→边界与风险→实现细节），产出 OpenSpec 规范规格（proposal / specs / design / tasks）
-- **需求归档**：每个需求一个目录 `openspec/changes/archive/yyyy-MM-dd-{需求名称}/`
-- **双重审查**：前端人工审查 + 后端内置规则库审查（源自 open-code-review，零依赖）+ 项目规范复核（分层 / 事务 / SQL / 前后端契约一致性）
-- **三层后端测试**：接口契约（真实请求）/ 业务逻辑（mvn test）/ 数据落库（只读 SELECT）
-- **发布安全**：铁律——Git 提交 / push / 创建 MR 三点均强制用户确认；后端项目跳过云端部署
-- **全栈门控**：Phase 2→3 按仓库类型自动选择 eslint（前端）或 mvn compile / gradle compileJava（后端）
+### 1. 端到端 8 Phase 工作流
 
-## 6 个角色 Agent
+触发词驱动完整研发链路，每个 Phase 有明确的 Agent 分工、产出物与门控校验：
 
-| Agent | 注册名 | Phase | 职责 |
+| Phase | 阶段 | 负责 Agent | 关键产出物 |
 |---|---|---|---|
-| 需求分析师 | `requirement-analyst` | 0 | Grill 四阶段面试 + OpenSpec 规格 + 验收标准 |
-| 任务规划师 | `task-planner` | 1 | 任务 DAG（DB→后端→前端→集成）+ openspec/tasks.md |
-| 全栈开发工程师 | `fullstack-developer` | 2 | 前端 / 后端 / DB 代码实现，模型 GLM-5.3 |
-| 代码审查师 | `code-reviewer` | 3 | 前端人工审查 + 后端内置规则库审查（零外部依赖） |
-| 测试工程师 | `test-engineer` | 4 | 前端 Playwright 实跑 + 后端三层验证 |
-| 发布助手 | `release-assistant` | 5/6/7 | Git/MR（用户确认）+ KB 更新 + 发布收尾（前端云端部署，后端跳过） |
+| 0 | 需求分析 | 需求分析师 | requirement-analysis.md、acceptance-criteria.json、OpenSpec 规格 |
+| 1 | 任务规划 | 任务规划师 | task-dag.json（DB→后端→前端→集成 DAG）、Figma 组件绑定 |
+| 2 | 代码开发 | 全栈开发工程师 | 前端 / 后端 / DB 代码变更（dev-pass 限域保护） |
+| 3 | 代码审查 | 代码审查师 | code-review.json（前端人工 + 后端内置规则库） |
+| 4 | 功能测试 | 测试工程师 | test-report.md、acceptance-verification.json |
+| 5 | Git 提交 + MR | 发布助手 | 提交开发分支 + 创建 MR（→ dev）+ 确认已合并（三点用户确认） |
+| 6 | 知识库更新 | 发布助手 | 增量知识库文档（kb-update，保留手工批注） |
+| 7 | 发布收尾 | 发布助手 | 前端：devops MCP 云端构建 + 部署 URL；后端：确认合并即收尾 |
+
+#### 8 Phase 横向流转
+
+```mermaid
+flowchart LR
+    P0["Phase 0<br/>需求分析"] -->|"OpenSpec 规格校验通过"| P1["Phase 1<br/>任务规划"]
+    P1 -->|"门控通过<br/>签发 dev-pass（限域）"| P2["Phase 2<br/>代码开发"]
+    P2 -->|"eslint / mvn compile 编译门控<br/>撤销 dev-pass"| P3["Phase 3<br/>代码审查"]
+    P3 -->|"无 BLOCKER"| P4["Phase 4<br/>功能测试"]
+    P4 -->|"AC 全通过"| P5["Phase 5<br/>提交 + MR → dev"]
+    P5 -->|"确认 MR 已合并"| P6["Phase 6<br/>知识库更新"]
+    P6 -->|"kb-update 完成"| P7["Phase 7<br/>发布收尾（前端部署 / 后端跳过）"]
+    P7 -->|"terminal"| ARC["归档<br/>archive/round-N"]
+
+    P3 -.->|"有 BLOCKER → fix-loop 回退"| P2
+    P4 -.->|"验收失败 → fix-loop 回退"| P2
+```
+
+#### 主控循环（dispatch.js 四态调度）
+
+```mermaid
+flowchart TD
+    Start(["触发词：做个需求 / 修 bug"]) --> Entry["harness-start<br/>梳理 story-input.json"]
+    Entry --> Refresh["create-workflow --refresh-input<br/>回填原型/Figma 判定"]
+    Refresh --> Dispatch{"dispatch.js<br/>读状态 + 判门控"}
+
+    Dispatch -->|"ready · readyToAdvance=true"| Advance["advance-phase.js<br/>推进到下一 Phase"]
+    Advance --> Dispatch
+
+    Dispatch -->|"ready · 需产出"| Spawn["Spawn 当前 Phase Agent<br/>（注入 agentPrompt）"]
+    Spawn --> Report["Agent 产出并汇报"]
+    Report --> Dispatch
+
+    Dispatch -->|"fix_loop"| FixLoop["执行 recovery.command<br/>--fix-loop 回退 Phase 2<br/>重签限域 dev-pass"]
+    FixLoop --> Dispatch
+
+    Dispatch -->|"blocked"| Manual["转人工处理<br/>（无自动恢复命令）"]
+    Dispatch -->|"terminal"| End(["归档 / 流程结束"])
+```
+
+> **核心设计：AI 不操作状态，只机械执行。** `dispatch.js` 是「只读调度器」——读状态、判门控、
+> 说下一步，零写权限；`advance-phase.js` 是「相位跃迁唯一执行者」——判门控、写状态、
+> 签发/撤销 dev-pass；主 Agent 无判断权，只按 `status` 四态（ready / fix_loop / blocked /
+> terminal）机械分支。
+
+### 2. 契约驱动 + 硬门控
+
+工作流不是「口头约定」，而是**结构化契约 + 程序化门控**：
+
+- 每个 Phase 推进前，产出物按 JSON Schema 程序化校验（内置 ajv，缺文件 / 格式错直接拦截）
+- 验收标准（AC）与任务（Task）交叉引用校验，杜绝「AC 全绿但功能缺失」
+- Phase 2→3 按仓库类型自动跑**前端 eslint 或后端 mvn compile / gradle compileJava**，
+  编译错误不再漏到云端构建才暴露
+- 需求分析产出 OpenSpec 规格经内置校验器（SHALL/MUST、Scenario 结构、Why 长度）把关
+
+### 3. 权限控制（dev-pass）
+
+AI 修改源码受 dev-pass 通行证约束：仅在开发阶段由脚本自动签发、限域到 `task-dag.json`
+的任务文件清单，阶段结束自动撤销；未授权文件的写入会被 PreToolUse hook 直接拦截——
+杜绝 AI 越权改动未授权文件。
+
+### 4. 知识库（KB）管理
+
+- `kb-init` 初始化项目知识库（自动推断项目画像与业务域，支持前端 / 后端 / 插件仓）
+- `kb-query` 分层检索（L1 域定位 → L2 精确筛选 → L3 按需加载；需求分析 / 改代码前自动注入）
+- `kb-update` 增量更新（git diff 数据驱动定位受影响域，保留手工批注）
+- 所有知识库文档统一收纳到项目 `.docs/llm-knowledge/`，禁止散落到项目根 / `docs/`
+
+### 5. 发布安全
+
+铁律——Git 提交 / push / 创建 MR 三点均强制用户确认（AskUserQuestion）；
+后端项目跳过云端部署，确认合并即收尾。
+
+## 环境要求
+
+| 依赖 | 要求 | 说明 |
+|---|---|---|
+| 宿主 | Claude Code 或 CodeBuddy Code | 两者安装步骤完全一致 |
+| Node.js | ≥ 16（推荐 18+） | 唯一运行时，所有门控 / 归档 / 校验脚本用 node 执行 |
+| Git | ≥ 2.20 | Phase 5 提交流程与 kb-update 增量检测依赖 |
+
+> 无需安装 openspec CLI、无需 npm install、无需配置额外 LLM Key——见[零外部依赖设计](#零外部依赖设计)。
 
 ## 安装
 
@@ -39,34 +133,201 @@
 /plugin marketplace add https://github.com/<you>/fullstackflow.git
 ```
 
+安装后 `/plugin list` 确认包含 `fullstackflow` 即成功，随后输入 `/fullstack` 应能看到
+命令提示（冒烟测试详见 [INSTALL.md](./INSTALL.md)）。
+
+> **安装前检查、冒烟测试、ajv 依赖排查、卸载等完整步骤请参阅 [INSTALL.md](./INSTALL.md)**。
+
+## 快速上手
+
+### 方式一：斜杠命令（推荐）
+
+安装后输入 `/fullstack` 即触发工作流，常用姿势：
+
+```
+/fullstack "开发订单中心退款功能"          # 新功能：AI 自动建 Story 并进入 run 模式
+/fullstack fixbugs BUG-001 "列表页白屏"   # 缺陷修复：免原型文档，自动拉 TAPD 缺陷
+/fullstack status                         # 查看当前工作流状态
+```
+
+`/fullstack` 是统一入口，会自动识别意图（新功能 run / 缺陷修复 fixbugs）并加载
+对应 skill；信号不足时会用选择题问一次，不会瞎猜。
+
+### 方式二：自然语言触发词
+
+对 AI 助手直接说触发词，效果等同：
+
+| 想做什么 | 怎么说 |
+|---|---|
+| 开发一个新功能 | 「做个需求 / 开发 xx 功能 / 实现 xx 页面」 |
+| 修 Bug / 处理 TAPD 缺陷 | 「修个 bug / 处理 TAPD 缺陷 / xx 功能报错」 |
+| 初始化项目知识库 | 「初始化知识库 / kb-init」 |
+| 生成 / 更新知识库文档 | 「生成知识库文档 / 增量更新知识库」 |
+| 生成 API 请求层代码 | 提供 Swagger JSON / api doc，「按模块生成接口定义」 |
+| 归档已完成的 Story | 「归档本次需求」 |
+
+> 首次使用建议：先说「初始化知识库」建立 `.docs/llm-knowledge/`，后续需求分析与
+> 改代码会自动检索注入历史教训。
+
+## 常用命令
+
+| 命令 | 说明 |
+|---|---|
+| `/fullstack run <storyId> "<标题>"` | 执行端到端开发工作流（8 Phase 全流程，含原型 / Figma 门控） |
+| `/fullstack fixbugs <storyId> "<标题>"` | 针对缺陷做根因分析并自动修复（免原型文档，Phase 0 自动拉 TAPD 缺陷） |
+| `/fullstack status [storyId]` | 查看工作流当前 Phase 与门控状态 |
+| `/fullstack evolve [storyId]` | 触发插件自进化体检（audit → 度量 → 诊断 → 治疗 → 验证） |
+| `/fullstack archive <storyId>` | 归档已完成的 Story / 复档恢复 / 查看归档历史 |
+
+> `<storyId>` 与 `"<标题>"` 缺省时由 AI 根据描述自动生成并复述确认；不带参数直接执行
+> `/fullstack` 等同于 run 入口。
+
+## 最佳实践
+
+### 1. 工作流初始化
+- **`/fullstack` 建流之后必须写 `story-input.json`，并执行 `create-workflow.js <storyId> --refresh-input` 回填判定**。漏掉回填会导致：无原型的纯文字需求被卡在「必须产出 prototype-analysis.md」；有 Figma 的需求完全不会触发设计稿门控。
+- **`story-input.json` 只搬运参数、不做分析**。把用户给的链接 / 终端 / 描述原样写入即可；判断需求影响哪些文件、该怎么改，归 Phase 0 需求分析师。
+
+### 2. 状态文件纪律（铁律）
+- 🚫 **AI 不手改 `e2e-state.json` / `dev-pass.json`**。Phase 推进、dev-pass 签发/撤销全部由脚本完成，AI 只按 `dispatch.js` 的四态（ready / fix_loop / blocked / terminal）机械分支。
+- 🚫 **AI 不自行将 `open-questions.json` 的 `resolved` 设为 `true`**。待确认项必须由用户确认。
+- 🚫 **Phase ≠ 2 时不要编辑 `src/`**，Hook 守卫会直接拒绝。
+
+### 3. Figma 使用
+- `sources.figmaUrls` 非空即**自动开启硬门控**（run 模式），强制产出 `figma-frame-inventory.json` 与组件映射，UI 任务的 `figmaNodeId` 必须命中 frame 清单。
+- **前置条件：Figma 桌面端需运行并已打开文件**。未运行时子 Agent 会如实告知并停止，不会退回缓存数据。
+- `fixbugs` 模式不开硬门控（只碰个别页面，全量清单会卡死修复流程），但「有设计稿就该解析」的指引仍会注入。
+
+### 4. run vs fixbugs 模式选择
+- **新功能 / 页面级改造** → `run`（有原型 / Figma 门控、featurePoints 功能点枚举）
+- **缺陷修复** → `fixbugs`（免原型文档、Phase 0 产出 Bug 分析报告、后端类 Bug 自动转 open-questions）
+- 选错模式的后果：`fixbugs` 误走 run 会重新要求原型文档且不做 Bug 报告门控。
+
+### 5. 修复回路（fix-loop）
+- 审查/测试发现 BLOCKER 或验收失败时，工作流自动回退到 Phase 2 修复，重新签发限域 dev-pass。
+- **默认最多 2 轮**，超出后转人工介入，不让 AI 无限重试空转。
+
+### 6. 知识库（KB）
+- 新项目先 `kb-init` 初始化知识库骨架。
+- 需求分析 / 改代码前用 `kb-query` 分层检索，历史教训自动注入各 Phase 的 prompt。
+- 任务完成后 `kb-update` 增量同步，保留手工批注。
+
+### 7. 多项目协作
+- 涉及多仓库时，需求分析师在 Phase 0 写入 story 级 `repos.json`（`primary` + `repos` 映射）。
+- 跨项目 task 的 `description` 必须含行号引用，便于全栈开发工程师定位改动点。
+
+## 6 个角色 Agent
+
+| Agent | 注册名 | 职责要点 |
+|---|---|---|
+| 需求分析师 | `requirement-analyst` | Grill 四阶段结构化面试（目标对齐→架构决策→边界与风险→实现细节），产出 OpenSpec 规格与验收标准 |
+| 任务规划师 | `task-planner` | 任务 DAG（DB→后端→前端→集成），有 Figma 设计稿时逐 UI 任务绑定 figmaRefs |
+| 全栈开发工程师 | `fullstack-developer` | 前端 / 后端 / DB 贯通实现——分层架构、类型化 VO、DTO 校验、事务并发、SQL 规范 |
+| 代码审查师 | `code-reviewer` | 前端人工审查 + 后端内置规则库审查（零外部依赖）+ 项目规范复核（分层 / 事务 / SQL / 前后端契约一致性） |
+| 测试工程师 | `test-engineer` | 前端 Playwright 实跑 + 后端三层验证（接口契约真实请求 / mvn test 业务逻辑 / 只读 SELECT 数据落库） |
+| 发布助手 | `release-assistant` | Git 提交 / push / 创建 MR 三点强制用户确认；KB 增量更新；前端走 devops MCP 云端构建，后端跳过云端部署确认合并即收尾 |
+
+## 11 个 Skill
+
+**工作流编排（4 个）**
+
+| Skill | 用途 |
+|---|---|
+| `harness-start` | 统一入口：识别意图（新功能 run / Bug 修复 fixbugs），梳理 story-input.json 并启动工作流 |
+| `harness-conductor` | 工作流编排器：调度 Agent、管理 Phase 推进、错误恢复决策；Phase 门控详情与脚本 API 在 references/ 按需读取 |
+| `harness-evolve` | 自进化闭环：体检(audit) → 度量(metrics) → 诊断(mining) → 治疗(proposal) → 验证(validation) |
+| `harness-archive` | Story 归档 / 复档恢复 / 归档历史查看，归档后 root 目录清空 |
+
+**知识库（4 个）**
+
+| Skill | 用途 |
+|---|---|
+| `kb-init` | 初始化知识库骨架：自动推断项目画像（project_type / source_root，支持前端 / 后端 / 插件仓），动态扫描真实业务域（不硬编码），生成 `.docs/llm-knowledge/` |
+| `kb-query` | 渐进式三层检索：L1 overview 关键词定位域 → L2 meta.yaml 精确筛选 → L3 按需加载文档；支持需求拆解 / 技术方案 / 接口搜索 / 知识问答 4 种模式；与 graphify 双源交叉验证 |
+| `kb-update` | Git 提交后增量更新：git diff 定位变更文件，meta.yaml 数据驱动映射受影响业务域（通配符匹配，不硬编码路径），保留手工批注 |
+| `gen-project-docs` | 扫描源码生成结构化文档：通用 5 类 + 项目类型特有切面，支持全量 / 单域 / 增量模式与新鲜度检测 |
+
+**辅助工具（3 个）**
+
+| Skill | 用途 |
+|---|---|
+| `api-generator` | 由 Swagger JSON / api doc 按模块或接口路径生成接口定义、请求函数与 JSDoc 注释，不依赖固定业务目录 |
+| `figma-to-component-map` | Phase 1 任务规划时产出 Figma frame 清单（figma-frame-inventory.json），为每个 UI 任务绑定精确 figmaRefs（nodeId + link） |
+| `tapd-bug-analyzer` | 从 TAPD 拉取需求关联 bugs，按处理人过滤，逐条记录复现步骤 / 代码定位 / 根因 / 责任方，只采集事实不产出修复方案 |
+
+## Hook 安全护栏
+
+编辑类操作前置校验（PreToolUse），不合规的写入直接被拦截：
+
+- **enforce-state-file.js** — 状态文件守卫：工作流进行中保护 e2e-state.json 等内部状态不被误改
+- **enforce-dev-pass.js** — 开发门控：无有效 dev-pass 或写入超出限域文件清单时拦截源码编辑
+- **enforce-artifact.js** — 产出物契约：按 Phase 检查必备产出物存在性
+- **session-start.js / session-stop.js** — 会话恢复与清理：新会话自动恢复工作流状态，Stop 时落盘
+- **trace-command.js** — 命令审计：记录命令 / Agent / Skill / MCP 调用轨迹，供 harness-evolve 度量分析
+
+另有：`rules/kb-auto-query.md`（知识库自动检索规则——涉及业务模块、改代码、查实现等 5 类场景无需触发词强制先查知识库）、`output-styles/harness.md`（表格化汇报、结构化 blocker 列表、禁止泄露内部状态文件路径）。
+
 ## 零外部依赖设计
 
-插件**无需安装任何 CLI、无需配置额外 LLM Key**，安装即用：
+插件**无需安装任何 CLI、无需配置额外 LLM Key**，安装即用（node 即唯一运行时，
+`/fullstack` 为唯一 slash command 入口）：
 
 | 能力 | 实现方式 |
 |---|---|
-| OpenSpec 规格校验 | 内置 `scripts/commands/validate-openspec.js`（规则提炼自 OpenSpec validate：Requirement 含 SHALL/MUST、`#### Scenario:` 结构、Why ≥50 字符等硬阈值） |
-| OpenSpec 归档 | `archive-story.js` 同步规格产物到项目根 `openspec/changes/archive/yyyy-MM-dd-{需求名称}/`，同步前自动校验 |
+| OpenSpec 规格校验 | 内置 `scripts/commands/validate-openspec.js`（Requirement 含 SHALL/MUST、`#### Scenario:` 结构、Why ≥50 字符等硬阈值），Phase 0/1 产出后自检 |
 | 后端代码审查 | 内置规则库 `skills/harness-conductor/references/review-rules/`（default 五维度 / Java / TS·JS / Mapper XML，均含「不报告」防误报护栏），由审查师模型逐文件执行 |
 | JSON Schema 校验 | 内置 `vendor/ajv.bundle.js`（免 npm install） |
+| 单元测试 | `scripts/__tests__/run-all.js`（80 断言，覆盖 dispatch / advance-phase / hooks / kb 三脚本） |
 
 可选增强（按需配置，不配置时各 agent 自动降级）：Figma MCP（设计稿拉取）、devops MCP（前端云端构建）、
 GitLab MCP（MR 管理）、TAPD（需求/缺陷导入）、Playwright MCP（前端实跑测试）。
+
+**graphify skill**（结构检索，与 kb-query 组成双源交叉验证）：不在本插件内，需单独安装到用户级
+skills 目录；未安装时各 agent 自动降级为 kb-query 单源 + `search_content` 文本检索（policy 会记
+debt 并在 Evo Score 扣分，不阻断流程）。
+
+## 故障排除与卸载
+
+### 常见问题
+
+| 问题 | 解决方法 |
+|---|---|
+| 市场添加后无法加载 | 确认 GitHub 地址可访问，仓库根目录存在 `.claude-plugin/marketplace.json` / `.codebuddy-plugin/marketplace.json` |
+| 安装时提示「路径未找到」 | 使用 Git 型市场（`https://...git`），不要用 URL 型 |
+| Skill 不响应触发词 | 重载插件（`/reload-plugins` 或重启宿主），或删除缓存 `rm -rf ~/.codebuddy/plugins/cache` 后重启重装 |
+| 报 `Cannot find module 'ajv'` | 确认 `plugins/fullstackflow/vendor/ajv.bundle.js` 存在，`git pull` 同步（**不要** `npm install`） |
+| 报 `e2e-state.json 不存在` | 冷启动场景：先说「做个需求」走 harness-start 建流，或按 terminal 恢复命令执行 restore 复档 |
+| dev-pass 拦截了源码编辑 | 正常行为——确认当前处于 Phase 2 且目标文件在 task-dag.json 的 `files[]` 限域内；开发未完成但 pass 过期用 `--renew-pass` 续签 |
+| Story 目录被清空了 | 已归档：root 文件在 `archive/round-{N}/`，执行 restore 命令可完全复原 |
+
+> 更多排障细节见 [INSTALL.md](./INSTALL.md)。
+
+### 卸载
+
+```
+/plugin marketplace remove fullstackflow
+```
+
+项目侧残留（按需清理）：`.codebuddy/plans/`（Story 状态与归档）、`.docs/llm-knowledge/`（知识库文档）。
 
 ## 仓库结构
 
 ```
 fullstackflow/
+├── INSTALL.md                           # 安装 / 冒烟测试 / 排障 / 卸载完整指南
 ├── .codebuddy-plugin/marketplace.json   # CodeBuddy Code 市场清单
 ├── .claude-plugin/marketplace.json      # Claude Code 市场清单（内容一致）
 └── plugins/
     └── fullstackflow/                   # 插件本体
         ├── plugin.json                  # 插件元信息
+        ├── commands/fullstack.md        # /fullstack 统一入口 slash command
         ├── agents/                      # 6 个角色代理
-        ├── skills/                      # 工作流 / 知识库 / 审查规则库等技能
-        ├── hooks/                       # 阶段钩子（dev-pass / 状态文件守卫）
-        ├── rules/                       # 知识库自动检索规则
-        ├── scripts/                     # dispatch / advance-phase / archive / validate-openspec
+        ├── skills/                      # 11 个技能（工作流 / 知识库 / 辅助工具）
+        ├── hooks/hooks.json             # 5 类安全护栏钩子
+        ├── rules/kb-auto-query.md       # 知识库自动检索规则
+        ├── output-styles/harness.md     # 汇报输出风格
+        ├── scripts/                     # dispatch / advance-phase / archive / validate-openspec 等
+        ├── scripts/__tests__/           # 单元测试（80 断言）
         └── vendor/ajv.bundle.js         # 内置 ajv（免 npm install）
 ```
 

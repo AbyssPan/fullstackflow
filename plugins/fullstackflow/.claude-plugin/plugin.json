@@ -1,0 +1,21 @@
+{
+  "name": "fullstackflow",
+  "version": "1.0.0",
+  "description": "FullstackFlow 全栈研发工作流 — 需求分析(OpenSpec 规格驱动) → 任务规划 → 全栈开发 → 前后端代码审查 → 功能测试 → Git/MR → 知识库更新 → 部署 全流程自动化",
+  "author": {
+    "name": "FullstackFlow Team"
+  },
+  "license": "MIT",
+  "homepage": "https://codebuddy.tencent.com",
+  "keywords": [
+    "workflow",
+    "cicd",
+    "fullstack",
+    "bug-fix",
+    "code-review",
+    "testing",
+    "deployment",
+    "phase-management",
+    "openspec"
+  ]
+}

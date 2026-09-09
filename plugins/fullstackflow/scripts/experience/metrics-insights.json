@@ -1,0 +1,91 @@
+{
+  "version": "1.0",
+  "totalProjects": 1,
+  "totalStories": 2,
+  "insights": [
+    {
+      "id": "INSIGHT-001",
+      "targetPhase": 6,
+      "type": "bottleneck",
+      "severity": "warning",
+      "title": "Phase 7(云端部署)平均耗时 30min，最长 56min",
+      "description": "云端部署阶段耗时偏长，可能影响整体交付效率",
+      "recommendation": "部署前确认构建产物完整",
+      "evidence": "2 个 Story 统计: avg=30min, median=56min, max=56min",
+      "sourceProjects": [
+        "userlive"
+      ],
+      "occurrences": 1,
+      "firstSeen": "2026-08-13T15:15:07.909Z",
+      "lastSeen": "2026-08-13T15:15:07.909Z"
+    },
+    {
+      "id": "INSIGHT-002",
+      "targetPhase": 3,
+      "type": "fix_loop_success",
+      "severity": "warning",
+      "title": "Fix-loop 第 1 轮成功率 50%",
+      "description": "BLOCKER 修复建议的可操作性不足，导致需要多轮修复",
+      "recommendation": "代码审查师在 FIX_DATA 块中给出代码级建议（含具体行号和替换方案），而非泛泛描述问题",
+      "evidence": "成功率 50%",
+      "sourceProjects": [
+        "userlive"
+      ],
+      "occurrences": 2,
+      "firstSeen": "2026-08-13T15:15:07.909Z",
+      "lastSeen": "2026-09-01T06:36:40.882Z"
+    },
+    {
+      "id": "INSIGHT-003",
+      "targetPhase": 0,
+      "type": "completion_rate",
+      "severity": "warning",
+      "title": "Story 完成率 50%",
+      "description": "部分 Story 未完成，可能存在需求不清晰或阻塞未解决",
+      "recommendation": "需求分析阶段确保 open-questions 全部 resolved，需求边界明确后再进入开发",
+      "evidence": "2/4 完成",
+      "sourceProjects": [
+        "userlive"
+      ],
+      "occurrences": 2,
+      "firstSeen": "2026-08-13T15:15:07.909Z",
+      "lastSeen": "2026-09-01T06:36:40.882Z"
+    },
+    {
+      "id": "INSIGHT-001",
+      "targetPhase": 4,
+      "type": "bottleneck",
+      "severity": "warning",
+      "title": "Phase 5(Git提交)平均耗时 25min，最长 71min",
+      "description": "Git提交阶段耗时偏长，可能影响整体交付效率",
+      "recommendation": "Git 提交确保 commit 格式规范，禁止 --no-verify",
+      "evidence": "3 个 Story 统计: avg=25min, median=3min, max=71min",
+      "sourceProjects": [
+        "userlive"
+      ],
+      "occurrences": 1,
+      "firstSeen": "2026-09-01T06:36:40.882Z",
+      "lastSeen": "2026-09-01T06:36:40.882Z"
+    },
+    {
+      "id": "INSIGHT-002",
+      "targetPhase": 0,
+      "type": "gate_quality",
+      "severity": "warning",
+      "title": "门控一次通过率 63%",
+      "description": "38% 的 Phase 推进需要多次门控尝试",
+      "recommendation": "需求分析阶段确保 AC 格式正确（id/description/criteria 非空）、open-questions 全部 resolved、task-dag 使用 title 而非 name",
+      "evidence": "通过率 63% (基于 4 个 Story)",
+      "sourceProjects": [
+        "userlive"
+      ],
+      "occurrences": 1,
+      "firstSeen": "2026-09-01T06:36:40.882Z",
+      "lastSeen": "2026-09-01T06:36:40.882Z"
+    }
+  ],
+  "lastUpdated": "2026-09-01T06:36:40.882Z",
+  "_knownProjects": [
+    "userlive"
+  ]
+}

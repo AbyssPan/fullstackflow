@@ -1,0 +1,24 @@
+{
+  "name": "fullstackflow-marketplace",
+  "owner": {
+    "name": "FullstackFlow Team"
+  },
+  "description": "FullstackFlow 全栈研发工作流插件市场 — 规格驱动的端到端开发自动化",
+  "version": "1.0.0",
+  "plugins": [
+    {
+      "name": "fullstackflow",
+      "source": "./plugins/fullstackflow",
+      "description": "FullstackFlow 全栈研发工作流 — 需求分析(OpenSpec 规格驱动) → 任务规划 → 全栈开发 → 前后端代码审查 → 功能测试 → Git/MR → 知识库更新 → 部署 全流程自动化",
+      "version": "1.0.0",
+      "author": {
+        "name": "FullstackFlow Team"
+      },
+      "license": "MIT",
+      "strict": true,
+      "keywords": ["workflow", "cicd", "fullstack", "code-review", "testing", "deployment", "openspec"],
+      "category": "开发工具",
+      "homepage": "https://codebuddy.tencent.com"
+    }
+  ]
+}

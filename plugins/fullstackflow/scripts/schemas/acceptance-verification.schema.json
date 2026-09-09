@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Acceptance Verification Schema",
+  "description": "验收对账契约校验规则",
+  "type": "object",
+  "required": ["results", "summary"],
+  "properties": {
+    "results": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "status", "evidence", "evidenceType"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^AC-\\d+$" },
+          "title": { "type": "string" },
+          "status": { "type": "string", "enum": ["passed", "failed", "unverifiable"] },
+          "evidenceType": {
+            "type": "string",
+            "enum": ["playwright", "manual", "api", "static"],
+            "description": "证据来源。playwright=自动化实跑；manual=人工在浏览器/小程序里点验；api=真实调用接口验证；static=仅代码审读（不构成 UI 交互型 AC 的通过依据）"
+          },
+          "evidence": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "maxLength": 500 }
+          },
+          "notes": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["total", "passed", "failed", "unverifiable"],
+      "properties": {
+        "total": { "type": "integer", "minimum": 1 },
+        "passed": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "unverifiable": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

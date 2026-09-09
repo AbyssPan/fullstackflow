@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Fix Verification Schema",
+  "description": "修复核对报告校验规则（fix-verification.json）",
+  "type": "object",
+  "required": ["round", "source", "fixes"],
+  "properties": {
+    "round": { "type": "integer", "minimum": 1, "description": "本次修复轮次" },
+    "source": { "type": "string", "enum": ["code-review", "acceptance-test"], "description": "修复请求来源（code-review=代码审查 BLOCKER，acceptance-test=功能测试失败）" },
+    "sourcePhase": { "type": "integer" },
+    "totalIssues": { "type": "integer", "minimum": 0 },
+    "fixedIssues": { "type": "integer", "minimum": 0 },
+    "unfixedIssues": { "type": "integer", "minimum": 0 },
+    "fixes": {
+      "type": "array",
+      "minItems": 1,
+      "description": "逐项核对结果数组。注意字段名为 fixes（非 issues）—— 这是修复核对报告，每一项对应 fix-request.json 里的一个问题",
+      "items": {
+        "type": "object",
+        "required": ["id", "status"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^FIX-\\d+$" },
+          "status": { "type": "string", "enum": ["fixed", "partially", "skipped"] },
+          "actualChange": { "type": "string", "description": "实际改动说明（修复内容摘要）" },
+          "filesModified": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "为修复该问题修改的文件路径列表"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "summary": {
+      "type": "object",
+      "description": "修复结果汇总（可选，与 fixes 数组可互相校验）",
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "fixed": { "type": "integer", "minimum": 0 },
+        "partially": { "type": "integer", "minimum": 0 },
+        "skipped": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "affectedFiles": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "lintCheck": { "type": "string" }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,59 @@
+{
+  "description": "Harness 工作流 Hook — 编辑守卫 + 产出物校验 + 会话恢复 + 清理",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [{
+          "type": "command",
+          "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-start.js",
+          "timeout": 30
+        }]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "write_to_file|replace_in_file|apply_patch|Write|Edit|execute_command|Bash",
+        "hooks": [{
+          "type": "command",
+          "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/enforce-state-file.js",
+          "timeout": 5
+        }]
+      },
+      {
+        "matcher": "write_to_file|replace_in_file|apply_patch|Write|Edit",
+        "hooks": [{
+          "type": "command",
+          "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/enforce-dev-pass.js",
+          "timeout": 10
+        }]
+      },
+      {
+        "matcher": "write_to_file|replace_in_file|apply_patch|Write|Edit",
+        "hooks": [{
+          "type": "command",
+          "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/enforce-artifact.js",
+          "timeout": 10
+        }]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "execute_command|Bash|Agent|Skill|use_skill|mcp__",
+        "hooks": [{
+          "type": "command",
+          "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/trace-command.js",
+          "timeout": 5
+        }]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [{
+          "type": "command",
+          "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-stop.js",
+          "timeout": 10
+        }]
+      }
+    ]
+  }
+}

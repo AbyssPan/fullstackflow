@@ -1,0 +1,99 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Task DAG Schema",
+  "description": "任务DAG契约校验规则",
+  "type": "object",
+  "required": ["tasks"],
+  "properties": {
+    "tasks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "files", "acceptanceCriteria", "parallelizable"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^task-\\d+$" },
+          "title": { "type": "string", "minLength": 1 },
+          "description": { "type": "string" },
+          "files": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1, "description": "允许修改的文件/模块区域。支持目录级 glob（如 src/views/pc/modules/**）或直接写模块目录路径（如 src/views/pc/modules），该目录下任意层级文件都可修改，避免「符合开发规范但在文件外」的新增文件被 dev-pass 误拦截。精确文件路径（如 src/views/pc/Foo.vue）只允许改该文件" }
+          },
+          "acceptanceCriteria": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "pattern": "^AC-\\d+$" }
+          },
+          "figmaLink": {
+            "oneOf": [
+              { "type": "null" },
+              { "type": "array", "items": { "type": "string" } }
+            ]
+          },
+          "figmaNodeId": {
+            "oneOf": [
+              { "type": "null" },
+              { "type": "string", "minLength": 1 },
+              { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "一个 task 可关联多个 Figma 节点（处理多个组件时），每个元素是图一 node ID 如 '3020:83533'" }
+            ],
+            "description": "门控校验用：引用的 Figma node ID（单值或数组），必须存在于 figma-frame-inventory.json 中"
+          },
+          "figmaRefs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["nodeId", "link"],
+              "properties": {
+                "nodeId": { "type": "string", "minLength": 1, "description": "Figma node ID，如 '3020:83533'" },
+                "link": { "type": "string", "minLength": 1, "description": "该 node 的完整 Figma 链接（含 ?node-id=...&m=dev），供开发 agent 直接拉取，避免从 nodeId 自行拼装" }
+              },
+              "additionalProperties": false
+            },
+            "description": "开发用精确绑定：task 要拉取的每个 Figma node 的 nodeId + 完整链接配对。一个 task 处理多个组件时有多个元素"
+          },
+          "parallelizable": { "type": "boolean" },
+          "complexity": { "type": "string", "enum": ["low", "medium", "high"] },
+          "estimate": { "type": "integer", "minimum": 1 },
+          "project": { "type": ["string", "null"] },
+          "repoPath": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "batches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["batchId", "taskIds"],
+        "properties": {
+          "batchId": { "type": "integer", "minimum": 1 },
+          "taskIds": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "pattern": "^task-\\d+$" }
+          },
+          "description": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "mustCheck": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["fingerprint", "failureType"],
+        "properties": {
+          "fingerprint": { "type": "string", "minLength": 1 },
+          "failureType": { "type": "string", "minLength": 1 },
+          "lesson": { "type": "string" },
+          "check": { "type": "string" },
+          "occurrences": { "type": "integer", "minimum": 1 },
+          "consumed": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

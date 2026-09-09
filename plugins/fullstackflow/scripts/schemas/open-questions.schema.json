@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Open Questions Schema",
+  "description": "待确认项契约校验规则",
+  "type": "object",
+  "required": ["questions"],
+  "properties": {
+    "questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "question", "resolved"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^Q-\\d+$" },
+          "question": { "type": "string", "minLength": 1 },
+          "resolved": { "type": "boolean" },
+          "owner": { "type": "string" },
+          "blocking": { "type": "boolean" },
+          "source": { "type": "string" },
+          "resolution": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

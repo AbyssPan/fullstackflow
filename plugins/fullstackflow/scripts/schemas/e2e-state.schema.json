@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "E2E State Schema",
+  "description": "Harness 工作流状态文件校验规则",
+  "type": "object",
+  "required": ["storyId", "phase", "status"],
+  "properties": {
+    "storyId": { "type": "string", "minLength": 1 },
+    "title": { "type": "string" },
+    "phase": { "type": "integer", "minimum": 0, "maximum": 8 },
+    "status": { "type": "string", "enum": ["running", "completed", "archived", "pending"] },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "bypass": { "type": "boolean" },
+    "hasFigmaDesign": { "type": "boolean" },
+    "maxReviewFixRounds": { "type": "integer", "minimum": 1, "maximum": 5, "description": "代码审查(Phase3)失败源的最大修复轮次，独立计数" },
+    "maxTestFixRounds": { "type": "integer", "minimum": 1, "maximum": 5, "description": "功能测试(Phase4)失败源的最大修复轮次，独立计数" },
+    "phases": {
+      "type": "object",
+      "description": "各Phase状态。key为 {phase}_{slug}，value包含status字段。用于检测Agent篡改(phase标记completed但state.phase落后)",
+      "patternProperties": {
+        "^\\d+_.+$": {
+          "type": "object",
+          "required": ["status"],
+          "properties": {
+            "status": { "type": "string", "enum": ["pending", "running", "completed", "rolled_back", "archived"] },
+            "startedAt": { "type": "string" },
+            "completedAt": { "type": "string" },
+            "rolledBackAt": { "type": "string" },
+            "fixRound": { "type": "integer", "minimum": 1 }
+          },
+          "additionalProperties": true
+        }
+      }
+    },
+    "gateChecks": { "type": "object" }
+  },
+  "additionalProperties": true
+}

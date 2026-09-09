@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Story Input Schema",
+  "description": "Story 原始输入契约 — 主 Agent 从用户消息提取参数写入，需求分析师读取后自行分析。主 Agent 只搬运，不分析。",
+  "type": "object",
+  "required": ["mode", "sources"],
+  "properties": {
+    "mode": {
+      "type": "string",
+      "enum": ["run", "fixbugs"],
+      "description": "工作流模式：run=新功能开发，fixbugs=Bug 修复"
+    },
+    "storyId": { "type": "string" },
+    "title": { "type": "string" },
+    "createdAt": { "type": "string" },
+    "sources": {
+      "type": "object",
+      "description": "原始输入来源，全部字段可选；需求分析师按 mode + 实际存在的字段决定处理策略",
+      "properties": {
+        "tapdUrl": {
+          "type": "string",
+          "description": "TAPD 需求或缺陷链接。fixbugs 模式必填"
+        },
+        "workspaceId": {
+          "type": "string",
+          "description": "TAPD 项目 ID，可由 tapdUrl 的 tapd_fe/(\\d+)/ 提取"
+        },
+        "storyIdInTapd": {
+          "type": "string",
+          "description": "TAPD 需求 ID，可由 /story/detail/{id} 提取"
+        },
+        "owner": {
+          "type": "string",
+          "description": "Bug 处理人（按此过滤 TAPD 缺陷）。fixbugs 模式必填"
+        },
+        "statusFilter": {
+          "type": "string",
+          "description": "Bug 状态筛选，默认「待解决」"
+        },
+        "terminal": {
+          "type": "string",
+          "description": "终端类型：H5 / PC / 小程序"
+        },
+        "prototypeUrls": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "原型链接（墨刀/Axure 等）。非空时需求分析师必须产出 prototype-analysis.md"
+        },
+        "figmaUrls": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Figma 设计稿链接。非空时 create-workflow 会置 state.hasFigmaDesign=true；frame-inventory 与 figmaNodeId/figmaRefs 由 Phase 1 任务规划师拆 task 时产出（需求分析师只标注 UI 改动点，不拉设计稿内容）"
+        },
+        "docs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "需求描述文档路径"
+        },
+        "text": {
+          "type": "string",
+          "description": "用户的纯文本补充说明与额外约束"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

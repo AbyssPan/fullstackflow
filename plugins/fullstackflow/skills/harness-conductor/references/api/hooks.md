@@ -1,6 +1,6 @@
 # hooks/ — Hook 守卫 6 个脚本（自动运行，AI 无需干预）
 
-> 根路径：`${CLAUDE_PLUGIN_ROOT}/scripts/hooks/`，注册在 `plugins/harness/hooks/hooks.json`。
+> 根路径：`${CLAUDE_PLUGIN_ROOT}/scripts/hooks/`，注册在 `plugins/fullstackflow/hooks/hooks.json`。
 > **读本文件的场景：某个编辑/命令被拒绝了，需要知道是谁拒的、怎么办。**
 
 ## 注册总表

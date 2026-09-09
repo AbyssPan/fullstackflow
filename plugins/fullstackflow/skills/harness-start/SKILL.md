@@ -4,10 +4,10 @@ description: >
   Harness 工作流统一入口 — 识别意图（新功能开发 run / Bug 修复 fixbugs）、
   把用户输入梳理成 story-input.json、启动工作流，然后把编排交给 harness-conductor。
   用户说「做个需求 / 开发功能 / 实现某页面」「修 bug / 处理 TAPD 缺陷 / 某功能报错」
-  或直接调用 /harness 时使用本 skill。
+  或直接调用 /fullstack 时使用本 skill。
 ---
 
-# /harness — Harness 工作流统一入口
+# /fullstack — FullstackFlow 工作流统一入口
 
 > 本 skill 只做三件事：**判模式 → 写输入 → 交棒**。
 > Phase 推进、Agent 调度、门控恢复全部归 `harness-conductor`，本文档不复述。

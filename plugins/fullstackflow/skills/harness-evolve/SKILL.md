@@ -3,22 +3,22 @@ name: harness-evolve
 description: Harness 自进化分析 — 体检(audit) → 度量(metrics) → 诊断(mining) → 治疗(proposal) → 验证(validation) 五步闭环
 ---
 
-# /harness-evolve — Harness 自进化分析
+# /fullstack evolve — Harness 自进化分析
 
 > 参考: Self-Harness (上海AI Lab, 2026) + harness-audit.js + metrics-aggregator.js
 
 ## 用法
 
 ```
-/harness-evolve <storyId>              # 完整五步闭环分析
-/harness-evolve all                     # 分析所有已归档 Story
-/harness-evolve <storyId> --check-only  # 只跑体检+度量
-/harness-evolve <storyId> --propose-only # 只跑提案+验证
+/fullstack evolve <storyId>              # 完整五步闭环分析
+/fullstack evolve all                     # 分析所有已归档 Story
+/fullstack evolve <storyId> --check-only  # 只跑体检+度量
+/fullstack evolve <storyId> --propose-only # 只跑提案+验证
 ```
 
 ## AI 执行协议
 
-当用户执行 `/harness-evolve` 时:
+当用户执行 `/fullstack evolve` 时:
 
 1. 调用 `use_skill("harness-evolve")` 加载自进化 Skill
 
@@ -50,6 +50,6 @@ description: Harness 自进化分析 — 体检(audit) → 度量(metrics) → �
 ## 示例
 
 ```bash
-/harness-evolve STORY-20260710-01
-/harness-evolve all --check-only
+/fullstack evolve STORY-20260710-01
+/fullstack evolve all --check-only
 ```

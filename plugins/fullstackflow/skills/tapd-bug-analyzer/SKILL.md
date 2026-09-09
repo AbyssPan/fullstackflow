@@ -92,7 +92,7 @@ cat ${STORY_DIR}/story-input.json
 |------|------|----------------------|--------------------------|
 | `workspace_id` | ✅ | `sources.workspaceId` | 正则 `tapd_fe/(\d+)/` 从 TAPD 链接提取 |
 | 处理人 | ✅ | `sources.owner` | "处理人: XXX"、"负责人: XXX"、"指派给 XXX" |
-| `storyId` | ✅ | 顶层 `storyId` | `/harness fixbugs <storyId>` 或用户消息中指定 |
+| `storyId` | ✅ | 顶层 `storyId` | `/fullstack fixbugs <storyId>` 或用户消息中指定 |
 | `story_id` | 选填 | `sources.storyIdInTapd` | `/story/detail/{story_id}` 从 TAPD 链接提取 |
 | 状态筛选 | 选填 | `sources.statusFilter` | 默认 "待解决"，可指定 "重新打开" 等 |
 | 终端类型 | 选填 | `sources.terminal` | "H5"、"PC"、"移动端"、"小程序" |
@@ -103,7 +103,7 @@ cat ${STORY_DIR}/story-input.json
 
 #### 主流程：需求 → 关联 Bugs → 按处理人过滤
 
-这是最常用的路径（`/harness fixbugs` 走此路径）：
+这是最常用的路径（`/fullstack fixbugs` 走此路径）：
 
 ```
 1. get_stories_or_tasks(workspace_id, story_id)

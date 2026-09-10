@@ -13,7 +13,7 @@ Agent 注册名 **`task-planner`**（任务规划师，OpenSpec tasks 驱动）�
 该字段决定 Phase 2 的 dev-pass 写入范围，漏写的文件在 Phase 2 会被 hook 直接拒绝编辑。
 
 有 Figma 链接时，本 Phase 才处理设计稿（需求分析师只标 UI 改动点、不拉稿）：
-`use_skill("figma-to-component-map")` 针对要拆的组件精确拉取，产出 frame 清单并给 task 绑
+`use_skill("fullstackflow:figma-to-component-map")` 针对要拆的组件精确拉取，产出 frame 清单并给 task 绑
 `figmaRefs`。真正的「按需拉稿」，避免需求阶段猜测性全量拉取。
 
 前置条件：Figma 桌面端需运行且已打开该文件。未运行时子 Agent 应如实告知并停止，
@@ -52,7 +52,7 @@ Agent 注册名 **`task-planner`**（任务规划师，OpenSpec tasks 驱动）�
 
 | 通道 | 开关 | run | fixbugs | 作用 |
 |------|------|-----|---------|------|
-| **解析指引**（软） | 只看 `sources.figmaUrls` 非空 | ✅ 注入 | ✅ 注入 | prompt 里点名 `use_skill("figma-to-component-map")`，禁止凭链接猜 UI 结构 |
+| **解析指引**（软） | 只看 `sources.figmaUrls` 非空 | ✅ 注入 | ✅ 注入 | prompt 里点名 `use_skill("fullstackflow:figma-to-component-map")`，禁止凭链接猜 UI 结构 |
 | **硬门控**（阻断） | `state.hasFigmaDesign` | ✅ 开启 | ❌ 关闭 | 即上表三条 hasFigmaDesign 检查 |
 
 两者互不替代。fixbugs 不开硬门控是因为 Bug 修复只碰个别页面，要求全量 frame 清单会卡死流程；

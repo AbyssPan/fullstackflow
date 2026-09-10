@@ -260,7 +260,7 @@ function buildStoryInputSection (storyId, targetPhase) {
       '**模式: fixbugs（Bug 修复）**',
       '',
       '- 上述参数由主 Agent 原样搬运，**未经任何分析** —— Bug 分析是你的职责，不是主 Agent 的。',
-      '- 你需要自行 `use_skill("tapd-bug-analyzer")`，用 sources 里的 tapdUrl / workspaceId / owner / statusFilter 拉取并分析缺陷。',
+      '- 你需要自行 `use_skill("fullstackflow:tapd-bug-analyzer")`，用 sources 里的 tapdUrl / workspaceId / owner / statusFilter 拉取并分析缺陷。',
       '- Bug 分析报告**只记录事实**: 问题复述、复现步骤、代码定位、根因、责任方分类。',
       '  🚫 **不要写修复方案**（不写"应该怎么改"、不给伪代码/diff）—— 修复设计属于开发工程师。',
       '- 产出 `{标题}_bug分析报告.md` 后，再写 `requirement-analysis.md`：只引用 Bug 编号，不复制 Bug 正文。',
@@ -312,7 +312,7 @@ function buildTaskPlannerFigmaInstruction (storyId) {
   return [
     `**🌐 检测到 ${detected.urls.length} 个 Figma 设计稿链接（任务规划阶段处理）**`,
     '',
-    '- 拆 task 前调用 `use_skill("figma-to-component-map")` 处理设计稿，**禁止凭链接猜测 UI 结构**。',
+    '- 拆 task 前调用 `use_skill("fullstackflow:figma-to-component-map")` 处理设计稿，**禁止凭链接猜测 UI 结构**。',
     '- 前置条件: Figma 桌面端需处于运行状态并已打开该文件；未运行则如实告知用户并停止，不要退回缓存数据。',
     `- 只针对**要拆分的 task 涉及的文件/组件**产出 \`figma-frame-inventory.json\`（覆盖每个相关 page / dialog / drawer 的完整 node 链接），**不要全量扫描所有页面**——拆到哪些组件就拉哪些，避免重复分析浪费 token。`,
     '- **只用 `get_metadata` 扫帧结构（id/name/type/link/rect），禁止调用 `get_design_context` / `get_screenshot`**——设计稿完整内容（色值/间距/字体/布局/交互）由开发工程师 Phase 2 拉取，你不拉，避免重复调用浪费 token。',

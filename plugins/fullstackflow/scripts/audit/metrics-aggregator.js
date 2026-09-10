@@ -26,7 +26,7 @@
  *     把本 Story 的洞察合并进全局经验库（超时或失败均非阻塞）
  *   - 自动消费: hooks/session-start.js 与 services/prompt-builder.js 通过
  *     experience.getMetricsInsights(phase) 读取全局洞察，按 targetPhase 注入 Agent prompt
- *   - 人工诊断: /harness-evolve 的 Step 1 度量；或想定位本项目流程瓶颈
+ *   - 人工诊断: `/fullstackflow:evolve` 的 Step 1 度量；或想定位本项目流程瓶颈
  *     （哪个 Phase 最慢、门控是否一次通过、fix-loop 是否反复触发）时手动跑
  *
  * 说明:

@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * enforce-dev-pass.js — /harness 模式下按 dev-pass 限域保护 src/ 编辑
+ * enforce-dev-pass.js — FullstackFlow 模式下按 dev-pass 限域保护 src/ 编辑
  *
  * 职责:
- *   - /harness 模式激活时，拦截对 src/ 文件的写入/编辑，校验 dev-pass.json 是否有效
+ *   - FullstackFlow 模式激活时，拦截对 src/ 文件的写入/编辑，校验 dev-pass.json 是否有效
  *   - dev-pass 有效且声明了 allowedPaths 时，逐个校验目标文件是否落在限域范围内
  *   - 拒绝时写入 trace.jsonl 的 hook_rejection 事件，并携带 recordFailure 结构化失败信息
  *

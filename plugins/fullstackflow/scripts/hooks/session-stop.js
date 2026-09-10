@@ -239,7 +239,7 @@ function autoEndHarness(activeWorkflows, completedWorkflows) {
       return { ended: false, message: `${activeWorkflows.length} 个活跃工作流，保持 Harness 模式` }
     }
     if (completedWorkflows.length === 0) {
-      return { ended: false, message: '无工作流记录，保持 Harness 模式（手动 /harness end）' }
+      return { ended: false, message: '无工作流记录，保持 Harness 模式（手动 /fullstackflow:end）' }
     }
     try {
       fs.unlinkSync(HARNESS_ACTIVE_FILE)

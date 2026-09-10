@@ -34,11 +34,11 @@
 在 Claude Code / CodeBuddy Code 会话中执行：
 
 ```
-/plugin marketplace add https://github.com/AbyssPan/fullstackflow.git
+/plugin marketplace add AbyssPan/fullstackflow
 ```
 
-> ⚠️ 使用 **Git 型地址**（以 `.git` 结尾或仓库根 URL），不要用 URL 型市场——
-> 部分宿主对 URL 型市场支持不完整，会报「路径未找到」。
+> GitHub 仓库优先使用官方支持的 `owner/repo` 简写。自建 GitLab / 私有 Git 服务再使用
+> 带 `.git` 后缀的完整 Git URL；不要把 `marketplace.json` 网页地址误当 Git 仓库。
 
 双清单说明：仓库同时提供 `.claude-plugin/marketplace.json`（Claude Code）与
 `.codebuddy-plugin/marketplace.json`（CodeBuddy Code），内容一致，宿主会自动识别各自的清单。
@@ -46,7 +46,7 @@
 ### 第 2 步：安装插件
 
 ```
-/plugin install fullstackflow@fullstackflow
+/plugin install fullstackflow@fullstackflow-marketplace
 ```
 
 ### 第 3 步：重载生效
@@ -63,11 +63,12 @@
 
 ### 1. Slash Command 可达性
 
-在输入框输入 `/full`，应出现 `/fullstack` 命令提示（FullstackFlow 全栈研发工作流统一入口）。
+在输入框输入 `/fullstackflow:`，应出现 `run`、`fixbugs`、`status`、`end`、`evolve`、
+`archive` 和兼容入口 `fullstack`。插件命令必须带命名空间，未加命名空间的短入口不会被注册。
 执行：
 
 ```
-/fullstack status
+/fullstackflow:status
 ```
 
 预期：AI 执行 `harness-workflow.js status` 并转述结果（冷启动场景返回 terminal 状态属正常）。
@@ -87,24 +88,25 @@
 ### 3. 零依赖运行时自检（开发者向，可选）
 
 ```
-node --check plugins/fullstackflow/scripts/commands/dispatch.js && echo "scripts OK"
+cd plugins/fullstackflow && npm run check
 ```
 
-预期输出 `scripts OK`——验证 node 可用且脚本完整（ajv 为单文件 bundle，无需单独检查）。
+预期输出 `✅ 插件一致性检查通过`。该检查覆盖宿主 manifest、双市场清单、命令入口、
+Skill / Agent frontmatter、Hook 脚本引用、全部 JSON 与 JavaScript 语法。
 
 ### 4. 单元测试（仅插件开发者）
 
 ```
-cd plugins/fullstackflow && node scripts/__tests__/run-all.js
+cd plugins/fullstackflow && npm run verify
 ```
 
-预期：`✅ 6 个测试文件全部通过`（80 断言）。
+预期：插件一致性检查通过，且 `✅ 6 个测试文件全部通过`（当前 255 项断言）。
 
 ## 更新插件
 
 ```
-/plugin marketplace update fullstackflow
-/plugin install fullstackflow@fullstackflow
+/plugin marketplace update fullstackflow-marketplace
+/plugin update fullstackflow@fullstackflow-marketplace
 ```
 
 或删除缓存后重装（彻底同步）：
@@ -133,7 +135,7 @@ ls plugins/fullstackflow/vendor/ajv.bundle.js
 
 1. `/plugin list` 确认插件已安装且启用
 2. 重启宿主或 `/reload-plugins`
-3. 清缓存重装（见[更新插件](#更新插件)）
+3. 更新市场并更新插件（见[更新插件](#更新插件)）
 4. 确认说的是触发词（如「初始化知识库」「做个需求」），不是自造短语
 
 ### 报 `e2e-state.json 不存在或解析失败`
@@ -161,7 +163,8 @@ hook 超时默认 5–10 秒。若机器过慢导致偶发拦截，重启会话�
 ### 1. 移除插件
 
 ```
-/plugin marketplace remove fullstackflow
+/plugin uninstall fullstackflow@fullstackflow-marketplace
+/plugin marketplace remove fullstackflow-marketplace
 ```
 
 ### 2. 清理项目侧残留（按需）

@@ -6,7 +6,8 @@
     "name": "FullstackFlow Team"
   },
   "license": "MIT",
-  "defaultEnabled": true,
+  "homepage": "https://github.com/AbyssPan/fullstackflow",
+  "repository": "https://github.com/AbyssPan/fullstackflow",
 
   "commands": "./commands",
   "agents": "./agents",

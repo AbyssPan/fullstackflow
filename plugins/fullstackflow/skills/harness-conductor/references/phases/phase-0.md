@@ -12,9 +12,9 @@ PRD / Swagger 契约 / bug 分析报告 / 用户补充说明），先走 **Grill
 **OpenSpec 规格产物**（`openspec/proposal.md` + `openspec/specs/<capability>/spec.md` +
 按需 `openspec/design.md`，Requirement 必须带 `#### Scenario:` WHEN/THEN 场景）、
 可测试的验收标准、待确认问题。
-Agent 内部需调用 `use_skill("kb-query")` 检索项目知识库。
+Agent 内部需调用 `use_skill("fullstackflow:kb-query")` 检索项目知识库。
 
-`mode=fixbugs` 时该 Agent 自行 `use_skill("tapd-bug-analyzer")` 拉取并分析 TAPD 缺陷 ——
+`mode=fixbugs` 时该 Agent 自行 `use_skill("fullstackflow:tapd-bug-analyzer")` 拉取并分析 TAPD 缺陷 ——
 主 Agent 不做这件事，也不调任何 TAPD MCP 工具。
 
 ## 产出物

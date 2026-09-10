@@ -20,13 +20,13 @@
  *   --refresh-input  story-input.json 写入后补算原型/Figma 判定，只改这两项，不改 phase
  *
  * 使用场景:
- *   - 用户输入 /harness 后，由 harness-workflow.js start 内部调用 createWorkflow 创建状态文件；
+ *   - 用户启动 FullstackFlow 后，由 harness-workflow.js start 内部调用 createWorkflow 创建状态文件；
  *     本命令是该调用的等价手工入口
  *   - 主 Agent 已经写好 story-input.json 时，用 --input 一步建流并算准判定（推荐路径）
  *   - 历史路径下 harness-workflow.js 先建工作流、主 Agent 此后才写 story-input.json，
  *     导致原型/Figma 判定失真时，主 Agent 执行 --refresh-input 回填
  *   - hotfix 场景不需要需求分析与任务规划时，加 --bypass 让 Story 直接落到 Phase 2 并拿到 dev-pass
- *   - 不走 /harness 激活流程、需要单独为一个 Story 建流时，主 Agent 或用户手动执行本命令
+ *   - 不走标准激活流程、需要单独为一个 Story 建流时，主 Agent 或用户手动执行本命令
  *
  * 说明:
  *   - 关于原型文档: 旧实现无条件检查 prototype-analysis.md，缺失即写入 Greenfield stub，

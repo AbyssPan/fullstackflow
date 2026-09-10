@@ -3,7 +3,7 @@ name: harness-archive
 description: 归档 Story 全部文件 / 复档恢复 / 查看归档历史，归档后 root 目录清空
 ---
 
-# /fullstack archive — Story 归档与复档
+# /fullstackflow:archive — Story 归档与复档
 
 > 将 story 根目录**全部文件**归档到 `archive/round-{N}/`，root 目录清空。
 > 复档（restore）将归档文件全量恢复到 root，完全复原。

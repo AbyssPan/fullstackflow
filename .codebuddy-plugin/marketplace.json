@@ -5,6 +5,10 @@
   },
   "description": "FullstackFlow 全栈研发工作流插件市场 — 规格驱动的端到端开发自动化",
   "version": "1.2.0",
+  "metadata": {
+    "description": "FullstackFlow 全栈研发工作流插件市场 — 规格驱动的端到端开发自动化",
+    "version": "1.2.0"
+  },
   "plugins": [
     {
       "name": "fullstackflow",
@@ -18,7 +22,7 @@
       "strict": true,
       "keywords": ["workflow", "cicd", "fullstack", "code-review", "testing", "deployment", "openspec"],
       "category": "开发工具",
-      "homepage": "https://codebuddy.tencent.com"
+      "homepage": "https://github.com/AbyssPan/fullstackflow"
     }
   ]
 }

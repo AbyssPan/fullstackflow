@@ -120,7 +120,7 @@ function loadRepos (storyId) {
 
 /**
  * 确保 repos.json 存在（不存在则生成单仓库默认，story 级独立）
- * 在 /harness start 和 create-workflow 时调用。
+ * 在 `/fullstackflow:run` / `/fullstackflow:fixbugs` 建流和 create-workflow 时调用。
  * 多仓库场景由 AI 预先写入 repos.json，此函数检测到已存在则跳过（不覆盖）。
  * @param {string} storyId - Story ID（必填，story 级独立配置）
  * @param {Object} [overrideConfig] - 可选，强制写入的配置（{ primary, repos }），会覆盖已有文件

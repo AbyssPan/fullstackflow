@@ -6,7 +6,7 @@
 
 安装 **FullstackFlow** 插件后，你的 AI 编程助手（Claude Code / CodeBuddy Code）获得一条
 门控式全流程研发流水线：需求分析 → 任务规划 → 全栈开发 → 代码审查 → 功能测试 →
-Git/MR → 知识库更新 → 发布收尾 → 归档。用 `/fullstack` 一条命令拉起全流程，
+Git/MR → 知识库更新 → 发布收尾 → 归档。用 `/fullstackflow:run` 一条命令拉起全流程，
 也可以直接对 AI 说自然语言触发词。
 
 > 兼容 Claude Code 与 CodeBuddy Code，安装步骤完全一致。
@@ -130,11 +130,13 @@ AI 修改源码受 dev-pass 通行证约束：仅在开发阶段由脚本自动�
 ## 安装
 
 ```
-/plugin marketplace add https://github.com/AbyssPan/fullstackflow.git
+/plugin marketplace add AbyssPan/fullstackflow
+/plugin install fullstackflow@fullstackflow-marketplace
 ```
 
-安装后 `/plugin list` 确认包含 `fullstackflow` 即成功，随后输入 `/fullstack` 应能看到
-命令提示（冒烟测试详见 [INSTALL.md](./INSTALL.md)）。
+添加市场不会自动安装插件，必须继续执行第二条命令。安装后用 `/plugin list` 确认包含
+`fullstackflow`，随后输入 `/fullstackflow:` 应能看到命令提示（冒烟测试详见
+[INSTALL.md](./INSTALL.md)）。
 
 > **安装前检查、冒烟测试、ajv 依赖排查、卸载等完整步骤请参阅 [INSTALL.md](./INSTALL.md)**。
 
@@ -142,16 +144,16 @@ AI 修改源码受 dev-pass 通行证约束：仅在开发阶段由脚本自动�
 
 ### 方式一：斜杠命令（推荐）
 
-安装后输入 `/fullstack` 即触发工作流，常用姿势：
+插件命令会按宿主规范自动加 `fullstackflow:` 命名空间，常用姿势：
 
 ```
-/fullstack "开发订单中心退款功能"          # 新功能：AI 自动建 Story 并进入 run 模式
-/fullstack fixbugs BUG-001 "列表页白屏"   # 缺陷修复：免原型文档，自动拉 TAPD 缺陷
-/fullstack status                         # 查看当前工作流状态
+/fullstackflow:run "开发订单中心退款功能"       # 新功能：AI 自动建 Story 并进入 run 模式
+/fullstackflow:fixbugs "订单列表页白屏"         # 缺陷修复：免原型文档
+/fullstackflow:status                           # 查看当前工作流状态
 ```
 
-`/fullstack` 是统一入口，会自动识别意图（新功能 run / 缺陷修复 fixbugs）并加载
-对应 skill；信号不足时会用选择题问一次，不会瞎猜。
+`run` 和 `fixbugs` 分开后，常用场景无需再做模式猜测。兼容入口
+`/fullstackflow:fullstack` 仍会自动识别意图；信号不足时只询问一次。
 
 ### 方式二：自然语言触发词
 
@@ -173,19 +175,20 @@ AI 修改源码受 dev-pass 通行证约束：仅在开发阶段由脚本自动�
 
 | 命令 | 说明 |
 |---|---|
-| `/fullstack run <storyId> "<标题>"` | 执行端到端开发工作流（8 Phase 全流程，含原型 / Figma 门控） |
-| `/fullstack fixbugs <storyId> "<标题>"` | 针对缺陷做根因分析并自动修复（免原型文档，Phase 0 自动拉 TAPD 缺陷） |
-| `/fullstack status [storyId]` | 查看工作流当前 Phase 与门控状态 |
-| `/fullstack evolve [storyId]` | 触发插件自进化体检（audit → 度量 → 诊断 → 治疗 → 验证） |
-| `/fullstack archive <storyId>` | 归档已完成的 Story / 复档恢复 / 查看归档历史 |
+| `/fullstackflow:run [storyId] "<需求描述>"` | 执行端到端新功能开发（8 Phase，含原型 / Figma 门控） |
+| `/fullstackflow:fixbugs [storyId] "<缺陷描述>"` | 根因分析并修复缺陷（免原型门控；可在描述中附 TAPD 信息） |
+| `/fullstackflow:status` | 查看当前 Story、Phase 与门控状态 |
+| `/fullstackflow:end` | 结束当前激活会话并解除源码编辑门控，不归档 Story |
+| `/fullstackflow:evolve [storyId\|all] [--check-only\|--propose-only]` | 运行自进化体检（audit → 度量 → 诊断 → 治疗 → 验证） |
+| `/fullstackflow:archive <storyId> <archive\|restore\|list\|status> [options]` | 归档、复档或查看归档历史；不会在缺少动作时默认归档 |
 
-> `<storyId>` 与 `"<标题>"` 缺省时由 AI 根据描述自动生成并复述确认；不带参数直接执行
-> `/fullstack` 等同于 run 入口。
+> `<storyId>` 可省略，由 AI 根据描述生成。旧的统一形式可继续使用
+> `/fullstackflow:fullstack <run|fixbugs|status|end|evolve|archive> ...`。
 
 ## 最佳实践
 
 ### 1. 工作流初始化
-- **`/fullstack` 建流之后必须写 `story-input.json`，并执行 `create-workflow.js <storyId> --refresh-input` 回填判定**。漏掉回填会导致：无原型的纯文字需求被卡在「必须产出 prototype-analysis.md」；有 Figma 的需求完全不会触发设计稿门控。
+- **入口先写 `story-input.json`，再用 `harness-workflow.js start --input <file>` 一步建流**。脚本会在任何状态写入前校验输入并一次算准原型 / Figma 门控；`--refresh-input` 只用于旧流程或输入后补的恢复场景。
 - **`story-input.json` 只搬运参数、不做分析**。把用户给的链接 / 终端 / 描述原样写入即可；判断需求影响哪些文件、该怎么改，归 Phase 0 需求分析师。
 
 ### 2. 状态文件纪律（铁律）
@@ -227,6 +230,9 @@ AI 修改源码受 dev-pass 通行证约束：仅在开发阶段由脚本自动�
 | 测试工程师 | `test-engineer` | 前端 Playwright 实跑 + 后端三层验证（接口契约真实请求 / mvn test 业务逻辑 / 只读 SELECT 数据落库） |
 | 发布助手 | `release-assistant` | Git 提交 / push / 创建 MR 三点强制用户确认；KB 增量更新；前端走 devops MCP 云端构建，后端跳过云端部署确认合并即收尾 |
 
+Agent 不固定供应商专属模型 ID，默认继承宿主当前模型；这样同一份插件可在 Claude Code 与
+CodeBuddy Code 中加载，避免因模型下线或宿主不识别而导致 Agent 无法启动。
+
 ## 11 个 Skill
 
 **工作流编排（4 个）**
@@ -265,19 +271,19 @@ AI 修改源码受 dev-pass 通行证约束：仅在开发阶段由脚本自动�
 - **session-start.js / session-stop.js** — 会话恢复与清理：新会话自动恢复工作流状态，Stop 时落盘
 - **trace-command.js** — 命令审计：记录命令 / Agent / Skill / MCP 调用轨迹，供 harness-evolve 度量分析
 
-另有：`rules/kb-auto-query.md`（知识库自动检索规则——涉及业务模块、改代码、查实现等 5 类场景无需触发词强制先查知识库）、`output-styles/harness.md`（表格化汇报、结构化 blocker 列表、禁止泄露内部状态文件路径）。
+另有：`kb-query` 的 skill 描述直接声明自动触发场景（涉及业务模块、改代码、查实现等场景先查知识库）；`output-styles/harness.md` 提供表格化汇报、结构化 blocker 列表并禁止泄露内部状态文件路径。
 
 ## 零外部依赖设计
 
 插件**无需安装任何 CLI、无需配置额外 LLM Key**，安装即用（node 即唯一运行时，
-`/fullstack` 为唯一 slash command 入口）：
+提供 6 个常用 slash command 与 1 个兼容统一入口）：
 
 | 能力 | 实现方式 |
 |---|---|
 | OpenSpec 规格校验 | 内置 `scripts/commands/validate-openspec.js`（Requirement 含 SHALL/MUST、`#### Scenario:` 结构、Why ≥50 字符等硬阈值），Phase 0/1 产出后自检 |
 | 后端代码审查 | 内置规则库 `skills/harness-conductor/references/review-rules/`（default 五维度 / Java / TS·JS / Mapper XML，均含「不报告」防误报护栏），由审查师模型逐文件执行 |
 | JSON Schema 校验 | 内置 `vendor/ajv.bundle.js`（免 npm install） |
-| 单元测试 | `scripts/__tests__/run-all.js`（80 断言，覆盖 dispatch / advance-phase / hooks / kb 三脚本） |
+| 发布前验证 | `npm run verify`：插件结构一致性检查 + 6 组回归测试（当前 255 项断言） |
 
 可选增强（按需配置，不配置时各 agent 自动降级）：Figma MCP（设计稿拉取）、devops MCP（前端云端构建）、
 GitLab MCP（MR 管理）、TAPD（需求/缺陷导入）、Playwright MCP（前端实跑测试）。
@@ -294,7 +300,8 @@ debt 并在 Evo Score 扣分，不阻断流程）。
 |---|---|
 | 市场添加后无法加载 | 确认 GitHub 地址可访问，仓库根目录存在 `.claude-plugin/marketplace.json` / `.codebuddy-plugin/marketplace.json` |
 | 安装时提示「路径未找到」 | 使用 Git 型市场（`https://...git`），不要用 URL 型 |
-| Skill 不响应触发词 | 重载插件（`/reload-plugins` 或重启宿主），或删除缓存 `rm -rf ~/.codebuddy/plugins/cache` 后重启重装 |
+| 命令补全里找不到旧短入口 | 插件命令必须带命名空间，请输入 `/fullstackflow:`；重载插件（`/reload-plugins` 或重启宿主）后再试 |
+| Skill 不响应触发词 | 用 `/plugin list` 确认已安装并启用，再执行 `/reload-plugins` 或重启宿主 |
 | 报 `Cannot find module 'ajv'` | 确认 `plugins/fullstackflow/vendor/ajv.bundle.js` 存在，`git pull` 同步（**不要** `npm install`） |
 | 报 `e2e-state.json 不存在` | 冷启动场景：先说「做个需求」走 harness-start 建流，或按 terminal 恢复命令执行 restore 复档 |
 | dev-pass 拦截了源码编辑 | 正常行为——确认当前处于 Phase 2 且目标文件在 task-dag.json 的 `files[]` 限域内；开发未完成但 pass 过期用 `--renew-pass` 续签 |
@@ -305,7 +312,8 @@ debt 并在 Evo Score 扣分，不阻断流程）。
 ### 卸载
 
 ```
-/plugin marketplace remove fullstackflow
+/plugin uninstall fullstackflow@fullstackflow-marketplace
+/plugin marketplace remove fullstackflow-marketplace
 ```
 
 项目侧残留（按需清理）：`.codebuddy/plans/`（Story 状态与归档）、`.docs/llm-knowledge/`（知识库文档）。
@@ -319,15 +327,17 @@ fullstackflow/
 ├── .claude-plugin/marketplace.json      # Claude Code 市场清单（内容一致）
 └── plugins/
     └── fullstackflow/                   # 插件本体
-        ├── plugin.json                  # 插件元信息
-        ├── commands/fullstack.md        # /fullstack 统一入口 slash command
+        ├── .claude-plugin/plugin.json   # Claude Code 插件元信息
+        ├── .codebuddy-plugin/plugin.json # CodeBuddy Code 插件元信息
+        ├── plugin.json                  # 旧宿主兼容元信息
+        ├── commands/                    # run/fixbugs/status/end/evolve/archive + 兼容统一入口
         ├── agents/                      # 6 个角色代理
         ├── skills/                      # 11 个技能（工作流 / 知识库 / 辅助工具）
         ├── hooks/hooks.json             # 5 类安全护栏钩子
-        ├── rules/kb-auto-query.md       # 知识库自动检索规则
         ├── output-styles/harness.md     # 汇报输出风格
         ├── scripts/                     # dispatch / advance-phase / archive / validate-openspec 等
-        ├── scripts/__tests__/           # 单元测试（80 断言）
+        ├── scripts/audit/plugin-check.js # manifest / 命令 / Skill / Hook 一致性检查
+        ├── scripts/__tests__/           # 6 组回归测试（当前 255 项断言）
         └── vendor/ajv.bundle.js         # 内置 ajv（免 npm install）
 ```
 

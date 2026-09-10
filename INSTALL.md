@@ -100,7 +100,7 @@ Skill / Agent frontmatter、Hook 脚本引用、全部 JSON 与 JavaScript 语�
 cd plugins/fsflow && npm run verify
 ```
 
-预期：插件一致性检查通过，且 `✅ 7 个测试文件全部通过`（当前 278 项断言）。
+预期：插件一致性检查通过，且 `✅ 8 个测试文件全部通过`（当前 293 项断言）。
 
 ## 更新插件
 

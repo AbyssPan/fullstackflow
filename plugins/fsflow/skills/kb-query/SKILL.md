@@ -26,7 +26,7 @@ description: "渐进式分层知识库检索。三层检索：L1 overview关键�
 | 两者指向同一文件 | 最高置信度，优先精读该文件 |
 | 仅 kb-query 命中 | graphify `query` 补调用方，bug 可能在上游 |
 | 仅 graphify 命中 | 知识库缺此模块，报告末尾建议 `kb-update` |
-| 两边冲突 | 以源码为准，标注知识库过期 |
+| 两边冲突 | 当前实现事实以源码为准；编码规范以知识库为准；疑似过期时标注证据并安排 `kb-update` |
 
 ### 兜底
 - `search_content` + `search_file`：仅当上述两路都没定位到文件时使用。

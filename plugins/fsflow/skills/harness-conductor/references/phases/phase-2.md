@@ -8,6 +8,27 @@
 Agent 注册名 **`fullstack-developer`**（全栈开发工程师）。按 `task-dag.json` 的批次执行开发任务（前端 / 后端 / DB 均可）——
 同一 batch 内的任务可并行 Spawn 多个开发 Agent，batch 之间串行。
 
+## 知识库前置确认
+
+执行任何 task、修改代码或并行 Spawn 开发 Agent 前，先按 `task-dag.json` / `repos.json`
+逐个检查本 Story 涉及仓库的 `.docs/llm-knowledge/meta.yaml`：
+
+```text
+meta.yaml 存在   → 禁止重建 → kb-query → 开始编码
+meta.yaml 不存在 → 询问用户
+  ├─ 同意        → kb-init → gen-project-docs 全量生成 → kb-query → 开始编码
+  └─ 拒绝        → 记录 Phase 2 skipped_by_user → 继续编码并注明未使用知识库
+初始化/生成失败  → 报告失败并询问是否降级继续，不得自行决定
+```
+
+多仓库一次列出全部缺库仓库供用户确认；同意后按仓库串行初始化，再进入 batch 并行开发。
+Phase 6 只负责增量更新，并复用 Phase 2 的初始化/拒绝决定，不重复询问。
+用户拒绝时用以下命令留痕：
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/trace.js" phase-outcome <storyId> 2 skipped_by_user '{"reason":"knowledge_base_initialization_declined"}'
+```
+
 `mode=fixbugs` 时 prompt 会额外注入「修复方案自行设计」说明：bug 分析报告只给事实，
 怎么改由开发工程师用 `kb-query ∥ graphify` 双源验证后自行决定。
 

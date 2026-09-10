@@ -1124,7 +1124,7 @@ function checkPhase4Gate (storyId, result) {
  *
  * Phase 6 没有文件型产物；若不做此检查，dispatch 在断点恢复时会把它
  * 误判为已就绪并直接推进。最后一条 phase_outcome 是唯一信源，允许的终态为：
- * updated / initialized / skipped_by_user / completed_with_errors。
+ * 允许 updated / initialized / skipped_by_user / completed_with_errors。
  * @param {string} storyId - Story ID
  * @param {Object} result - runGateCheck 聚合结果
  */
@@ -1146,7 +1146,7 @@ function checkPhase6Gate (storyId, result) {
   if (!latest || !allowed.has(latest.result)) {
     result.blockers.push(structuredError(
       'phase6_outcome_missing',
-      'Phase 6 尚无有效结果记录：需完成 kb-update、初始化后全量生成，或记录用户拒绝',
+      'Phase 6 尚无有效结果记录：需完成 kb-update，或复用 Phase 2 的用户拒绝记录',
       4,
       `执行 Phase 6 分支后运行 trace.js phase-outcome ${storyId} 6 <updated|initialized|skipped_by_user|completed_with_errors>`
     ))

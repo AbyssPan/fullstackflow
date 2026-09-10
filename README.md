@@ -22,7 +22,7 @@ Git/MR → 知识库更新 → 发布收尾 → 归档。用 `/fsflow:run` 一�
 - [常用命令](#常用命令)
 - [最佳实践](#最佳实践)
 - [6 个角色 Agent](#6-个角色-agent)
-- [11 个 Skill](#11-个-skill)
+- [12 个 Skill](#12-个-skill)
 - [Hook 安全护栏](#hook-安全护栏)
 - [零外部依赖设计](#零外部依赖设计)
 - [故障排除与卸载](#故障排除与卸载)
@@ -38,11 +38,11 @@ Git/MR → 知识库更新 → 发布收尾 → 归档。用 `/fsflow:run` 一�
 |---|---|---|---|
 | 0 | 需求分析 | 需求分析师 | requirement-analysis.md、内嵌 OpenSpec 语义的 acceptance-criteria.json |
 | 1 | 任务规划 | 任务规划师 | task-dag.json（DB→后端→前端→集成 DAG）、Figma 组件绑定 |
-| 2 | 代码开发 | 全栈开发工程师 | 前端 / 后端 / DB 代码变更（dev-pass 限域保护） |
+| 2 | 知识库前置确认 + 代码开发 | 全栈开发工程师 | 缺库时经用户确认后全量生成或记录拒绝，再产出代码变更（dev-pass 限域保护） |
 | 3 | 代码审查 | 代码审查师 | code-review.json（前端人工 + 后端内置规则库） |
 | 4 | 功能测试 | 测试工程师 | test-report.md、acceptance-verification.json |
 | 5 | Git 提交 + MR | 发布助手 | 提交开发分支 + 创建 MR（→ dev）+ 确认已合并（三点用户确认） |
-| 6 | 知识库更新 | 发布助手 | 已初始化时增量更新；未初始化时询问后全量初始化，或记录用户跳过 |
+| 6 | 知识库增量更新 | 发布助手 | 已有知识库时增量更新；缺库时复用 Phase 2 的用户决定 |
 | 7 | 发布收尾 | 发布助手 | 前端：devops MCP 云端构建 + 部署 URL；后端：确认合并即收尾 |
 
 #### 8 Phase 横向流转
@@ -50,12 +50,12 @@ Git/MR → 知识库更新 → 发布收尾 → 归档。用 `/fsflow:run` 一�
 ```mermaid
 flowchart LR
     P0["Phase 0<br/>需求分析"] -->|"规格语义门控通过"| P1["Phase 1<br/>任务规划"]
-    P1 -->|"门控通过<br/>签发 dev-pass（限域）"| P2["Phase 2<br/>代码开发"]
+    P1 -->|"门控通过<br/>签发 dev-pass（限域）"| P2["Phase 2<br/>知识库确认 + 代码开发"]
     P2 -->|"eslint / mvn compile 编译门控<br/>撤销 dev-pass"| P3["Phase 3<br/>代码审查"]
     P3 -->|"无 BLOCKER"| P4["Phase 4<br/>功能测试"]
     P4 -->|"AC 全通过"| P5["Phase 5<br/>提交 + MR → dev"]
     P5 -->|"确认 MR 已合并"| P6["Phase 6<br/>知识库更新"]
-    P6 -->|"更新 / 初始化 / 用户跳过"| P7["Phase 7<br/>发布收尾（前端部署 / 后端跳过）"]
+    P6 -->|"增量更新 / 已记录拒绝"| P7["Phase 7<br/>发布收尾（前端部署 / 后端跳过）"]
     P7 -->|"terminal"| ARC["归档<br/>archive/round-N"]
 
     P3 -.->|"有 BLOCKER → fix-loop 回退"| P2
@@ -235,7 +235,7 @@ AI 修改源码受 dev-pass 通行证约束：仅在开发阶段由脚本自动�
 Agent 不固定供应商专属模型 ID，默认继承宿主当前模型；这样同一份插件可在 Claude Code 与
 CodeBuddy Code 中加载，避免因模型下线或宿主不识别而导致 Agent 无法启动。
 
-## 11 个 Skill
+## 12 个 Skill
 
 **工作流编排（4 个）**
 
@@ -254,6 +254,12 @@ CodeBuddy Code 中加载，避免因模型下线或宿主不识别而导致 Agen
 | `kb-query` | 渐进式三层检索：L1 overview 关键词定位域 → L2 meta.yaml 精确筛选 → L3 按需加载文档；支持需求拆解 / 技术方案 / 接口搜索 / 知识问答 4 种模式；与 graphify 双源交叉验证 |
 | `kb-update` | Git 提交后增量更新：git diff 定位变更文件，meta.yaml 数据驱动映射受影响业务域（通配符匹配，不硬编码路径），保留手工批注 |
 | `gen-project-docs` | 扫描源码生成结构化文档：通用 5 类 + 项目类型特有切面，支持全量 / 单域 / 增量模式与新鲜度检测 |
+
+**开发规范（1 个）**
+
+| Skill | 用途 |
+|---|---|
+| `backend-tech-spec` | 后端开发规范解析：已有项目优先知识库与工程约定，新项目或规范缺失处采用安全、现代的 Java / Spring Boot 默认基线 |
 
 **辅助工具（3 个）**
 
@@ -285,7 +291,7 @@ CodeBuddy Code 中加载，避免因模型下线或宿主不识别而导致 Agen
 | OpenSpec 规格门控 | `policy.js` 在 Phase 0 强制校验 Why/Non-Goals/Decisions/Capabilities/Risks、规范性 Requirement 与 Given/When/Then；Phase 1 校验功能点→AC→Task 追踪链，无需独立 OpenSpec CLI 或文件目录 |
 | 后端代码审查 | 内置规则库 `skills/harness-conductor/references/review-rules/`（default 五维度 / Java / TS·JS / Mapper XML，均含「不报告」防误报护栏），由审查师模型逐文件执行 |
 | JSON Schema 校验 | 内置 `vendor/ajv.bundle.js`（免 npm install） |
-| 发布前验证 | `npm run verify`：插件结构一致性检查 + 7 组回归测试（当前 278 项断言） |
+| 发布前验证 | `npm run verify`：插件结构一致性检查 + 8 组回归测试（当前 293 项断言） |
 
 可选增强（按需配置，不配置时各 agent 自动降级）：Figma MCP（设计稿拉取）、devops MCP（前端云端构建）、
 GitLab MCP（MR 管理）、TAPD（需求/缺陷导入）、Playwright MCP（前端实跑测试）。
@@ -334,7 +340,7 @@ fullstackflow/
         ├── plugin.json                  # 旧宿主兼容元信息
         ├── commands/                    # run/fixbugs/status/end/evolve/archive + 兼容统一入口
         ├── agents/                      # 6 个角色代理
-        ├── skills/                      # 11 个技能（工作流 / 知识库 / 辅助工具）
+        ├── skills/                      # 12 个技能（工作流 / 知识库 / 开发规范 / 辅助工具）
         ├── hooks/hooks.json             # 5 类安全护栏钩子
         ├── output-styles/harness.md     # 汇报输出风格
         ├── scripts/                     # dispatch / advance-phase / archive / policy 门控等

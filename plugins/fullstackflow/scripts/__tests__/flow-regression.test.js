@@ -8,6 +8,7 @@
  *   5. advance-phase.js 输出契约（2026-09）：只给推进结果 + 怎么 Spawn，
  *      不再回吐 phaseSummaryContent / contractFilesToLoad / agentConstraints /
  *      lessonsFromHistory / metricsInsights（都是 agentPrompt 里已有内容的拷贝）
+ *   6. Phase 6 知识库未初始化分支与 skipped_by_user 审计证据
  *
  * 无外部依赖，用临时沙箱（同时覆盖 CODEBUDDY/CLAUDE_PROJECT_DIR），跑完自动清理。
  *
@@ -32,6 +33,9 @@ fs.mkdirSync(path.join(SANDBOX, '.codebuddy', 'plans'), { recursive: true })
 const state = require(path.join(SCRIPTS_DIR, 'lib/state'))
 const { createWorkflow } = require(path.join(SCRIPTS_DIR, 'commands/create-workflow'))
 const policy = require(path.join(SCRIPTS_DIR, 'services/policy'))
+const promptBuilder = require(path.join(SCRIPTS_DIR, 'services/prompt-builder'))
+const contextRefresh = require(path.join(SCRIPTS_DIR, 'services/context-refresh'))
+const trace = require(path.join(SCRIPTS_DIR, 'lib/trace'))
 
 let pass = 0
 const failures = []
@@ -220,6 +224,39 @@ if (out && out.success === true) {
   ok('agentPrompt 展开契约文件清单', /task-dag\.json/.test(out.agentPrompt))
   ok('agentPrompt 展开约束段', /## 约束/.test(out.agentPrompt))
 }
+
+// ═══════════════════════════════════════════════════════════
+section('6. Phase 6 未初始化分支 + skipped_by_user 取证')
+
+const dir6 = storyDir('KB6-SKIP')
+fs.mkdirSync(dir6, { recursive: true })
+fs.writeFileSync(path.join(dir6, 'e2e-state.json'), JSON.stringify({
+  storyId: 'KB6-SKIP', phase: 6, status: 'running'
+}))
+
+const p6 = promptBuilder.buildAgentPrompt({ storyId: 'KB6-SKIP', targetPhase: 6, summaryPhase: 5 })
+ok('Phase 6 prompt 先检查 meta.yaml', /meta\.yaml/.test(p6.agentPrompt))
+ok('Phase 6 prompt 覆盖 kb-init + 全量生成分支',
+  /kb-init/.test(p6.agentPrompt) && /gen-project-docs/.test(p6.agentPrompt) && /全量/.test(p6.agentPrompt))
+ok('Phase 6 prompt 覆盖用户拒绝分支', /skipped_by_user/.test(p6.agentPrompt))
+
+const missingOutcomeGate = policy.runGateCheck('KB6-SKIP', 6, state.readStateFile('KB6-SKIP'))
+ok('Phase 6 无结果证据时禁止直接进 Phase 7', missingOutcomeGate.blockers.some(b =>
+  b.type === 'phase6_outcome_missing'))
+
+trace.tracePhaseOutcome('KB6-SKIP', 6, 'skipped_by_user', {
+  reason: 'knowledge_base_initialization_declined'
+})
+const kbEvidence = contextRefresh.getRuntimeEvidence('KB6-SKIP', 6)
+ok('skipped_by_user 写入 trace 审计链', contextRefresh.readTrace('KB6-SKIP').some(e =>
+  e.type === 'phase_outcome' && e.phase === '6' && e.result === 'skipped_by_user'))
+ok('Phase 6 summary 明确呈现 skipped_by_user', kbEvidence.some(line => /skipped_by_user/.test(line)),
+  JSON.stringify(kbEvidence))
+ok('skipped_by_user 证据明确不阻断 Phase 7', kbEvidence.some(line => /不阻断 Phase 7/.test(line)),
+  JSON.stringify(kbEvidence))
+const skippedOutcomeGate = policy.runGateCheck('KB6-SKIP', 6, state.readStateFile('KB6-SKIP'))
+ok('skipped_by_user 记录后 Phase 6 门控放行', skippedOutcomeGate.passed,
+  JSON.stringify(skippedOutcomeGate.blockers))
 
 // ════════════════════════════════════════════════════════════
 try {

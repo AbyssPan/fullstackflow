@@ -14,6 +14,7 @@
  *     node plugins/fullstackflow/scripts/lib/trace.js agent-spawn  <storyId> <agentName> [taskId] [phase]
  *     node plugins/fullstackflow/scripts/lib/trace.js agent-result <storyId> <agentName> <completed|failed> [detailsJSON]
  *     node plugins/fullstackflow/scripts/lib/trace.js git          <storyId> <init|add|commit|push|mr> [success|failed] [detailsJSON]
+ *     node plugins/fullstackflow/scripts/lib/trace.js phase-outcome <storyId> <phase> <outcome> [detailsJSON]
  *     不带子命令时打印 usage JSON
  *
  * 使用场景:
@@ -196,6 +197,24 @@ function tracePhaseTransition (storyId, fromPhase, toPhase) {
 }
 
 /**
+ * 记录 Phase 的业务结果（不改写工作流状态）。
+ * 用于区分“正常完成”与“用户明确选择跳过”等可审计结果；
+ * Phase 跃迁仍只能由 advance-phase.js 执行。
+ * @param {string} storyId - Story ID
+ * @param {number|string} phase - Phase 编号
+ * @param {string} outcome - 业务结果，如 skipped_by_user
+ * @param {Object} [details] - 附加说明
+ */
+function tracePhaseOutcome (storyId, phase, outcome, details = {}) {
+  appendTrace(storyId, {
+    type: 'phase_outcome',
+    phase: String(phase),
+    result: outcome,
+    details
+  })
+}
+
+/**
  * 记录错误恢复
  * @param {string} storyId
  * @param {number} phase - Phase 编号
@@ -256,6 +275,7 @@ module.exports = {
   traceGitEvent,
   traceGateDecision,
   tracePhaseTransition,
+  tracePhaseOutcome,
   traceErrorRecovery,
   traceExperience
 }
@@ -288,12 +308,21 @@ if (require.main === module) {
     try { details = JSON.parse(detailStr) } catch { details = { message: detailStr } }
     traceGitEvent(storyId, action, result, details)
     console.log(JSON.stringify({ ok: true, storyId, action, result }))
+  } else if (cmd === 'phase-outcome' && storyId && args[2] && args[3]) {
+    const phase = args[2]
+    const outcome = args[3]
+    const detailStr = args.slice(4).join(' ')
+    let details = {}
+    try { details = detailStr ? JSON.parse(detailStr) : {} } catch { details = { summary: detailStr } }
+    tracePhaseOutcome(storyId, phase, outcome, details)
+    console.log(JSON.stringify({ ok: true, storyId, phase: String(phase), outcome }))
   } else {
     console.log(JSON.stringify({
       usage: {
         'agent-spawn': 'node trace.js agent-spawn <storyId> <agentName> [taskId] [phase]',
         'agent-result': 'node trace.js agent-result <storyId> <agentName> <completed|failed> [detailsJSON]',
-        'git': 'node trace.js git <storyId> <init|add|commit|push|mr> [success|failed] [detailsJSON]'
+        'git': 'node trace.js git <storyId> <init|add|commit|push|mr> [success|failed] [detailsJSON]',
+        'phase-outcome': 'node trace.js phase-outcome <storyId> <phase> <outcome> [detailsJSON]'
       }
     }, null, 2))
   }

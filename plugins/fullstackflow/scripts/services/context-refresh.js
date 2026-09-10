@@ -359,6 +359,19 @@ function parseMetaHash (content) {
  */
 function evidenceKbRefresh (storyId) {
   const lines = []
+  const entries = readTrace(storyId)
+  const latestOutcome = entries
+    .filter(e => e.type === 'phase_outcome' && String(e.phase) === '6')
+    .pop()
+  if (latestOutcome) {
+    const detail = latestOutcome.details && (latestOutcome.details.reason || latestOutcome.details.error || latestOutcome.details.summary)
+    lines.push(`- Phase 6 结果: \`${latestOutcome.result}\`${detail ? `（${detail}）` : ''}`)
+  }
+  if (latestOutcome && latestOutcome.result === 'skipped_by_user') {
+    lines.push('- 用户拒绝初始化项目知识库；该结果不阻断 Phase 7')
+    return lines
+  }
+
   const repos = loadRepos(storyId)
   let foundAny = false
   for (const [repoName, root] of Object.entries(repos.repos)) {

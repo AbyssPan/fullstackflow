@@ -69,6 +69,12 @@ const schemaValidator = require('./schema-validator')
  * Level 4: 阻止 + 人工介入
  */
 const RECOVERY_SUGGESTIONS = {
+  // Phase 6→7: 知识库分支尚未留下可审计结果
+  phase6_outcome_missing: {
+    level: 4,
+    action: '执行 Phase 6 知识库分支，并用 trace.js phase-outcome 记录结果',
+    autoFixable: false
+  },
   // Phase 0→1: open-questions 有 blocking 未解决
   blocking_unresolved: {
     level: 4,
@@ -421,6 +427,8 @@ function runGateCheck (storyId, phaseNum, state) {
     checkPhase3Gate(storyId, result)
   } else if (phaseNum === 4) {
     checkPhase4Gate(storyId, result)
+  } else if (phaseNum === 6) {
+    checkPhase6Gate(storyId, result)
   }
 
   // 2.5. 🆕 资源完整性检查（声明了外部依赖但未有效消费）
@@ -1008,6 +1016,41 @@ function checkPhase4Gate (storyId, result) {
 }
 
 /**
+ * Phase 6→7 门控：知识库分支必须留下显式结果。
+ *
+ * Phase 6 没有文件型产物；若不做此检查，dispatch 在断点恢复时会把它
+ * 误判为已就绪并直接推进。最后一条 phase_outcome 是唯一信源，允许的终态为：
+ * updated / initialized / skipped_by_user / completed_with_errors。
+ * @param {string} storyId - Story ID
+ * @param {Object} result - runGateCheck 聚合结果
+ */
+function checkPhase6Gate (storyId, result) {
+  const tracePath = path.join(getStoryDir(storyId), 'trace.jsonl')
+  let latest = null
+
+  if (fs.existsSync(tracePath)) {
+    const lines = fs.readFileSync(tracePath, 'utf-8').split('\n').filter(Boolean)
+    for (const line of lines) {
+      try {
+        const entry = JSON.parse(line)
+        if (entry.type === 'phase_outcome' && String(entry.phase) === '6') latest = entry
+      } catch (_) { /* 容错：坏行不影响其他 trace 证据 */ }
+    }
+  }
+
+  const allowed = new Set(['updated', 'initialized', 'skipped_by_user', 'completed_with_errors'])
+  if (!latest || !allowed.has(latest.result)) {
+    result.blockers.push(structuredError(
+      'phase6_outcome_missing',
+      'Phase 6 尚无有效结果记录：需完成 kb-update、初始化后全量生成，或记录用户拒绝',
+      4,
+      `执行 Phase 6 分支后运行 trace.js phase-outcome ${storyId} 6 <updated|initialized|skipped_by_user|completed_with_errors>`
+    ))
+    result.passed = false
+  }
+}
+
+/**
  * Phase 4→5 交叉对账: code-review 未修复项 vs 验收结论
  *
  * 历史缺陷: checkPhase4Gate 从不读 code-review.json，checkPhase3Gate 只看
@@ -1354,6 +1397,7 @@ module.exports = {
   checkPhase1Gate,
   checkPhase3Gate,
   checkPhase4Gate,
+  checkPhase6Gate,
   checkContractRegression,
   matchRecoverySuggestion,
   attemptAutoRecovery

@@ -42,7 +42,7 @@ Git/MR → 知识库更新 → 发布收尾 → 归档。用 `/fullstackflow:run
 | 3 | 代码审查 | 代码审查师 | code-review.json（前端人工 + 后端内置规则库） |
 | 4 | 功能测试 | 测试工程师 | test-report.md、acceptance-verification.json |
 | 5 | Git 提交 + MR | 发布助手 | 提交开发分支 + 创建 MR（→ dev）+ 确认已合并（三点用户确认） |
-| 6 | 知识库更新 | 发布助手 | 增量知识库文档（kb-update，保留手工批注） |
+| 6 | 知识库更新 | 发布助手 | 已初始化时增量更新；未初始化时询问后全量初始化，或记录用户跳过 |
 | 7 | 发布收尾 | 发布助手 | 前端：devops MCP 云端构建 + 部署 URL；后端：确认合并即收尾 |
 
 #### 8 Phase 横向流转
@@ -55,7 +55,7 @@ flowchart LR
     P3 -->|"无 BLOCKER"| P4["Phase 4<br/>功能测试"]
     P4 -->|"AC 全通过"| P5["Phase 5<br/>提交 + MR → dev"]
     P5 -->|"确认 MR 已合并"| P6["Phase 6<br/>知识库更新"]
-    P6 -->|"kb-update 完成"| P7["Phase 7<br/>发布收尾（前端部署 / 后端跳过）"]
+    P6 -->|"更新 / 初始化 / 用户跳过"| P7["Phase 7<br/>发布收尾（前端部署 / 后端跳过）"]
     P7 -->|"terminal"| ARC["归档<br/>archive/round-N"]
 
     P3 -.->|"有 BLOCKER → fix-loop 回退"| P2

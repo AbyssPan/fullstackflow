@@ -10,6 +10,12 @@
       "enum": ["run", "fixbugs"],
       "description": "工作流模式：run=新功能开发，fixbugs=Bug 修复"
     },
+    "verificationMode": {
+      "type": "string",
+      "enum": ["full", "review-only"],
+      "default": "full",
+      "description": "验证模式：full=保留独立功能测试 Phase；review-only=显式跳过独立测试，仍保留代码审查与项目自身检查"
+    },
     "storyId": { "type": "string" },
     "title": { "type": "string" },
     "createdAt": { "type": "string" },

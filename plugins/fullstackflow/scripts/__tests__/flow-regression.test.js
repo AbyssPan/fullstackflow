@@ -5,9 +5,9 @@
  *   2. unverifiable 不阻塞门控（需求4：无法验证就跳过）
  *   3. 目录级 glob 限域（需求2：files 支持目录 glob）
  *   4. Phase 1→2 门控：figma-frame-inventory 存在性与完整性
- *   5. advance-phase.js 输出契约（2026-09）：只给推进结果 + 怎么 Spawn，
- *      不再回吐 phaseSummaryContent / contractFilesToLoad / agentConstraints /
- *      lessonsFromHistory / metricsInsights（都是 agentPrompt 里已有内容的拷贝）
+ *   5. dispatch 是 prompt 唯一出口；advance-phase.js 只返回推进结果
+ *   5b. Graphify 仓库状态与 cwd 入口注入
+ *   5c. review-only 显式跳过独立功能测试，full 默认不变
  *   6. Phase 6 知识库未初始化分支与 skipped_by_user 审计证据
  *
  * 无外部依赖，用临时沙箱（同时覆盖 CODEBUDDY/CLAUDE_PROJECT_DIR），跑完自动清理。
@@ -36,6 +36,7 @@ const policy = require(path.join(SCRIPTS_DIR, 'services/policy'))
 const promptBuilder = require(path.join(SCRIPTS_DIR, 'services/prompt-builder'))
 const contextRefresh = require(path.join(SCRIPTS_DIR, 'services/context-refresh'))
 const trace = require(path.join(SCRIPTS_DIR, 'lib/trace'))
+const { dispatch } = require(path.join(SCRIPTS_DIR, 'commands/dispatch'))
 
 let pass = 0
 const failures = []
@@ -194,7 +195,11 @@ ok('frame-inventory 完整（含 link）-> 无 figma_frame_incomplete BLOCKER', 
   JSON.stringify(g3.blockers.map(b => b.type + ':' + b.message)))
 
 // ════════════════════════════════════════════════════════════
-section('5. advance-phase.js 输出契约（2026-09 收敛）')
+section('5. dispatch 单一 prompt 出口 + advance 精简输出')
+
+const beforeAdvance = dispatch('FG1-OK')
+ok('dispatch 门控通过时只给推进命令', beforeAdvance.readyToAdvance === true && !!beforeAdvance.advanceCommand)
+ok('dispatch 推进分支不预构造下一 Phase prompt', beforeAdvance.agentPrompt === null)
 
 // FG1-OK 的 Phase 1 产出物齐备且门控通过，直接推到 Phase 2 验真实输出。
 // 契约: 只给「推进结果」+「下一步怎么 Spawn」，不回吐 prompt 素材 ——
@@ -211,19 +216,52 @@ ok('advance-phase 1→2 推进成功', out && out.success === true,
   out ? JSON.stringify(out.blockers || out.gateChecks) : '')
 
 if (out && out.success === true) {
-  ok('保留 nextAgent', out.nextAgent === 'fullstack-developer', String(out.nextAgent))
-  ok('保留 agentPrompt', typeof out.agentPrompt === 'string' && out.agentPrompt.length > 0)
-  ok('保留 expectedOutputs', Array.isArray(out.expectedOutputs))
-  for (const dropped of ['phaseSummaryContent', 'phaseSummaryPhase', 'contractFilesToLoad',
+  ok('下一步明确回 dispatch', out.nextAction === 'rerun_dispatch', String(out.nextAction))
+  for (const dropped of ['nextAgent', 'nextAgentLabel', 'agentPrompt', 'expectedOutputs',
+    'fixLoopContext', 'phaseSummaryContent', 'phaseSummaryPhase', 'contractFilesToLoad',
     'agentConstraints', 'lessonsFromHistory', 'metricsInsights']) {
     ok(`不再输出 ${dropped}`, !(dropped in out), JSON.stringify(Object.keys(out)))
   }
-  // 删掉的只是拷贝，本体仍进 agentPrompt / 落盘
+  // prompt 由推进后的 dispatch 构造；advance 只负责摘要落盘
   ok('摘要正文落盘为 phase-1-summary.md', fs.existsSync(path.join(dir4c, 'phase-1-summary.md')))
-  ok('agentPrompt 给出摘要文件路径', /phase-1-summary\.md/.test(out.agentPrompt))
-  ok('agentPrompt 展开契约文件清单', /task-dag\.json/.test(out.agentPrompt))
-  ok('agentPrompt 展开约束段', /## 约束/.test(out.agentPrompt))
 }
+
+section('5b. Graphify 仓库状态注入')
+
+const repoSearchMissing = promptBuilder.buildRepoSearchEntries('FG1-OK', 2).join('\n')
+ok('检索入口含主仓绝对路径', repoSearchMissing.includes(SANDBOX), repoSearchMissing)
+ok('未建图谱时直接给出降级方案', /图谱：未建/.test(repoSearchMissing) && /kb-query \+ Grep/.test(repoSearchMissing))
+fs.mkdirSync(path.join(SANDBOX, 'graphify-out'), { recursive: true })
+fs.writeFileSync(path.join(SANDBOX, 'graphify-out', 'graph.json'), '{}')
+const repoSearchBuilt = promptBuilder.buildRepoSearchEntries('FG1-OK', 2).join('\n')
+ok('已建图谱时注入客观状态', /图谱：已建/.test(repoSearchBuilt), repoSearchBuilt)
+ok('非检索 Phase 不注入 Graphify 入口', promptBuilder.buildRepoSearchEntries('FG1-OK', 4).length === 0)
+
+section('5c. review-only 显式跳过独立功能测试')
+
+const quickInput = path.join(SANDBOX, 'review-only-input.json')
+fs.writeFileSync(quickInput, JSON.stringify({ mode: 'run', verificationMode: 'review-only', sources: {} }))
+const quickCreate = createWorkflow('REVIEW-ONLY', '快速验证', false, false, 'run', {
+  inputFile: quickInput,
+  modeExplicit: false
+})
+const quickState = state.readStateFile('REVIEW-ONLY')
+ok('verificationMode 从 story-input 持久化', quickCreate.verificationMode === 'review-only' && quickState.verificationMode === 'review-only')
+const quickGate = policy.runGateCheck('REVIEW-ONLY', 4, quickState)
+ok('review-only 在无测试产物时放行 Phase 4', quickGate.passed === true && quickGate._meta.skipped === true)
+const fullGate = policy.runGateCheck('REVIEW-ONLY', 4, { ...quickState, verificationMode: 'full' })
+ok('full 模式仍要求测试产物', fullGate.passed === false)
+quickState.phase = 4
+quickState.phases['4_e2e_verification'] = { status: 'running' }
+state.writeStateFile('REVIEW-ONLY', quickState)
+const quickAdvance = spawnSync(process.execPath, [path.join(SCRIPTS_DIR, 'commands/advance-phase.js'), 'REVIEW-ONLY', '5'], {
+  encoding: 'utf-8',
+  env: { ...process.env, CODEBUDDY_PROJECT_DIR: SANDBOX, CLAUDE_PROJECT_DIR: SANDBOX }
+})
+const skippedState = state.readStateFile('REVIEW-ONLY')
+ok('review-only 推进后将 Phase 4 标记为 skipped',
+  quickAdvance.status === 0 && skippedState.phases['4_e2e_verification'].status === 'skipped',
+  (quickAdvance.stdout || '') + (quickAdvance.stderr || ''))
 
 // ═══════════════════════════════════════════════════════════
 section('6. Phase 6 未初始化分支 + skipped_by_user 取证')

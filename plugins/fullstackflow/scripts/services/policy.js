@@ -380,6 +380,15 @@ function runGateCheck (storyId, phaseNum, state) {
 
   if (phaseNum < 0) return result // Phase 0 无前置
 
+  // review-only 是用户在 story-input.json 中显式选择的快速通道。
+  // 仅跳过独立功能测试 Phase，不改变代码审查、lint/编译或项目 git hook。
+  if (phaseNum === 4 && state && state.verificationMode === 'review-only') {
+    result.warnings.push('verificationMode=review-only：已按显式配置跳过独立功能测试 Phase')
+    result._meta.skipped = true
+    result._meta.skipReason = 'verification_mode_review_only'
+    return result
+  }
+
   // 1. 产出物存在性检查（传入 state 以启用条件必需产出物，如 hasFigmaDesign 时的 figma-frame-inventory.json）
   const artifact = checkPhaseArtifact(storyId, phaseNum, state)
   if (!artifact.exists) {

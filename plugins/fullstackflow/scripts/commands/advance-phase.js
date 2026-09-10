@@ -87,7 +87,6 @@ const policy = require('../services/policy')
 const trace = require('../lib/trace')
 const experience = require('../services/experience')
 const contextRefresh = require('../services/context-refresh')
-const promptBuilder = require('../services/prompt-builder')
 
 // ========================
 // CLI 参数解析
@@ -1012,8 +1011,13 @@ const currentPhaseKey = `${currentPhase}_${PHASE_SLUGS[currentPhase]}`
 
 // 完成当前 Phase
 if (state.phases && state.phases[currentPhaseKey]) {
-  state.phases[currentPhaseKey].status = 'completed'
+  state.phases[currentPhaseKey].status = (
+    currentPhase === 4 && state.verificationMode === 'review-only'
+  ) ? 'skipped' : 'completed'
   state.phases[currentPhaseKey].completedAt = now.toISOString()
+  if (state.phases[currentPhaseKey].status === 'skipped') {
+    state.phases[currentPhaseKey].skipReason = 'verification_mode_review_only'
+  }
 }
 
 // 启动目标 Phase
@@ -1145,18 +1149,12 @@ if (targetPhase === 5) {
 // 上下文刷新: 生成 Phase summary + 加载内容注入 (#2)
 // ========================
 
-/** @type {{ content: string, phase: number, path: string }|null} */
-let summaryInfo = null
-
 try {
   const summaryPath = contextRefresh.generatePhaseSummary(storyId, currentPhase)
   if (summaryPath) {
     console.log(`  ✓ 上下文摘要已生成: ${path.basename(summaryPath)}`)
     trace.appendTrace(storyId, { type: 'context_refresh', phase: String(currentPhase), result: 'success', details: { file: path.basename(summaryPath) } })
 
-    // 加载 summary 内容用于注入到 JSON 输出（供主 Agent 传给下个 Agent）
-    // 只取刚完成的 Phase 的 summary（currentPhase），不加载后续 Phase 的
-    summaryInfo = contextRefresh.loadLatestSummary(storyId, currentPhase)
   }
 } catch (e) {
   // summary 生成失败不阻塞推进
@@ -1194,34 +1192,9 @@ if (devPass) {
   result.devPass = { expiresAt: devPass.expiresAt, allowedFiles: devPass.allowedPaths.length, source: devPass.pathSource }
 }
 
-// 🆕 Agent Prompt 构造统一委托给 prompt-builder（单一信源）
-// 说明: prompt 的组装逻辑（摘要 + 教训 + 度量 + 契约内容 + 修复回路 + 约束）
-//       原先内联在此处，现抽到 services/prompt-builder.js，与 dispatch.js 共用，
-//       避免出现两份自称权威的 prompt 来源迫使主 Agent 自行拼接。
-const promptResult = promptBuilder.buildAgentPrompt({
-  storyId,
-  targetPhase,
-  summaryPhase: currentPhase,
-  summaryInfo
-})
-
-// 输出契约（v3，2026-09 收敛）:「本次推进的结果」+「下一步怎么 Spawn」，不再回吐 prompt 素材。
-// 已删除 phaseSummaryContent / phaseSummaryPhase / contractFilesToLoad / agentConstraints /
-// lessonsFromHistory / metricsInsights —— 它们都是 agentPrompt 里已有内容的第二份拷贝：
-//   - 摘要正文落盘在 phase-<N>-summary.md，agentPrompt 给的是它的路径，
-//     断点恢复另有 hooks/session-start.js 自己 loadLatestSummary 注入；
-//   - 契约文件清单、约束、教训、度量在 agentPrompt 中已逐条展开。
-// 全仓没有任何 .js 解析本脚本的 stdout，主 Agent 也只需 nextAgent + agentPrompt 就能 Spawn，
-// 多一份拷贝只是让主 Agent 上下文里同一段话出现两次。
-// fixLoopContext 保留: 它是结构化回路状态（round / maxRounds），编排层可能据此判断预算，
-// 与上面几项「纯 prompt 文本」性质不同。
-result.nextAgent = promptResult.agent
-result.nextAgentLabel = promptResult.agentLabel
-result.expectedOutputs = promptResult.expectedOutputs
-if (promptResult.fixLoopContext) result.fixLoopContext = promptResult.fixLoopContext
-
-// 完整可直接注入的 Agent prompt（无占位符，主 Agent 原样使用）
-result.agentPrompt = promptResult.agentPrompt
+// advance-phase 只返回推进结果。下一个 Agent 及 prompt 必须回到 dispatch.js 获取，
+// 避免在一次循环中构造、输出两份完整 prompt。
+result.nextAction = 'rerun_dispatch'
 
 // Phase 7 完成时自动触发度量聚合 + 标记工作流为 completed（终态）
 if (currentPhase === 7 && targetPhase > 7) {

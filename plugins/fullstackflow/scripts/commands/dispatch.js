@@ -42,7 +42,8 @@
  *     决定"该干活还是该修复"，绝不代替 advance-phase.js 写状态。
  *   - fix_loop 分支会一并给出回退后要 Spawn 的 Phase 2 Agent 与 prompt，否则主 Agent 执行完
  *     --fix-loop 只能自行判断该 Spawn 谁 —— 判断权回流即失控。
- *   - agentPrompt 统一由 services/prompt-builder.js 构造，与 advance-phase.js 共用同一信源。
+ *   - agentPrompt 只在本脚本确定当前 Phase 需要 Spawn 时，由 services/prompt-builder.js 构造。
+ *     门控已通过的推进分支不预构造下一 Phase prompt，推进后重新 dispatch。
  *   - 冷启动处理: 状态文件不存在时不再静默失败，而是返回 terminal + 创建工作流的 recovery 命令，
  *     避免 Phase 0 之前无法调度的死锁。
  *   - 三态互斥且穷尽（ready / blocked / fix_loop / terminal），主 Agent 按 status 分支，不做任何自行判断。
@@ -302,28 +303,10 @@ function dispatch (storyId) {
   // 门控已通过，说明本 Phase 的活干完了，下一步是执行推进命令。
   // 推进后主 Agent 应再次执行 dispatch.js 获取新 Phase 的指令。
   const nextPhase = phase + 1
-  const nextAgentInfo = getPhaseAgent(nextPhase)
-
   result.status = 'ready'
   result.advanceCommand = `${ADVANCE_CMD} ${storyId} ${nextPhase}`
   result.readyToAdvance = true
-
-  if (nextAgentInfo) {
-    const pb = promptBuilder.buildAgentPrompt({
-      storyId,
-      targetPhase: nextPhase,
-      summaryPhase: phase
-    })
-    result.nextAgent = pb.agent
-    result.agentLabel = pb.agentLabel
-    result.agentPrompt = pb.agentPrompt
-    result.expectedOutputs = pb.expectedOutputs
-    if (pb.fixLoopContext) result.fixLoopContext = pb.fixLoopContext
-    result.instruction = `先执行 advanceCommand 推进到 Phase ${nextPhase}，成功后 Spawn ${pb.agent} 并注入 agentPrompt`
-  } else {
-    // nextPhase 为终态 8
-    result.instruction = `执行 advanceCommand 完成工作流（Phase ${nextPhase} 为终态）`
-  }
+  result.instruction = `执行 advanceCommand 推进到 Phase ${nextPhase}，然后重新执行 dispatch.js 获取唯一的下一步指令`
 
   return result
 }

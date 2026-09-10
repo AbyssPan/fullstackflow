@@ -1,5 +1,9 @@
 # Phase 4 — 功能测试
 
+> 默认 `verificationMode=full`，执行本 Phase。若用户在 `story-input.json` 中显式选择
+> `verificationMode=review-only`，`dispatch.js` 会给出直接推进指令，本 Phase 在状态中记为 `skipped`。
+> 该选项只跳过独立功能测试，不跳过代码审查、lint/编译和项目 git hook。
+
 > 门控实现：`services/policy.js` → `checkPhase4Gate()` / `crossCheckReviewVsAcceptance()` /
 > `checkEvidenceQuality()` / `checkContractRegression()`
 > 通用三道检查见 [README.md](./README.md)

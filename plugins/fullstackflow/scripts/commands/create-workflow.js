@@ -176,7 +176,12 @@ function ingestStoryInput (storyId, title, inputFile, cliMode, modeExplicit) {
   fs.mkdirSync(path.dirname(target), { recursive: true })
   fs.writeFileSync(target, JSON.stringify(input, null, 2) + '\n', 'utf-8')
 
-  return { ok: true, mode: pre.mode, target }
+  return {
+    ok: true,
+    mode: pre.mode,
+    verificationMode: input.verificationMode === 'review-only' ? 'review-only' : 'full',
+    target
+  }
 }
 
 /**
@@ -230,6 +235,7 @@ function resolveFigmaDesign (storyId, hasFigmaFlag, workflowMode, bypass) {
 function createWorkflow (storyId, title, bypass, hasFigma, mode, opts = {}) {
   const errors = []
   let workflowMode = mode === 'fixbugs' ? 'fixbugs' : 'run'
+  let verificationMode = 'full'
 
   // 1. 检查是否已有状态文件
   const existingState = readStateFile(storyId)
@@ -247,6 +253,7 @@ function createWorkflow (storyId, title, bypass, hasFigma, mode, opts = {}) {
       return { success: false, storyId, errors: ingested.errors }
     }
     workflowMode = ingested.mode
+    verificationMode = ingested.verificationMode
     storyInputFile = ingested.target
   }
 
@@ -282,6 +289,7 @@ function createWorkflow (storyId, title, bypass, hasFigma, mode, opts = {}) {
     createdAt: now,
     updatedAt: now,
     bypass: bypass || false,
+    verificationMode,
     hasFigmaDesign: figma.enabled, // 🌐 是否开启 Figma 硬门控（信源: story-input.json figmaUrls / --figma）
     hasFigmaDesignReason: figma.reason, // 判定依据，便于排查门控为何未触发
     // 修复回路最大轮次 —— 按失败源（Phase 3 代码审查 / Phase 4 功能测试）独立预算，各 2 次，用尽转人工
@@ -354,6 +362,7 @@ function createWorkflow (storyId, title, bypass, hasFigma, mode, opts = {}) {
     phase: initialPhase,
     bypass,
     mode: workflowMode,
+    verificationMode,
     prototypeRequired: protoRequired.required,
     hasFigmaDesign: figma.enabled,
     stateFile: stateFilePath,
@@ -403,23 +412,36 @@ function refreshStoryInput (storyId, hasFigmaFlag = false) {
     ? { required: false, reason: bypass ? 'bypass 模式跳过 Phase 0' : 'fixbugs 模式，Bug 修复无原型依赖' }
     : isPrototypeRequired(storyId)
   const figma = resolveFigmaDesign(storyId, hasFigmaFlag || state.hasFigmaDesign, workflowMode, bypass)
+  let verificationMode = state.verificationMode === 'review-only' ? 'review-only' : 'full'
+  try {
+    const inputPath = path.join(PLANS_DIR, storyId, STORY_INPUT_FILE)
+    const input = JSON.parse(fs.readFileSync(inputPath, 'utf-8'))
+    verificationMode = input.verificationMode === 'review-only' ? 'review-only' : 'full'
+  } catch (_) { /* 无输入或解析失败时保留当前模式 */ }
 
-  const before = { proto: state.gateChecks.prototypeRequired, figma: state.hasFigmaDesign }
+  const before = {
+    proto: state.gateChecks.prototypeRequired,
+    figma: state.hasFigmaDesign,
+    verificationMode: state.verificationMode || 'full'
+  }
 
   state.hasFigmaDesign = figma.enabled
   state.hasFigmaDesignReason = figma.reason
+  state.verificationMode = verificationMode
   state.gateChecks.prototypeRequired = protoRequired.required
   state.gateChecks.prototypeRequiredReason = protoRequired.reason
   state.gateChecks.prototypeConfirmed = !protoRequired.required
   state.updatedAt = new Date().toISOString()
   writeStateFile(storyId, state)
 
-  const changed = before.proto !== protoRequired.required || before.figma !== figma.enabled
+  const changed = before.proto !== protoRequired.required || before.figma !== figma.enabled ||
+    before.verificationMode !== verificationMode
   return {
     success: true,
     storyId,
     prototypeRequired: protoRequired.required,
     hasFigmaDesign: figma.enabled,
+    verificationMode,
     message: `${changed ? '✅ 判定已更新' : 'ℹ️ 判定无变化'}（mode=${workflowMode}）` +
       `\n   原型文档: ${protoRequired.required ? '必需' : '免除'} — ${protoRequired.reason}` +
       `\n   Figma 门控: ${figma.enabled ? '开启' : '关闭'} — ${figma.reason}`

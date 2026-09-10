@@ -172,8 +172,10 @@ ok('P2 含「Bug 修复说明」', p2.agentPrompt.includes('Bug 修复说明'))
 ok('P2 含 kb-query ∥ graphify 双源', /kb-query[\s\S]{0,80}graphify|graphify[\s\S]{0,80}kb-query/.test(p2.agentPrompt))
 ok('P2 修复说明指向契约文件而非原始报告', /task-dag\.json/.test(p2.agentPrompt))
 
-// v3：约束段只留 agent .md 未覆盖的 2 条，删掉的 3 条不应再出现
-ok('约束段已精简为 2 条', p2.agentConstraints.length === 2, JSON.stringify(p2.agentConstraints))
+// v4：保留 2 条原有约束，新增 Graphify 检索失败显式上报，防止静默降级后猜测实现
+ok('约束段为 3 条（含 Graphify 失败上报）',
+  p2.agentConstraints.length === 3 && p2.agentConstraints.some(c => /graphify \/ Bash.*检索失败/.test(c)),
+  JSON.stringify(p2.agentConstraints))
 ok('不再重复 agent .md 已有的 advance-phase 约束', !/- 🚫 由主 Agent 调用 advance-phase/.test(p2.agentPrompt))
 
 // ════════════════════════════════════════════════════════════

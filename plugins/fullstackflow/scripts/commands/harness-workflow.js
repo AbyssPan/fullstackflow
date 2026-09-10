@@ -190,6 +190,7 @@ function cmdStart(storyId, title, mode, opts = {}) {
     })
     if (workflowResult && workflowResult.success) {
       data.phase = workflowResult.phase
+      data.verificationMode = workflowResult.verificationMode || 'full'
       data.e2eStateCreated = true
       if (workflowResult.storyInputFile) data.storyInputFile = workflowResult.storyInputFile
     }
@@ -201,7 +202,8 @@ function cmdStart(storyId, title, mode, opts = {}) {
 
   console.log(JSON.stringify({
     ok: true,
-    message: `✅ Harness 模式已激活\n   Story: ${id} "${name}"\n   模式: ${workflowMode}${workflowMode === 'fixbugs' ? ' (Bug 修复，免原型文档)' : ''}\n   Phase: 0 (需求分析)\n   标记文件: .codebuddy/plans/.harness-active` +
+    message: `✅ Harness 模式已激活\n   Story: ${id} "${name}"\n   模式: ${workflowMode}${workflowMode === 'fixbugs' ? ' (Bug 修复，免原型文档)' : ''}` +
+      `\n   验证: ${workflowResult?.verificationMode || 'full'}\n   Phase: 0 (需求分析)\n   标记文件: .codebuddy/plans/.harness-active` +
       (workflowResult?.success ? '\n   e2e-state.json: ✅ 已创建' : '\n   ⚠ e2e-state.json 创建失败，请手动执行: node ${CLAUDE_PLUGIN_ROOT}/scripts/commands/create-workflow.js ' + id + ' "' + name + '" --mode=' + workflowMode) +
       (workflowResult?.storyInputFile ? '\n   story-input.json: ✅ 已摄入，原型/Figma 判定已算准，无需 --refresh-input' : ''),
     data
@@ -258,7 +260,12 @@ function cmdStatus() {
     console.log(JSON.stringify({
       active: true,
       message: `🔴 Harness 模式已激活\n   Story: ${existing.storyId} "${existing.title}"\n   激活时间: ${existing.activatedAt}\n   Phase: ${phase}\n   主仓库: ${repos.primary}\n   涉及仓库: ${Object.keys(repos.repos).join(', ')}\n   src/ 编辑需要 dev-pass`,
-      data: { ...existing, phase, repoCount: Object.keys(repos.repos).length }
+      data: {
+        ...existing,
+        phase,
+        verificationMode: state?.verificationMode || existing.verificationMode || 'full',
+        repoCount: Object.keys(repos.repos).length
+      }
     }))
   }
 }

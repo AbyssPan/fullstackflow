@@ -15,7 +15,6 @@
  * 使用场景:
  *   - commands/dispatch.js 决定该 Spawn 哪个 Agent 时，一并产出 agentPrompt，
  *     使主 Agent 只需原样注入，无需自行判断该拼什么
- *   - commands/advance-phase.js Phase 推进成功后构造下一 Phase 的 Agent prompt
  *   - 内部依赖 services/context-refresh.js 取摘要与契约清单、services/experience.js 取历史教训
  *   - 回归测试 __tests__/fixbugs-regression.test.js、figma-detection.test.js 直接断言其输出
  *
@@ -23,8 +22,8 @@
  *   - 设计原则 — 单一信源: 历史上 prompt 有两个来源（advance-phase.js 的 suggestedAgentPrompt 与
  *     dispatcher Agent 的 instruction/inputFiles），主 Agent 面对两个都自称权威的来源只能自行拼接，
  *     而「拼接」就是判断——判断权回到主 Agent 手里，正是流程失控的成因。
- *     本模块是 prompt 的唯一出口: advance-phase.js 与 dispatch.js 都调用它，
- *     主 Agent 只做原样注入，不做任何拼装
+ *     本模块是 prompt 的唯一构造器，只由 dispatch.js 在真正需要 Spawn 时调用；
+ *     advance-phase.js 只返回推进结果，主 Agent 推进后回 dispatch 取下一步。
  *   - 本模块为纯只读: 只读产出物文件，不写任何文件、不改状态
  *   - v2（需求10）: 不再内联截断契约内容——截断会导致关键信息（AC 全表、task-dag 全量文件、
  *     跨仓字段）丢失，让下游 Agent 基于残缺信息越做越错。改为只给完整文件路径，
@@ -34,8 +33,8 @@
  *       1. Story 背景资料（bug 分析报告，实测真实项目 10.5~27.5 KB）只在 Phase 0-1 注入。
  *          原实现无 Phase 过滤，Phase 5/6/7 的发布助手也被要求去读它 —— 做 git commit /
  *          知识库更新 / 云端部署根本用不上。报告在 Phase 0-1 已消化进契约文件。
- *       2. AGENT_CONSTRAINTS 从 5 条减到 2 条，删掉的 3 条已在 6/6 个 agent .md 里写明
- *          （agent .md 是子 Agent 的 system prompt，重复一遍不会更被遵守，只是重复计费）。
+ *       2. 全 Phase 常驻约束收敛为 1 条；代码检索约束只在 Phase 0-2 按需注入。
+ *          已在 agent .md 里写明的通用规则不再重复计费。
  *       3. 契约文件路径只打一次（原来相对 + 绝对各打一遍）。
  *     实测口径: agentPrompt 本身只占单次 spawn payload 的 7~17%（agent .md 是它的 6~13 倍），
  *     所以真正的收益来自「少一次大文件读」，不是「prompt 少几个字」。
@@ -56,12 +55,15 @@ const {
   getStoryMode,
   detectFigmaSource,
   readStateFile,
+  loadRepos,
   getMaxFixRounds,
   getTasksRequiringFigma
 } = require('../lib/state')
 
 const contextRefresh = require('./context-refresh')
 const experience = require('./experience')
+
+const toPosix = value => String(value || '').replace(/\\/g, '/')
 
 /**
  * Agent 通用约束（所有 Phase 的 Agent 都必须遵守）
@@ -71,15 +73,81 @@ const experience = require('./experience')
  *   - 由主 Agent 调 advance-phase.js 推进 phase → 6/6 都已写明 → 已删
  *   - 只产出本 Phase 产出物 + 汇报路径 → 本 prompt 末尾「## 完成后」段已单独写 → 已删
  *   - 禁止 shell 绕过写状态文件 → 只有 1/6（前端开发工程师）写了 → **保留**
- *   - kb-query + graphify 双源交叉验证 → 5/6 写了，发布助手 0 处 → **保留**（补它的缺口）
+ *   - 代码检索约束 → 只在 Phase 0-2 与仓库检索入口一起注入，发布阶段不重复计费
  *
  * 每条约束都会在 8 次 spawn 里各计费一次，而重复一遍并不会让已经写在 system prompt
  * 里的规则更被遵守 —— 所以这里的判据是「agent .md 有没有」，不是「重要不重要」。
  */
 const AGENT_CONSTRAINTS = [
-  '禁止通过 shell 命令绕过限制写 e2e-state.json / dev-pass.json（hook 会拦截并记录违规）',
-  '查找/定位代码时必须使用 kb-query + graphify 双源交叉验证，禁止仅用 Explore agent 或仅文本搜索'
+  '禁止通过 shell 命令绕过限制写 e2e-state.json / dev-pass.json（hook 会拦截并记录违规）'
 ]
+
+const SEARCH_CONSTRAINTS = [
+  '查找/定位代码时按「代码检索入口」选择 graphify 或已指定的 kb-query + Grep 降级路径，禁止猜测文件路径',
+  'graphify / Bash 在已标注图谱可用时仍检索失败，必须停下上报主 Agent，禁止静默降级后猜测实现'
+]
+
+/**
+ * 实测某仓库的 graphify 图谱状态，避免每个子 Agent 重复探测。
+ * @param {string} repoRoot
+ * @returns {{ built: boolean, label: string }}
+ */
+function probeGraphStatus (repoRoot) {
+  const graphPath = path.join(repoRoot, 'graphify-out', 'graph.json')
+  try {
+    const stat = fs.statSync(graphPath)
+    if (!stat.isFile()) return { built: false, label: '图谱：未建' }
+    const mb = stat.size / (1024 * 1024)
+    const size = mb >= 1 ? `${mb.toFixed(1)}MB` : `${Math.max(1, Math.round(mb * 1024))}KB`
+    return { built: true, label: `图谱：已建 ${size}` }
+  } catch (_) {
+    return { built: false, label: '图谱：未建' }
+  }
+}
+
+/**
+ * 只向需要代码检索的 Phase 注入「仓库路径 + 图谱客观状态 + cwd 规则」。
+ * Graphify 的完整用法由其 skill 按需披露，这里不重复说明。
+ * @param {string} storyId
+ * @param {number} targetPhase
+ * @returns {string[]}
+ */
+function buildRepoSearchEntries (storyId, targetPhase) {
+  if (![0, 1, 2].includes(targetPhase)) return []
+  const repos = loadRepos(storyId)
+  if (!repos || !repos.repos) return []
+
+  const names = [repos.primary, ...Object.keys(repos.repos).filter(name => name !== repos.primary)]
+    .filter(name => repos.repos[name])
+  const entries = names.map(name => ({
+    name,
+    root: repos.repos[name],
+    primary: name === repos.primary,
+    graph: probeGraphStatus(repos.repos[name])
+  }))
+  const hasGraph = entries.some(entry => entry.graph.built)
+
+  const lines = [
+    '## 🔎 代码检索入口',
+    '',
+    ...entries.map(entry =>
+      `- ${entry.name}${entry.primary ? '（主仓，即当前工作目录）' : ''} → \`${toPosix(entry.root)}\`（${entry.graph.label}）`
+    ),
+    '',
+    '检索统一走 `graphify` skill（`/graphify`）：`graphify query "<模块/关键词>"`。',
+    '',
+    '> 图谱按 **cwd** 解析：检索非主仓前先 `cd` 到上述目录。',
+    '',
+    hasGraph
+      ? '> 标注「已建」的仓库直接检索，无需再探测图谱。'
+      : '> 所有仓库均未建图谱：不要反复探测，改用 kb-query + Grep 双源交叉验证。',
+    ''
+  ]
+  if (hasGraph && entries.some(entry => !entry.graph.built)) {
+    lines.push('> 标注「未建」的仓库改用 kb-query + Grep，不要耗时探测。', '')
+  }
+  return lines
+}
 
 /**
  * 读取契约文件清单并格式化为 prompt 片段。
@@ -416,6 +484,10 @@ function buildAgentPrompt (opts) {
   const figmaAlignInstruction = buildFigmaAlignInstruction(storyId, targetPhase)
   // Figma 任务规划指令（Phase 1 任务规划师拆 task 时处理 Figma，产出 frame-inventory + 绑定 figmaRefs）
   const taskPlannerFigmaInstruction = buildTaskPlannerFigmaInstruction(storyId)
+  const repoSearchEntries = buildRepoSearchEntries(storyId, targetPhase)
+  const agentConstraints = repoSearchEntries.length > 0
+    ? [...AGENT_CONSTRAINTS, ...SEARCH_CONSTRAINTS]
+    : AGENT_CONSTRAINTS
 
   // 修复回路上下文
   const fixLoopContext = buildFixLoopContext(storyId, targetPhase)
@@ -465,8 +537,9 @@ function buildAgentPrompt (opts) {
     (storyMode === 'fixbugs' && targetPhase === 2)
       ? '## Bug 修复说明\nBug 事实（问题复述 / 复现步骤 / 代码定位 / 根因）已在 Phase 0 分析完毕、并在 Phase 1 消化进 `task-dag.json` 与 `acceptance-criteria.json`。\n**以契约文件为准动手**: `task-dag.json` 的 `files[]` 就是改动范围，`acceptanceCriteria` 关联的 AC 描述里带 Bug 编号。\n修复怎么改由你设计: 先用 kb-query ∥ graphify 双源交叉验证确认真实改动点，再给出实现。\n'
       : '',
+    repoSearchEntries.length > 0 ? repoSearchEntries.join('\n') : '',
     '## 约束',
-    ...AGENT_CONSTRAINTS.map(c => `- 🚫 ${c}`),
+    ...agentConstraints.map(c => `- 🚫 ${c}`),
     '',
     '## 完成后',
     '汇报产出物的完整路径，不要自行推进 Phase。'
@@ -478,7 +551,7 @@ function buildAgentPrompt (opts) {
     phaseInstruction: agentInfo ? agentInfo.instruction : null,
     agentPrompt: promptLines.filter(Boolean).join('\n'),
     contractFilesToLoad,
-    agentConstraints: AGENT_CONSTRAINTS,
+    agentConstraints,
     expectedOutputs,
     storyMode
   }
@@ -499,5 +572,8 @@ module.exports = {
   readFigmaDesignSpec,
   buildFigmaAlignInstruction,
   buildTaskPlannerFigmaInstruction,
-  AGENT_CONSTRAINTS
+  buildRepoSearchEntries,
+  probeGraphStatus,
+  AGENT_CONSTRAINTS,
+  SEARCH_CONSTRAINTS
 }

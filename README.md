@@ -6,7 +6,7 @@
 
 安装 **FullstackFlow** 插件后，你的 AI 编程助手（Claude Code / CodeBuddy Code）获得一条
 门控式全流程研发流水线：需求分析 → 任务规划 → 全栈开发 → 代码审查 → 功能测试 →
-Git/MR → 知识库更新 → 发布收尾 → 归档。用 `/fullstackflow:run` 一条命令拉起全流程，
+Git/MR → 知识库更新 → 发布收尾 → 归档。用 `/fsflow:run` 一条命令拉起全流程，
 也可以直接对 AI 说自然语言触发词。
 
 > 兼容 Claude Code 与 CodeBuddy Code，安装步骤完全一致。
@@ -36,7 +36,7 @@ Git/MR → 知识库更新 → 发布收尾 → 归档。用 `/fullstackflow:run
 
 | Phase | 阶段 | 负责 Agent | 关键产出物 |
 |---|---|---|---|
-| 0 | 需求分析 | 需求分析师 | requirement-analysis.md、acceptance-criteria.json、OpenSpec 规格 |
+| 0 | 需求分析 | 需求分析师 | requirement-analysis.md、内嵌 OpenSpec 语义的 acceptance-criteria.json |
 | 1 | 任务规划 | 任务规划师 | task-dag.json（DB→后端→前端→集成 DAG）、Figma 组件绑定 |
 | 2 | 代码开发 | 全栈开发工程师 | 前端 / 后端 / DB 代码变更（dev-pass 限域保护） |
 | 3 | 代码审查 | 代码审查师 | code-review.json（前端人工 + 后端内置规则库） |
@@ -49,7 +49,7 @@ Git/MR → 知识库更新 → 发布收尾 → 归档。用 `/fullstackflow:run
 
 ```mermaid
 flowchart LR
-    P0["Phase 0<br/>需求分析"] -->|"OpenSpec 规格校验通过"| P1["Phase 1<br/>任务规划"]
+    P0["Phase 0<br/>需求分析"] -->|"规格语义门控通过"| P1["Phase 1<br/>任务规划"]
     P1 -->|"门控通过<br/>签发 dev-pass（限域）"| P2["Phase 2<br/>代码开发"]
     P2 -->|"eslint / mvn compile 编译门控<br/>撤销 dev-pass"| P3["Phase 3<br/>代码审查"]
     P3 -->|"无 BLOCKER"| P4["Phase 4<br/>功能测试"]
@@ -97,7 +97,7 @@ flowchart TD
 - 验收标准（AC）与任务（Task）交叉引用校验，杜绝「AC 全绿但功能缺失」
 - Phase 2→3 按仓库类型自动跑**前端 eslint 或后端 mvn compile / gradle compileJava**，
   编译错误不再漏到云端构建才暴露
-- 需求分析产出 OpenSpec 规格经内置校验器（SHALL/MUST、Scenario 结构、Why 长度）把关
+- OpenSpec 的 Capability、增量类型、规范性 Requirement、Given/When/Then Scenario 直接内嵌到 AC，并由 Phase 0 门控强制校验；不生成重复的 `openspec/` 文件树
 
 ### 3. 权限控制（dev-pass）
 
@@ -131,11 +131,11 @@ AI 修改源码受 dev-pass 通行证约束：仅在开发阶段由脚本自动�
 
 ```
 /plugin marketplace add AbyssPan/fullstackflow
-/plugin install fullstackflow@fullstackflow-marketplace
+/plugin install fsflow@fullstackflow-marketplace
 ```
 
 添加市场不会自动安装插件，必须继续执行第二条命令。安装后用 `/plugin list` 确认包含
-`fullstackflow`，随后输入 `/fullstackflow:` 应能看到命令提示（冒烟测试详见
+`fsflow`，随后输入 `/fsflow:` 应能看到命令提示（冒烟测试详见
 [INSTALL.md](./INSTALL.md)）。
 
 > **安装前检查、冒烟测试、ajv 依赖排查、卸载等完整步骤请参阅 [INSTALL.md](./INSTALL.md)**。
@@ -144,16 +144,16 @@ AI 修改源码受 dev-pass 通行证约束：仅在开发阶段由脚本自动�
 
 ### 方式一：斜杠命令（推荐）
 
-插件命令会按宿主规范自动加 `fullstackflow:` 命名空间，常用姿势：
+插件命令会按宿主规范自动加 `fsflow:` 命名空间，常用姿势：
 
 ```
-/fullstackflow:run "开发订单中心退款功能"       # 新功能：AI 自动建 Story 并进入 run 模式
-/fullstackflow:fixbugs "订单列表页白屏"         # 缺陷修复：免原型文档
-/fullstackflow:status                           # 查看当前工作流状态
+/fsflow:run "开发订单中心退款功能"       # 新功能：AI 自动建 Story 并进入 run 模式
+/fsflow:fixbugs "订单列表页白屏"         # 缺陷修复：免原型文档
+/fsflow:status                           # 查看当前工作流状态
 ```
 
 `run` 和 `fixbugs` 分开后，常用场景无需再做模式猜测。兼容入口
-`/fullstackflow:fullstack` 仍会自动识别意图；信号不足时只询问一次。
+`/fsflow:fullstack` 仍会自动识别意图；信号不足时只询问一次。
 
 ### 方式二：自然语言触发词
 
@@ -175,15 +175,15 @@ AI 修改源码受 dev-pass 通行证约束：仅在开发阶段由脚本自动�
 
 | 命令 | 说明 |
 |---|---|
-| `/fullstackflow:run [storyId] "<需求描述>"` | 执行端到端新功能开发（8 Phase，含原型 / Figma 门控） |
-| `/fullstackflow:fixbugs [storyId] "<缺陷描述>"` | 根因分析并修复缺陷（免原型门控；可在描述中附 TAPD 信息） |
-| `/fullstackflow:status` | 查看当前 Story、Phase 与门控状态 |
-| `/fullstackflow:end` | 结束当前激活会话并解除源码编辑门控，不归档 Story |
-| `/fullstackflow:evolve [storyId\|all] [--check-only\|--propose-only]` | 运行自进化体检（audit → 度量 → 诊断 → 治疗 → 验证） |
-| `/fullstackflow:archive <storyId> <archive\|restore\|list\|status> [options]` | 归档、复档或查看归档历史；不会在缺少动作时默认归档 |
+| `/fsflow:run [storyId] "<需求描述>"` | 执行端到端新功能开发（8 Phase，含原型 / Figma 门控） |
+| `/fsflow:fixbugs [storyId] "<缺陷描述>"` | 根因分析并修复缺陷（免原型门控；可在描述中附 TAPD 信息） |
+| `/fsflow:status` | 查看当前 Story、Phase 与门控状态 |
+| `/fsflow:end` | 结束当前激活会话并解除源码编辑门控，不归档 Story |
+| `/fsflow:evolve [storyId\|all] [--check-only\|--propose-only]` | 运行自进化体检（audit → 度量 → 诊断 → 治疗 → 验证） |
+| `/fsflow:archive <storyId> <archive\|restore\|list\|status> [options]` | 归档、复档或查看归档历史；不会在缺少动作时默认归档 |
 
 > `<storyId>` 可省略，由 AI 根据描述生成。旧的统一形式可继续使用
-> `/fullstackflow:fullstack <run|fixbugs|status|end|evolve|archive> ...`。
+> `/fsflow:fullstack <run|fixbugs|status|end|evolve|archive> ...`。
 
 ## 最佳实践
 
@@ -225,7 +225,7 @@ AI 修改源码受 dev-pass 通行证约束：仅在开发阶段由脚本自动�
 
 | Agent | 注册名 | 职责要点 |
 |---|---|---|
-| 需求分析师 | `requirement-analyst` | Grill 四阶段结构化面试（目标对齐→架构决策→边界与风险→实现细节），产出 OpenSpec 规格与验收标准 |
+| 需求分析师 | `requirement-analyst` | Grill 四阶段结构化面试（目标对齐→架构决策→边界与风险→实现细节），产出内嵌 OpenSpec 语义的验收契约 |
 | 任务规划师 | `task-planner` | 任务 DAG（DB→后端→前端→集成），有 Figma 设计稿时逐 UI 任务绑定 figmaRefs |
 | 全栈开发工程师 | `fullstack-developer` | 前端 / 后端 / DB 贯通实现——分层架构、类型化 VO、DTO 校验、事务并发、SQL 规范 |
 | 代码审查师 | `code-reviewer` | 前端人工审查 + 后端内置规则库审查（零外部依赖）+ 项目规范复核（分层 / 事务 / SQL / 前后端契约一致性） |
@@ -282,10 +282,10 @@ CodeBuddy Code 中加载，避免因模型下线或宿主不识别而导致 Agen
 
 | 能力 | 实现方式 |
 |---|---|
-| OpenSpec 规格校验 | 内置 `scripts/commands/validate-openspec.js`（Requirement 含 SHALL/MUST、`#### Scenario:` 结构、Why ≥50 字符等硬阈值），Phase 0/1 产出后自检 |
+| OpenSpec 规格门控 | `policy.js` 在 Phase 0 强制校验 Why/Non-Goals/Decisions/Capabilities/Risks、规范性 Requirement 与 Given/When/Then；Phase 1 校验功能点→AC→Task 追踪链，无需独立 OpenSpec CLI 或文件目录 |
 | 后端代码审查 | 内置规则库 `skills/harness-conductor/references/review-rules/`（default 五维度 / Java / TS·JS / Mapper XML，均含「不报告」防误报护栏），由审查师模型逐文件执行 |
 | JSON Schema 校验 | 内置 `vendor/ajv.bundle.js`（免 npm install） |
-| 发布前验证 | `npm run verify`：插件结构一致性检查 + 6 组回归测试（当前 255 项断言） |
+| 发布前验证 | `npm run verify`：插件结构一致性检查 + 7 组回归测试（当前 278 项断言） |
 
 可选增强（按需配置，不配置时各 agent 自动降级）：Figma MCP（设计稿拉取）、devops MCP（前端云端构建）、
 GitLab MCP（MR 管理）、TAPD（需求/缺陷导入）、Playwright MCP（前端实跑测试）。
@@ -302,9 +302,9 @@ debt 并在 Evo Score 扣分，不阻断流程）。
 |---|---|
 | 市场添加后无法加载 | 确认 GitHub 地址可访问，仓库根目录存在 `.claude-plugin/marketplace.json` / `.codebuddy-plugin/marketplace.json` |
 | 安装时提示「路径未找到」 | 使用 Git 型市场（`https://...git`），不要用 URL 型 |
-| 命令补全里找不到旧短入口 | 插件命令必须带命名空间，请输入 `/fullstackflow:`；重载插件（`/reload-plugins` 或重启宿主）后再试 |
+| 命令补全里找不到旧短入口 | 插件命令必须带命名空间，请输入 `/fsflow:`；重载插件（`/reload-plugins` 或重启宿主）后再试 |
 | Skill 不响应触发词 | 用 `/plugin list` 确认已安装并启用，再执行 `/reload-plugins` 或重启宿主 |
-| 报 `Cannot find module 'ajv'` | 确认 `plugins/fullstackflow/vendor/ajv.bundle.js` 存在，`git pull` 同步（**不要** `npm install`） |
+| 报 `Cannot find module 'ajv'` | 确认 `plugins/fsflow/vendor/ajv.bundle.js` 存在，`git pull` 同步（**不要** `npm install`） |
 | 报 `e2e-state.json 不存在` | 冷启动场景：先说「做个需求」走 harness-start 建流，或按 terminal 恢复命令执行 restore 复档 |
 | dev-pass 拦截了源码编辑 | 正常行为——确认当前处于 Phase 2 且目标文件在 task-dag.json 的 `files[]` 限域内；开发未完成但 pass 过期用 `--renew-pass` 续签 |
 | Story 目录被清空了 | 已归档：root 文件在 `archive/round-{N}/`，执行 restore 命令可完全复原 |
@@ -314,7 +314,7 @@ debt 并在 Evo Score 扣分，不阻断流程）。
 ### 卸载
 
 ```
-/plugin uninstall fullstackflow@fullstackflow-marketplace
+/plugin uninstall fsflow@fullstackflow-marketplace
 /plugin marketplace remove fullstackflow-marketplace
 ```
 
@@ -337,7 +337,7 @@ fullstackflow/
         ├── skills/                      # 11 个技能（工作流 / 知识库 / 辅助工具）
         ├── hooks/hooks.json             # 5 类安全护栏钩子
         ├── output-styles/harness.md     # 汇报输出风格
-        ├── scripts/                     # dispatch / advance-phase / archive / validate-openspec 等
+        ├── scripts/                     # dispatch / advance-phase / archive / policy 门控等
         ├── scripts/audit/plugin-check.js # manifest / 命令 / Skill / Hook 一致性检查
         ├── scripts/__tests__/           # 6 组回归测试（当前 255 项断言）
         └── vendor/ajv.bundle.js         # 内置 ajv（免 npm install）

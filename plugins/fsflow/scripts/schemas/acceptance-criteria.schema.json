@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Acceptance Criteria Schema",
+  "description": "验收标准契约校验规则",
+  "type": "object",
+  "required": ["criteria"],
+  "properties": {
+    "featurePoints": {
+      "type": "array",
+      "minItems": 1,
+      "description": "需求文档/原型中枚举出的功能点 → AC 覆盖映射。run 模式必填，用于门控校验 PRD 功能点是否全部落到 AC 上（防止功能整条漏配）",
+      "items": {
+        "type": "object",
+        "required": ["id", "source", "coverage"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^FP-\\d+$" },
+          "source": { "type": "string", "minLength": 1, "description": "该功能点在需求文档/原型中的定位（章节标题、页面名或原文摘录）" },
+          "coverage": { "type": "string", "enum": ["covered", "deferred"] },
+          "acIds": { "type": "array", "items": { "type": "string", "pattern": "^AC-\\d+$" }, "description": "coverage=covered 时必填且非空" },
+          "deferredReason": { "type": "string", "minLength": 1, "description": "coverage=deferred 时必填，说明本次不做的原因" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "criteria": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "capability", "changeType", "description", "testType", "given", "when", "then"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^AC-\\d+$" },
+          "title": { "type": "string" },
+          "capability": { "type": "string", "minLength": 1, "description": "OpenSpec 能力域；任务规划按此分组，不再另建 openspec/specs 目录" },
+          "changeType": { "type": "string", "enum": ["added", "modified", "removed"], "description": "OpenSpec 增量规格语义" },
+          "description": { "type": "string", "minLength": 1, "description": "规范性 Requirement，必须包含 SHALL/MUST/必须/不得/应当之一" },
+          "project": { "type": ["string", "null"] },
+          "repoPath": { "type": ["string", "null"] },
+          "testType": {
+            "type": "string",
+            "enum": ["ui", "ui-static", "api", "integration"],
+            "description": "验收类型。ui=需运行时交互断言（点击/禁用态/视觉，需 Playwright/人工点验）；ui-static=静态可验证的 UI 断言（纯文案/样式/无状态逻辑，代码级验证即可，不计入 unverifiable 死锁）；api=接口；integration=跨项目联调"
+          },
+          "given": { "type": "string", "minLength": 1 },
+          "when": { "type": "string", "minLength": 1 },
+          "then": { "type": "string", "minLength": 1 },
+          "figmaNodeId": { "type": "string" },
+          "interfaceRef": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

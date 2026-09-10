@@ -46,7 +46,7 @@
 ### 第 2 步：安装插件
 
 ```
-/plugin install fullstackflow@fullstackflow-marketplace
+/plugin install fsflow@fullstackflow-marketplace
 ```
 
 ### 第 3 步：重载生效
@@ -55,7 +55,7 @@
 /plugin list
 ```
 
-确认列表包含 `fullstackflow` 即安装成功。若未出现，重启宿主或执行 `/reload-plugins`。
+确认列表包含 `fsflow` 即安装成功。若未出现，重启宿主或执行 `/reload-plugins`。
 
 ## 冒烟测试
 
@@ -63,12 +63,12 @@
 
 ### 1. Slash Command 可达性
 
-在输入框输入 `/fullstackflow:`，应出现 `run`、`fixbugs`、`status`、`end`、`evolve`、
+在输入框输入 `/fsflow:`，应出现 `run`、`fixbugs`、`status`、`end`、`evolve`、
 `archive` 和兼容入口 `fullstack`。插件命令必须带命名空间，未加命名空间的短入口不会被注册。
 执行：
 
 ```
-/fullstackflow:status
+/fsflow:status
 ```
 
 预期：AI 执行 `harness-workflow.js status` 并转述结果（冷启动场景返回 terminal 状态属正常）。
@@ -88,7 +88,7 @@
 ### 3. 零依赖运行时自检（开发者向，可选）
 
 ```
-cd plugins/fullstackflow && npm run check
+cd plugins/fsflow && npm run check
 ```
 
 预期输出 `✅ 插件一致性检查通过`。该检查覆盖宿主 manifest、双市场清单、命令入口、
@@ -97,17 +97,20 @@ Skill / Agent frontmatter、Hook 脚本引用、全部 JSON 与 JavaScript 语�
 ### 4. 单元测试（仅插件开发者）
 
 ```
-cd plugins/fullstackflow && npm run verify
+cd plugins/fsflow && npm run verify
 ```
 
-预期：插件一致性检查通过，且 `✅ 6 个测试文件全部通过`（当前 255 项断言）。
+预期：插件一致性检查通过，且 `✅ 7 个测试文件全部通过`（当前 278 项断言）。
 
 ## 更新插件
 
 ```
 /plugin marketplace update fullstackflow-marketplace
-/plugin update fullstackflow@fullstackflow-marketplace
+/plugin update fsflow@fullstackflow-marketplace
 ```
+
+从 `fullstackflow` 命名空间升级时，旧插件名无法原地改名，需先执行
+`/plugin uninstall fullstackflow@fullstackflow-marketplace`，再安装 `fsflow@fullstackflow-marketplace`。
 
 或删除缓存后重装（彻底同步）：
 
@@ -125,7 +128,7 @@ rm -rf ~/.claude/plugins/cache      # Claude Code（路径以宿主实际为准�
 内置 ajv 文件缺失。检查：
 
 ```
-ls plugins/fullstackflow/vendor/ajv.bundle.js
+ls plugins/fsflow/vendor/ajv.bundle.js
 ```
 
 不存在则 `git pull` 同步仓库（或重新 `marketplace update`）。
@@ -163,7 +166,7 @@ hook 超时默认 5–10 秒。若机器过慢导致偶发拦截，重启会话�
 ### 1. 移除插件
 
 ```
-/plugin uninstall fullstackflow@fullstackflow-marketplace
+/plugin uninstall fsflow@fullstackflow-marketplace
 /plugin marketplace remove fullstackflow-marketplace
 ```
 
@@ -173,7 +176,7 @@ hook 超时默认 5–10 秒。若机器过慢导致偶发拦截，重启会话�
 |---|---|---|
 | `.codebuddy/plans/` | Story 状态、trace、归档轮次 | 无进行中需求即可删 |
 | `.docs/llm-knowledge/` | 知识库文档（域文档 / 编码规范 / 踩坑记录） | 团队共享文档，建议保留或另行归档 |
-| `openspec/`（项目根，若曾手动创建） | 规格产物 | 本插件已不再写入该目录，按项目实际情况处理 |
+| `openspec/`（项目根或旧 Story 中，若曾创建） | 旧版重复规格产物 | 新版已将 OpenSpec 规则内嵌到门控，不再写入；按项目实际情况处理 |
 
 ### 3. 清缓存（彻底移除）
 

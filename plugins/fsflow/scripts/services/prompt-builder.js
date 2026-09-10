@@ -477,16 +477,15 @@ function buildAgentPrompt (opts) {
   // 本 Story 原始输入（仅 Phase 0 注入完整内容）
   const storyInputSection = buildStoryInputSection(storyId, targetPhase)
   const storyMode = getStoryMode(storyId)
-  const kbPreflightInstruction = targetPhase === 2
+  const kbPreflightInstruction = targetPhase === 0
     ? [
-        '## 知识库前置确认（编码前执行）',
-        '在执行任何 task、修改代码或并行 Spawn 开发 Agent 前，按 task-dag.json / repos.json 逐仓检查 `.docs/llm-knowledge/meta.yaml`。',
-        '- 已存在：禁止重建，直接执行 kb-query。',
-        '- 不存在：编码前询问用户“项目知识库尚未初始化，是否现在初始化？”。同意则依次调用 `use_skill("fsflow:kb-init")` 和 `use_skill("fsflow:gen-project-docs")` 全量模式，完成后重新执行 kb-query。',
-        '- 用户拒绝：执行 `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/trace.js" phase-outcome <storyId> 2 skipped_by_user \'{"reason":"knowledge_base_initialization_declined"}\'` 记录决定，然后允许继续编码，并在交付说明中注明未使用知识库。',
-        '- 多仓库一次列出缺库仓库；用户同意后按仓库串行初始化，再并行编码。',
-        '- 初始化或全量生成失败：报告失败并询问是否降级继续，不得自行决定。',
-        '- Phase 6 复用本次决定：已有知识库则增量更新；Phase 2 已拒绝则不重复询问。',
+        '## 知识库前置确认（需求分析开始时唯一执行）',
+        '只读取 story-input.json 和必要仓库信息，先确定本 Story 明确涉及的仓库，逐仓检查 `.docs/llm-knowledge/meta.yaml`，然后才进行实质需求分析。',
+        '- 已存在：禁止重建，后续直接执行 kb-query。',
+        '- 不存在：一次列出缺库仓库并询问用户是否现在初始化。同意则按仓库串行调用 `use_skill("fsflow:kb-init")` 和 `use_skill("fsflow:gen-project-docs")` 全量模式。',
+        '- 用户拒绝：执行 `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/trace.js" phase-outcome <storyId> 0 skipped_by_user \'{"reason":"knowledge_base_initialization_declined"}\'` 记录决定，然后继续需求分析。',
+        '- 初始化或全量生成失败：报告失败并询问是否无知识库继续；获得用户确认后留痕。',
+        '- 这是唯一初始化确认点；后续 Phase 不得重复询问、初始化或全量生成。',
         ''
       ].join('\n')
     : ''

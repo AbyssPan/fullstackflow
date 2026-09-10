@@ -36,21 +36,21 @@ Git/MR → 知识库更新 → 发布收尾 → 归档。用 `/fsflow:run` 一�
 
 | Phase | 阶段 | 负责 Agent | 关键产出物 |
 |---|---|---|---|
-| 0 | 需求分析 | 需求分析师 | requirement-analysis.md、内嵌 OpenSpec 语义的 acceptance-criteria.json |
+| 0 | 知识库前置确认 + 需求分析 | 需求分析师 | 缺库时经用户确认后全量生成或留痕拒绝；requirement-analysis.md、内嵌 OpenSpec 语义的 acceptance-criteria.json |
 | 1 | 任务规划 | 任务规划师 | task-dag.json（DB→后端→前端→集成 DAG）、Figma 组件绑定 |
-| 2 | 知识库前置确认 + 代码开发 | 全栈开发工程师 | 缺库时经用户确认后全量生成或记录拒绝，再产出代码变更（dev-pass 限域保护） |
+| 2 | 代码开发 | 全栈开发工程师 | 代码变更（dev-pass 限域保护） |
 | 3 | 代码审查 | 代码审查师 | code-review.json（前端人工 + 后端内置规则库） |
 | 4 | 功能测试 | 测试工程师 | test-report.md、acceptance-verification.json |
 | 5 | Git 提交 + MR | 发布助手 | 提交开发分支 + 创建 MR（→ dev）+ 确认已合并（三点用户确认） |
-| 6 | 知识库增量更新 | 发布助手 | 已有知识库时增量更新；缺库时复用 Phase 2 的用户决定 |
+| 6 | 知识库增量更新 | 发布助手 | 已有知识库时增量更新；缺库时留痕跳过，不再确认初始化 |
 | 7 | 发布收尾 | 发布助手 | 前端：devops MCP 云端构建 + 部署 URL；后端：确认合并即收尾 |
 
 #### 8 Phase 横向流转
 
 ```mermaid
 flowchart LR
-    P0["Phase 0<br/>需求分析"] -->|"规格语义门控通过"| P1["Phase 1<br/>任务规划"]
-    P1 -->|"门控通过<br/>签发 dev-pass（限域）"| P2["Phase 2<br/>知识库确认 + 代码开发"]
+    P0["Phase 0<br/>知识库确认 + 需求分析"] -->|"规格语义门控通过"| P1["Phase 1<br/>任务规划"]
+    P1 -->|"门控通过<br/>签发 dev-pass（限域）"| P2["Phase 2<br/>代码开发"]
     P2 -->|"eslint / mvn compile 编译门控<br/>撤销 dev-pass"| P3["Phase 3<br/>代码审查"]
     P3 -->|"无 BLOCKER"| P4["Phase 4<br/>功能测试"]
     P4 -->|"AC 全通过"| P5["Phase 5<br/>提交 + MR → dev"]
@@ -168,8 +168,8 @@ AI 修改源码受 dev-pass 通行证约束：仅在开发阶段由脚本自动�
 | 生成 API 请求层代码 | 提供 Swagger JSON / api doc，「按模块生成接口定义」 |
 | 归档已完成的 Story | 「归档本次需求」 |
 
-> 首次使用建议：先说「初始化知识库」建立 `.docs/llm-knowledge/`，后续需求分析与
-> 改代码会自动检索注入历史教训。
+> 首次启动 `run` / `fixbugs` 时，需求分析师会先检查知识库；缺失时询问是否初始化并全量生成，
+> 无需另行启动初始化流程。
 
 ## 常用命令
 
@@ -213,7 +213,7 @@ AI 修改源码受 dev-pass 通行证约束：仅在开发阶段由脚本自动�
 - **默认最多 2 轮**，超出后转人工介入，不让 AI 无限重试空转。
 
 ### 6. 知识库（KB）
-- 新项目先 `kb-init` 初始化知识库骨架。
+- 新项目在 Phase 0 需求分析开始时确认：用户同意后由 `kb-init` + `gen-project-docs` 完成初始化与全量生成。
 - 需求分析 / 改代码前用 `kb-query` 分层检索，历史教训自动注入各 Phase 的 prompt。
 - 任务完成后 `kb-update` 增量同步，保留手工批注。
 

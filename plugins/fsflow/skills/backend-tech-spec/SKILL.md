@@ -27,16 +27,15 @@ description: 后端开发规范解析与执行。用于新增或修改后端代�
 
 ## 编码前解析
 
-1. 确认目标仓库 `.docs/llm-knowledge/meta.yaml` 是否存在。若不存在，在编码前询问用户：同意则调用 `fsflow:kb-init` 和 `fsflow:gen-project-docs` 全量生成；拒绝则记录 `skipped_by_user` 并继续，不得替用户决定。
-2. 通过 `fsflow:kb-query` 查询当前业务域的 `overview.md`、`architecture.md`、`api.md`、`pitfalls.md` 和 `custom/` 中的规范。
-3. 读取任务涉及模块的构建文件、框架配置、格式化/检查配置及 2–3 个相邻实现，确认语言、框架、版本、目录、API、持久化、时间类型、注入方式和测试方式。
-4. 按变更文件类型读取上述内置审查规则：Java 读 `java.md`，Mapper/DAO XML 读 `mapper_dao_xml.md`，其他后端文件读 `default.md`。这些规则高于本 skill 的默认规范；规则未覆盖的事项才由本 skill 补位。
-5. 形成一份简短的“本次适用规范”：
+1. 通过 `fsflow:kb-query` 查询当前业务域的 `overview.md`、`architecture.md`、`api.md`、`pitfalls.md` 和 `custom/` 中的规范。知识库若未初始化，直接使用仓库事实与下级规则；不在本 skill 中再次询问或初始化。
+2. 读取任务涉及模块的构建文件、框架配置、格式化/检查配置及 2–3 个相邻实现，确认语言、框架、版本、目录、API、持久化、时间类型、注入方式和测试方式。
+3. 按变更文件类型读取上述内置审查规则：Java 读 `java.md`，Mapper/DAO XML 读 `mapper_dao_xml.md`，其他后端文件读 `default.md`。这些规则高于本 skill 的默认规范；规则未覆盖的事项才由本 skill 补位。
+4. 形成一份简短的“本次适用规范”：
    - `项目规则`：来自知识库或仓库的明确要求；
    - `沿用约定`：从相邻代码确认的稳定模式；
    - `默认补位`：项目未规定、由本 skill 提供的规则；
    - `冲突/未知`：需要兼容处理或在交付中说明的事项。
-6. 仅加载与实际技术栈匹配的参考。Java + Spring Boot + MyBatis/MyBatis-Plus 项目或新项目采用该栈时，读取 [references/java-spring-boot.md](references/java-spring-boot.md)。其他后端技术栈只执行本文件中的通用基线，不强行套用 Java 约定。
+5. 仅加载与实际技术栈匹配的参考。Java + Spring Boot + MyBatis/MyBatis-Plus 项目或新项目采用该栈时，读取 [references/java-spring-boot.md](references/java-spring-boot.md)。其他后端技术栈只执行本文件中的通用基线，不强行套用 Java 约定。
 
 不要为了“统一”而批量改写任务范围外的旧代码、目录或 API。
 

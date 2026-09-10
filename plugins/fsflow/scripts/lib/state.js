@@ -296,7 +296,7 @@ const PHASE_ARTIFACTS = {
     ]
   },
   5: { artifacts: [{ fileName: null, description: 'Git commit + push', contract: false }] },
-  6: { artifacts: [{ fileName: null, description: '知识库已增量更新，或已复用 Phase 2 的 skipped_by_user 决定', contract: false }] },
+  6: { artifacts: [{ fileName: null, description: '已有知识库时已增量更新；未初始化时已留痕跳过', contract: false }] },
   7: { artifacts: [{ fileName: null, description: '部署 URL + 构建号', contract: false }] }
 }
 
@@ -317,7 +317,7 @@ const PHASE_AGENTS = {
   0: {
     agent: 'requirement-analyst',
     label: '需求分析师',
-    instruction: '读取需求输入（PRD / bug 分析报告 / 用户补充说明），产出需求分析文档、可测试的验收标准和待确认问题'
+    instruction: '启动后先执行唯一的知识库前置确认：缺库时经用户确认后初始化并全量生成，或记录用户拒绝；然后读取需求输入，产出需求分析文档、可测试的验收标准和待确认问题'
   },
   1: {
     agent: 'task-planner',
@@ -327,7 +327,7 @@ const PHASE_AGENTS = {
   2: {
     agent: 'fullstack-developer',
     label: '全栈开发工程师',
-    instruction: '编码前检查本 Story 涉及仓库的知识库：缺失时经用户确认后初始化并全量生成，或记录用户拒绝；随后按 task-dag.json 的批次执行开发任务。同一 batch 内的任务可并行 Spawn 多个开发者 Agent，batch 之间串行'
+    instruction: '按 task-dag.json 的批次执行开发任务。同一 batch 内的任务可并行 Spawn 多个开发者 Agent，batch 之间串行；使用 Phase 0 已准备好的知识库上下文，不再执行初始化确认'
   },
   3: {
     agent: 'code-reviewer',
@@ -347,7 +347,7 @@ const PHASE_AGENTS = {
   6: {
     agent: 'release-assistant',
     label: '发布助手',
-    instruction: '复用 Phase 2 的知识库决定：meta.yaml 存在时调用 kb-update 增量更新；缺失且 Phase 2 已记录 skipped_by_user 时同步记录 Phase 6 skipped_by_user，不重复询问；旧 Story 无前置记录时才按兼容流程询问'
+    instruction: '仅执行知识库收尾：meta.yaml 存在时调用 kb-update 增量更新；不存在时直接留痕跳过。本 Phase 不询问、不初始化、不全量生成'
   },
   7: {
     agent: 'release-assistant',

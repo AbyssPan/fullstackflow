@@ -21,6 +21,7 @@ function ok (name, condition) {
 console.log('\n-- 后端规范优先级与 Agent 集成 --')
 
 const spec = read('skills/backend-tech-spec/SKILL.md')
+const analyst = read('agents/需求分析师.md')
 const developer = read('agents/全栈开发工程师.md')
 const reviewer = read('agents/代码审查师.md')
 
@@ -29,9 +30,10 @@ ok('项目知识库位于内置审查规则之前',
   spec.indexOf('当前项目知识库') < spec.indexOf('OpenCodeReview 抽取规则'))
 ok('内置审查规则位于 Skill 默认规范之前',
   spec.indexOf('OpenCodeReview 抽取规则') < spec.indexOf('本 skill 的默认规范'))
-ok('开发 Agent 在编码前确认知识库初始化且允许记录拒绝',
-  /知识库前置确认/.test(developer) && /fsflow:kb-init/.test(developer) &&
-  /fsflow:gen-project-docs/.test(developer) && /phase-outcome <storyId> 2 skipped_by_user/.test(developer))
+ok('只有需求分析 Agent 执行知识库初始化确认',
+  /唯一的知识库初始化确认点/.test(analyst) && /fsflow:kb-init/.test(analyst) &&
+  /fsflow:gen-project-docs/.test(analyst) && /phase-outcome <storyId> 0 skipped_by_user/.test(analyst) &&
+  !/知识库前置确认/.test(developer) && !/fsflow:kb-init/.test(developer))
 ok('开发 Agent 调用 backend-tech-spec', /use_skill\("fsflow:backend-tech-spec"\)/.test(developer))
 ok('开发 Agent 预读 OpenCodeReview 规则', /预读内置 OpenCodeReview 规则/.test(developer))
 ok('审查 Agent 调用 backend-tech-spec', /use_skill\("fsflow:backend-tech-spec"\)/.test(reviewer))

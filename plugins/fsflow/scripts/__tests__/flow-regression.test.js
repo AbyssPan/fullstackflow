@@ -8,7 +8,7 @@
  *   5. dispatch 是 prompt 唯一出口；advance-phase.js 只返回推进结果
  *   5b. Graphify 仓库状态与 cwd 入口注入
  *   5c. review-only 显式跳过独立功能测试，full 默认不变
- *   6. Phase 2 知识库前置初始化 + Phase 6 增量更新与旧 Story 恢复兼容
+ *   6. Phase 0 唯一知识库前置确认 + Phase 6 仅增量收尾
  *
  * 无外部依赖，用临时沙箱（同时覆盖 CODEBUDDY/CLAUDE_PROJECT_DIR），跑完自动清理。
  *
@@ -264,17 +264,18 @@ ok('review-only 推进后将 Phase 4 标记为 skipped',
   (quickAdvance.stdout || '') + (quickAdvance.stderr || ''))
 
 // ═══════════════════════════════════════════════════════════
-section('5d. Phase 2 编码前知识库前置确认')
+section('5d. Phase 0 需求分析开始时的唯一知识库前置确认')
 
+const p0Kb = promptBuilder.buildAgentPrompt({ storyId: 'FG1-OK', targetPhase: 0, summaryPhase: -1 })
 const p2Kb = promptBuilder.buildAgentPrompt({ storyId: 'FG1-OK', targetPhase: 2, summaryPhase: 1 })
-ok('Phase 2 prompt 注入知识库前置确认', /知识库前置确认/.test(p2Kb.agentPrompt))
-ok('Phase 2 缺库时先询问，再支持 kb-init + gen-project-docs 全量生成',
-  /是否现在初始化/.test(p2Kb.agentPrompt) && /kb-init/.test(p2Kb.agentPrompt) && /gen-project-docs/.test(p2Kb.agentPrompt) && /全量模式/.test(p2Kb.agentPrompt))
-ok('Phase 2 用户拒绝后记录并允许继续编码', /用户拒绝/.test(p2Kb.agentPrompt) && /skipped_by_user/.test(p2Kb.agentPrompt) && /允许继续编码/.test(p2Kb.agentPrompt))
-ok('Phase 2 多仓库同意初始化后先串行再并行', /多仓库一次列出/.test(p2Kb.agentPrompt) && /串行初始化/.test(p2Kb.agentPrompt) && /再并行编码/.test(p2Kb.agentPrompt))
+ok('Phase 0 prompt 注入唯一知识库前置确认', /知识库前置确认/.test(p0Kb.agentPrompt) && /唯一执行/.test(p0Kb.agentPrompt))
+ok('Phase 0 缺库时先询问，再支持 kb-init + gen-project-docs 全量生成',
+  /是否现在初始化/.test(p0Kb.agentPrompt) && /kb-init/.test(p0Kb.agentPrompt) && /gen-project-docs/.test(p0Kb.agentPrompt) && /全量模式/.test(p0Kb.agentPrompt))
+ok('Phase 0 用户拒绝后留痕并继续需求分析', /phase-outcome <storyId> 0 skipped_by_user/.test(p0Kb.agentPrompt) && /继续需求分析/.test(p0Kb.agentPrompt))
+ok('Phase 2 不再注入初始化确认逻辑', !/知识库前置确认/.test(p2Kb.agentPrompt) && !/fsflow:kb-init/.test(p2Kb.agentPrompt) && !/gen-project-docs/.test(p2Kb.agentPrompt))
 
 // ═══════════════════════════════════════════════════════════
-section('6. Phase 6 增量更新 + 旧 Story 兼容')
+section('6. Phase 6 仅执行增量更新或缺库留痕')
 
 const dir6 = storyDir('KB6-SKIP')
 fs.mkdirSync(dir6, { recursive: true })
@@ -285,25 +286,25 @@ fs.writeFileSync(path.join(dir6, 'e2e-state.json'), JSON.stringify({
 const p6 = promptBuilder.buildAgentPrompt({ storyId: 'KB6-SKIP', targetPhase: 6, summaryPhase: 5 })
 ok('Phase 6 prompt 先检查 meta.yaml', /meta\.yaml/.test(p6.agentPrompt))
 ok('Phase 6 正常职责是 kb-update 增量更新', /kb-update/.test(p6.agentPrompt) && /增量更新/.test(p6.agentPrompt))
-ok('Phase 6 复用 Phase 2 的用户拒绝记录', /Phase 2 已记录 skipped_by_user/.test(p6.agentPrompt) && /不重复询问/.test(p6.agentPrompt))
-ok('Phase 6 对无前置记录的旧 Story 保留兼容询问', /旧 Story/.test(p6.agentPrompt) && /兼容流程询问/.test(p6.agentPrompt))
+ok('Phase 6 缺库时直接留痕跳过', /meta\.yaml/.test(p6.agentPrompt) && /不存在时直接留痕跳过/.test(p6.agentPrompt))
+ok('Phase 6 不再询问或执行初始化', /不询问、不初始化、不全量生成/.test(p6.agentPrompt) && !/兼容流程询问/.test(p6.agentPrompt))
 
 const missingOutcomeGate = policy.runGateCheck('KB6-SKIP', 6, state.readStateFile('KB6-SKIP'))
 ok('Phase 6 无结果证据时禁止直接进 Phase 7', missingOutcomeGate.blockers.some(b =>
   b.type === 'phase6_outcome_missing'))
 
 trace.tracePhaseOutcome('KB6-SKIP', 6, 'skipped_by_user', {
-  reason: 'knowledge_base_initialization_declined'
+  reason: 'knowledge_base_not_initialized'
 })
 const kbEvidence = contextRefresh.getRuntimeEvidence('KB6-SKIP', 6)
-ok('旧 Story 的 skipped_by_user 仍可读取', contextRefresh.readTrace('KB6-SKIP').some(e =>
+ok('缺库 skipped_by_user 结果可读取', contextRefresh.readTrace('KB6-SKIP').some(e =>
   e.type === 'phase_outcome' && e.phase === '6' && e.result === 'skipped_by_user'))
-ok('旧 Story summary 仍能呈现 skipped_by_user', kbEvidence.some(line => /skipped_by_user/.test(line)),
+ok('summary 能呈现 skipped_by_user', kbEvidence.some(line => /skipped_by_user/.test(line)),
   JSON.stringify(kbEvidence))
-ok('旧 Story skipped_by_user 证据仍不阻断 Phase 7', kbEvidence.some(line => /不阻断 Phase 7/.test(line)),
+ok('skipped_by_user 证据不阻断 Phase 7', kbEvidence.some(line => /不阻断 Phase 7/.test(line)),
   JSON.stringify(kbEvidence))
 const skippedOutcomeGate = policy.runGateCheck('KB6-SKIP', 6, state.readStateFile('KB6-SKIP'))
-ok('旧 Story skipped_by_user 记录仍可恢复放行', skippedOutcomeGate.passed,
+ok('skipped_by_user 记录可恢复放行', skippedOutcomeGate.passed,
   JSON.stringify(skippedOutcomeGate.blockers))
 
 // ════════════════════════════════════════════════════════════

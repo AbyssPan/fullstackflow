@@ -13,6 +13,28 @@ PRD / Swagger 契约 / bug 分析报告 / 用户补充说明），先走 **Grill
 Given/When/Then Scenario）和待确认问题。不生成独立 `openspec/` 目录。
 Agent 内部需调用 `use_skill("fsflow:kb-query")` 检索项目知识库。
 
+## 知识库前置确认
+
+这是全流程**唯一**的知识库初始化确认点。需求分析师启动后，先根据
+`story-input.json` 和必要的仓库信息确定本 Story 明确涉及的仓库，逐仓检查
+`.docs/llm-knowledge/meta.yaml`：
+
+```text
+meta.yaml 存在   → 禁止重建 → kb-query → 需求分析
+meta.yaml 不存在 → 一次列出缺库仓库并询问用户
+  ├─ 同意        → 按仓库串行 kb-init + gen-project-docs 全量生成 → 需求分析
+  └─ 拒绝        → 记录 Phase 0 skipped_by_user → 继续需求分析
+```
+
+用户拒绝时留痕：
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/trace.js" phase-outcome <storyId> 0 skipped_by_user '{"reason":"knowledge_base_initialization_declined"}'
+```
+
+初始化/全量生成失败时报告失败，询问用户是否在无知识库情况下继续，不得自行决定。
+后续 Phase 不再询问、初始化或全量生成。
+
 `mode=fixbugs` 时该 Agent 自行 `use_skill("fsflow:tapd-bug-analyzer")` 拉取并分析 TAPD 缺陷 ——
 主 Agent 不做这件事，也不调任何 TAPD MCP 工具。
 

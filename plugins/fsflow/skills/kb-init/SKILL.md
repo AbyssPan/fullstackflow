@@ -87,6 +87,8 @@ AI 需**读取这些来源文件，总结编码规范**，填充 `common/convent
 
 写入 **`.docs/llm-knowledge/meta.yaml`**。基于扫描到的域，填充 `meta.yaml` 的 `domains[]`（每个域含 `id/path/entry_files/description`）和 `git.hash`。
 
+后端项目必须按**业务域聚合**写入 `entry_files`，禁止按 Java/Kotlin 类生成独立知识库文档。标准 Maven/Spring Boot 项目中，`kb-init.cjs` 会输出 `domainFileHints`，AI 应优先使用这些线索把同一业务域的 Controller/Service/Mapper/Entity/DTO/XML 聚合到同一个 domain。
+
 ### Step 6: 输出报告
 
 ```
@@ -106,9 +108,14 @@ AI 需**读取这些来源文件，总结编码规范**，填充 `common/convent
 `.profile.yaml` 是知识库动态化的输入，字段：
 
 ```yaml
-project_type: "plugin"      # frontend | backend | plugin | library
-source_root: "plugins/harness"  # 源码根目录
-domain_axis: "feature"      # 域划分依据：business | feature | service | package
+project_type: "plugin"          # frontend | backend | plugin | library
+source_root: "plugins/harness"  # 源码根目录；单模块 Maven 后端通常为 src/main/java，多模块 Maven reactor 为 "."
+maven_modules: ["order-service", "user-service"] # 可选；多模块 Maven reactor 的 module 清单
+source_roots: ["order-service/src/main/java", "user-service/src/main/java"] # 可选；多模块后端源码根
+resource_root: "src/main/resources" # 可选；后端资源目录
+resource_roots: ["order-service/src/main/resources"] # 可选；多模块后端资源目录
+test_root: "src/test/java"      # 可选；后端测试目录
+domain_axis: "feature"          # 域划分依据：business | feature | service | package
 ```
 
 **域识别启发式（按 project_type）**：
@@ -117,10 +124,19 @@ domain_axis: "feature"      # 域划分依据：business | feature | service | p
 |-------------|-----------|
 | frontend | 扫描 `src/views/**` 或 `src/pages/**` 一级目录 → 业务域 |
 | plugin | 扫描插件根的一级子目录（agents/commands/scripts/skills）→ 功能模块；scripts 下 lib+services 合并为 scripts-core |
-| backend | 扫描 `service/**` 或 `src/**` 一级目录 |
+| backend | Maven/Gradle 优先识别 `src/main/java` / `src/main/kotlin`；多模块 Maven 读取根 `pom.xml` 的 `<modules>` 并逐 module 扫描；从包结构和类名聚合业务域；非标准后端兜底扫描 `service/**` 或 `src/**` 一级目录 |
 | library | 扫描 `src/**` 一级目录（功能包） |
 
 **噪音目录过滤**：vendor / node_modules / dist / output-styles / rules / assets / test 等不作为域。
+
+**后端聚合规则**：
+
+- `pom.xml` / `build.gradle(.kts)` / `settings.gradle(.kts)` / `gradlew` 是后端构建体系信号
+- 多模块 Maven reactor 中，根 `pom.xml` 的 `<module>` 会写入 `.profile.yaml` 的 `maven_modules/source_roots/resource_roots`
+- `com.example.order.controller.OrderController`、`order.service.OrderService`、`order.mapper.OrderMapper` 会聚合为 `order` 域
+- 分层包缺少业务包时，使用类名前缀聚合：`OrderController` / `OrderServiceImpl` / `OrderMapper` → `order`
+- 单模块或多模块的 `src/main/resources` 下与域名匹配的 XML/YAML/properties/SQL 会作为资源线索进入 `domainFileHints`
+- 知识库输出保持域级文档：`business/order/api.md`、`business/order/models.md` 等；不得生成 `OrderController.md`、`OrderService.md` 这类类级文档
 
 ---
 

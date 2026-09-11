@@ -50,20 +50,20 @@ description: "渐进式分层知识库检索。三层检索：L1 overview关键�
 加载 `.docs/llm-knowledge/meta.yaml`。
 
 - 在匹配到的域配置中获取文件字段（`entry_files / files / stores / apis / components`，按项目类型而异）
-- 根据查询模式确定需加载的文档类型
+- 读取 `.docs/llm-knowledge/.profile.yaml` 的 `project_type`，根据查询模式和项目类型确定需加载的文档类型
 
 ### L3: 按需加载
 
-| 模式 | 触发条件 | 加载文档 |
-|------|---------|---------|
-| **A-需求拆解** | PRD/需求分解为 Story | `overview.md` + `api.md` + `architecture.md` |
-| **B-技术方案** | 设计技术方案、评估改动 | `overview.md` + `pages.md` + `api.md` + `store.md` + `architecture.md` |
-| **C-接口搜索** | 查找特定 API | `api.md` → 未命中则 `search_content` |
-| **D-知识问答** | 业务概念、流程、字段含义 | `overview.md` → 按需 `architecture.md` / `pitfalls.md` / `custom/` |
+| 模式 | 触发条件 | frontend | backend | plugin |
+|------|---------|----------|---------|--------|
+| **A-需求拆解** | PRD/需求分解为 Story | `overview.md` + `api.md` + `architecture.md` | `overview.md` + `routes.md` + `api.md` + `models.md` + `architecture.md` | `overview.md` + `entry-files.md` + `commands.md` + `schemas.md` |
+| **B-技术方案** | 设计技术方案、评估改动 | `overview.md` + `pages.md` + `api.md` + `store.md` + `architecture.md` | `overview.md` + `routes.md` + `api.md` + `models.md` + `architecture.md` + `config.md` | `overview.md` + `entry-files.md` + `commands.md` + `schemas.md` + `architecture.md` |
+| **C-接口搜索** | 查找特定 API / 后端入口 | `api.md` → 未命中则 `search_content` | `routes.md` + `api.md` → 未命中则 `search_content` | `commands.md` / `schemas.md` → 未命中则 `search_content` |
+| **D-知识问答** | 业务概念、流程、字段含义 | `overview.md` → 按需 `architecture.md` / `pitfalls.md` / `custom/` | `overview.md` → 按需 `architecture.md` / `models.md` / `pitfalls.md` / `custom/` | `overview.md` → 按需 `entry-files.md` / `pitfalls.md` / `custom/` |
 
 ### L4: 深度搜索（兜底）
 
-- `search_content` 在 `src/` 搜索关键词
+- `search_content` 在 `.profile.yaml` 的 `source_root/source_roots` 或 `meta.yaml` 的文件字段范围内搜索关键词
 - `search_file` 文件名模式匹配
 
 ---
@@ -80,6 +80,7 @@ description: "渐进式分层知识库检索。三层检索：L1 overview关键�
 - meta.yaml 确认域后再加载域文档
 - 优先 `read_file` 读已生成文档，不命中才 `search_content`
 - 加载时说明命中了哪个域、哪种模式
+- 后端查询不得套用 `pages.md/store.md`；优先加载 `routes.md/api.md/models.md`
 
 ---
 

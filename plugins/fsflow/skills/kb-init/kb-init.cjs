@@ -55,6 +55,14 @@ function inferProjectType () {
     } catch (e) { /* ignore */ }
   }
 
+  // Java / JVM 后端：标准 Maven/Gradle 项目强信号
+  if (hasBackendBuildFile() && (
+    discoverMavenModules().length > 0 ||
+    fs.existsSync(path.join(PROJECT_ROOT, 'src', 'main', 'java')) ||
+    fs.existsSync(path.join(PROJECT_ROOT, 'src', 'main', 'kotlin')) ||
+    fs.existsSync(path.join(PROJECT_ROOT, 'src', 'main', 'resources'))
+  )) return 'backend'
+
   // 前端：存在 src/ + package.json 且含 vue/react 依赖
   const pkg = readJson(path.join(PROJECT_ROOT, 'package.json'))
   if (fs.existsSync(path.join(PROJECT_ROOT, 'src')) && pkg) {
@@ -65,13 +73,25 @@ function inferProjectType () {
   // 后端：有 server/ 或 src/ 含 service/controller（强信号，先于 library 判断）
   if (fs.existsSync(path.join(PROJECT_ROOT, 'server')) ||
       fs.existsSync(path.join(PROJECT_ROOT, 'src', 'service')) ||
-      fs.existsSync(path.join(PROJECT_ROOT, 'src', 'controller'))) return 'backend'
+      fs.existsSync(path.join(PROJECT_ROOT, 'src', 'controller')) ||
+      hasBackendBuildFile()) return 'backend'
 
   // 库：存在 src/ 但无前端框架，且 package.json 有 main/exports
   if (pkg && (pkg.main || pkg.exports) && !pkg.scripts?.dev) return 'library'
 
   // 兜底：有 src/ 就按 frontend 处理（兼容旧行为），否则 library
   return fs.existsSync(path.join(PROJECT_ROOT, 'src')) ? 'frontend' : 'library'
+}
+
+function hasBackendBuildFile () {
+  return [
+    'pom.xml',
+    'build.gradle',
+    'build.gradle.kts',
+    'settings.gradle',
+    'settings.gradle.kts',
+    'gradlew'
+  ].some(f => fs.existsSync(path.join(PROJECT_ROOT, f)))
 }
 
 /**
@@ -92,7 +112,11 @@ function inferSourceRoot (projectType) {
       result = 'plugins'
       break
     case 'backend':
-      result = fs.existsSync(path.join(PROJECT_ROOT, 'server')) ? 'server' : 'src'
+      if (discoverMavenModules().some(m => hasModuleSourceRoot(m))) result = '.'
+      else if (fs.existsSync(path.join(PROJECT_ROOT, 'server'))) result = 'server'
+      else if (fs.existsSync(path.join(PROJECT_ROOT, 'src', 'main', 'java'))) result = path.join('src', 'main', 'java')
+      else if (fs.existsSync(path.join(PROJECT_ROOT, 'src', 'main', 'kotlin'))) result = path.join('src', 'main', 'kotlin')
+      else result = 'src'
       break
     case 'frontend':
     case 'library':
@@ -116,13 +140,65 @@ function readJson (p) {
   return null
 }
 
+function readText (p) {
+  try {
+    if (fs.existsSync(p)) return fs.readFileSync(p, 'utf-8')
+  } catch (e) { /* ignore */ }
+  return ''
+}
+
+function discoverMavenModules () {
+  const pom = readText(path.join(PROJECT_ROOT, 'pom.xml'))
+  if (!pom) return []
+  const block = pom.match(/<modules>([\s\S]*?)<\/modules>/)
+  if (!block) return []
+  const modules = []
+  const re = /<module>\s*([^<]+?)\s*<\/module>/g
+  let m
+  while ((m = re.exec(block[1])) !== null) {
+    const mod = m[1].trim().replace(/\\/g, '/').replace(/\/+$/, '')
+    if (mod && fs.existsSync(path.join(PROJECT_ROOT, mod))) modules.push(mod)
+  }
+  return [...new Set(modules)]
+}
+
+function hasModuleSourceRoot (modulePath) {
+  return fs.existsSync(path.join(PROJECT_ROOT, modulePath, 'src', 'main', 'java')) ||
+         fs.existsSync(path.join(PROJECT_ROOT, modulePath, 'src', 'main', 'kotlin'))
+}
+
 // ─── 域扫描 ──────────────────────────────────────────────────
 
 /** 非知识域的目录名（第三方依赖/样式/纯规则等，不应作为检索域） */
 const NON_DOMAIN_DIRS = new Set([
   'vendor', 'node_modules', 'dist', 'output-styles', 'rules',
-  'assets', 'public', 'static', 'test', 'tests', '__tests__', 'coverage'
+  'assets', 'public', 'static', 'test', 'tests', '__tests__', 'coverage',
+  'target', 'build', 'generated', 'generated-sources'
 ])
+
+const BACKEND_ROLE_DIRS = new Set([
+  'controller', 'controllers', 'service', 'services', 'mapper', 'mappers',
+  'dao', 'repository', 'repositories', 'entity', 'entities', 'model', 'models',
+  'dto', 'vo', 'bo', 'po', 'domain', 'application', 'infrastructure',
+  'config', 'configuration', 'security', 'job', 'jobs', 'scheduler',
+  'schedulers', 'task', 'tasks', 'event', 'events', 'listener', 'listeners'
+])
+
+const BACKEND_SUFFIXES = [
+  'Controller', 'Resource', 'Endpoint', 'ServiceImpl', 'Service', 'Manager',
+  'Mapper', 'Dao', 'Repository', 'Entity', 'Model', 'DTO', 'Dto', 'VO', 'Vo',
+  'BO', 'Bo', 'PO', 'Po', 'DO', 'Do', 'Request', 'Response', 'Command',
+  'Query', 'Event', 'Listener', 'Handler', 'Job', 'Task', 'Config',
+  'Configuration', 'Properties'
+]
+
+const BACKEND_COMMON_NAMES = new Set([
+  'application', 'bootstrap', 'common', 'base', 'abstract', 'global',
+  'default', 'health', 'error', 'exception', 'util', 'utils', 'constant',
+  'constants', 'config', 'configuration', 'security'
+])
+
+const BACKEND_RESOURCE_EXTS = ['.xml', '.yml', '.yaml', '.properties', '.sql']
 
 /**
  * 按项目类型扫描真实域（替代硬编码 DOMAINS）
@@ -169,7 +245,11 @@ function discoverDomains (projectType, sourceRoot) {
     }
 
     case 'backend': {
-      // 后端：优先 service 下的二级目录（order/user/payment 等业务域）
+      // 后端：优先从 Java/Kotlin 包结构和类名聚合业务域，避免按类生成知识库。
+      const codeDomains = discoverBackendDomains(getBackendSourceRoots(sourceRoot))
+      if (codeDomains.length > 0) return codeDomains
+
+      // 兼容非 Maven 后端：优先 service 下的二级目录（order/user/payment 等业务域）
       const serviceDirs = scanSubDirs(path.join(root, 'service'))
       if (serviceDirs.length > 0) return serviceDirs.sort()
       // 兜底：src 下的一级目录
@@ -194,6 +274,160 @@ function discoverDomains (projectType, sourceRoot) {
     default:
       return []
   }
+}
+
+function getBackendSourceRoots (sourceRoot) {
+  const modules = discoverMavenModules()
+  const moduleRoots = []
+  for (const mod of modules) {
+    for (const langRoot of ['src/main/java', 'src/main/kotlin']) {
+      const abs = path.join(PROJECT_ROOT, mod, langRoot)
+      if (fs.existsSync(abs)) moduleRoots.push(abs)
+    }
+  }
+  if (moduleRoots.length > 0) return moduleRoots
+  const root = path.join(PROJECT_ROOT, sourceRoot)
+  return fs.existsSync(root) ? [root] : []
+}
+
+function getBackendResourceRoots () {
+  const modules = discoverMavenModules()
+  const moduleRoots = modules
+    .map(mod => path.join(PROJECT_ROOT, mod, 'src', 'main', 'resources'))
+    .filter(p => fs.existsSync(p))
+  if (moduleRoots.length > 0) return moduleRoots
+  const root = path.join(PROJECT_ROOT, 'src', 'main', 'resources')
+  return fs.existsSync(root) ? [root] : []
+}
+
+function discoverBackendDomains (roots) {
+  const domains = new Set()
+  for (const root of roots) {
+    const files = walkFiles(root, ['.java', '.kt'])
+    for (const abs of files) {
+      const rel = path.relative(root, abs).replace(/\\/g, '/')
+      const d = inferBackendDomainFromPath(rel)
+      if (d) domains.add(d)
+    }
+  }
+  return [...domains].sort()
+}
+
+function walkFiles (dir, exts, maxFiles = 3000) {
+  const results = []
+  const visit = (cur) => {
+    if (results.length >= maxFiles || !fs.existsSync(cur)) return
+    let entries
+    try { entries = fs.readdirSync(cur, { withFileTypes: true }) } catch (e) { return }
+    for (const entry of entries) {
+      if (entry.name.startsWith('.') || NON_DOMAIN_DIRS.has(entry.name)) continue
+      const p = path.join(cur, entry.name)
+      if (entry.isDirectory()) visit(p)
+      else if (entry.isFile() && exts.some(ext => entry.name.endsWith(ext))) results.push(p)
+    }
+  }
+  visit(dir)
+  return results
+}
+
+function inferBackendDomainFromPath (rel) {
+  const parts = rel.split('/').filter(Boolean)
+  if (parts.length === 0) return null
+  const base = parts[parts.length - 1].replace(/\.(java|kt)$/i, '')
+
+  const roleIdx = parts.findIndex(p => BACKEND_ROLE_DIRS.has(p.toLowerCase()))
+  const stripped = stripBackendSuffix(base)
+  const byName = normalizeDomainId(firstBusinessToken(stripped))
+  if (roleIdx === parts.length - 2 && byName && !BACKEND_COMMON_NAMES.has(byName)) return byName
+
+  if (roleIdx > 0) {
+    const prev = normalizeDomainId(parts[roleIdx - 1])
+    if (prev && !BACKEND_COMMON_NAMES.has(prev)) return prev
+  }
+  if (roleIdx >= 0 && roleIdx < parts.length - 2) {
+    const next = normalizeDomainId(parts[roleIdx + 1])
+    if (next && !BACKEND_COMMON_NAMES.has(next)) return next
+  }
+
+  if (byName && !BACKEND_COMMON_NAMES.has(byName)) return byName
+  return null
+}
+
+function stripBackendSuffix (name) {
+  let result = name
+  for (const suffix of BACKEND_SUFFIXES) {
+    if (result.endsWith(suffix) && result.length > suffix.length) {
+      result = result.slice(0, -suffix.length)
+      break
+    }
+  }
+  return result
+}
+
+function firstBusinessToken (name) {
+  if (!name) return ''
+  const normalized = name.replace(/[_-]+/g, ' ')
+  const m = normalized.match(/^[A-Z]?[a-z0-9]+|^[A-Z]+(?=[A-Z][a-z]|$)/)
+  return m ? m[0] : normalized.split(/\s+/)[0]
+}
+
+function normalizeDomainId (value) {
+  if (!value) return ''
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+    .replace(/[_\s]+/g, '-')
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+}
+
+function collectBackendFileHints (domains, sourceRoot) {
+  if (!domains.length) return {}
+  const sourceRoots = getBackendSourceRoots(sourceRoot)
+  const resourceRoots = getBackendResourceRoots()
+  const hints = Object.fromEntries(domains.map(d => [d, {
+    source_files: [],
+    resource_files: [],
+    total_files: 0,
+    truncated: false
+  }]))
+
+  for (const sourceAbs of sourceRoots) {
+    for (const abs of walkFiles(sourceAbs, ['.java', '.kt'])) {
+      const relToSource = path.relative(sourceAbs, abs).replace(/\\/g, '/')
+      const domain = inferBackendDomainFromPath(relToSource)
+      if (!domain || !hints[domain]) continue
+      pushHint(hints[domain], 'source_files', path.relative(PROJECT_ROOT, abs).replace(/\\/g, '/'))
+    }
+  }
+
+  for (const resourcesAbs of resourceRoots) {
+    const resources = walkFiles(resourcesAbs, BACKEND_RESOURCE_EXTS)
+    for (const abs of resources) {
+      const rel = path.relative(PROJECT_ROOT, abs).replace(/\\/g, '/')
+      const lower = rel.toLowerCase()
+      for (const domain of domains) {
+        const needle = domain.replace(/-/g, '')
+        if (lower.includes(domain) || lower.replace(/[-_]/g, '').includes(needle)) {
+          pushHint(hints[domain], 'resource_files', rel)
+        }
+      }
+    }
+  }
+
+  for (const h of Object.values(hints)) {
+    h.total_files = h.source_files.length + h.resource_files.length
+  }
+  return hints
+}
+
+function pushHint (hint, field, value, maxPerKind = 80) {
+  if (hint[field].length >= maxPerKind) {
+    hint.truncated = true
+    return
+  }
+  hint[field].push(value)
 }
 
 /**
@@ -297,11 +531,27 @@ const manualType = typeIdx >= 0 ? args[typeIdx + 1] : null
 // 1. 项目画像（支持手动覆盖）
 const projectType = manualType || inferProjectType()
 const sourceRoot = inferSourceRoot(projectType)
-const domainAxis = projectType === 'frontend' ? 'business' : 'feature'
+const domainAxis = projectType === 'frontend' ? 'business' : projectType === 'backend' ? 'service' : 'feature'
 const profile = { project_type: projectType, source_root: sourceRoot, domain_axis: domainAxis }
+if (projectType === 'backend') {
+  const mavenModules = discoverMavenModules()
+  const sourceRoots = getBackendSourceRoots(sourceRoot).map(p => path.relative(PROJECT_ROOT, p).replace(/\\/g, '/'))
+  const resourceRoots = getBackendResourceRoots().map(p => path.relative(PROJECT_ROOT, p).replace(/\\/g, '/'))
+  const testRoots = mavenModules.length > 0
+    ? mavenModules.map(m => path.join(m, 'src', 'test', 'java')).filter(p => fs.existsSync(path.join(PROJECT_ROOT, p))).map(p => p.replace(/\\/g, '/'))
+    : (fs.existsSync(path.join(PROJECT_ROOT, 'src', 'test', 'java')) ? ['src/test/java'] : [])
+
+  if (mavenModules.length > 0) profile.maven_modules = mavenModules
+  if (sourceRoots.length > 0) profile.source_roots = sourceRoots
+  if (resourceRoots.length === 1) profile.resource_root = resourceRoots[0]
+  if (resourceRoots.length > 1) profile.resource_roots = resourceRoots
+  if (testRoots.length === 1) profile.test_root = testRoots[0]
+  if (testRoots.length > 1) profile.test_roots = testRoots
+}
 
 // 2. 扫描真实域
 const domains = discoverDomains(projectType, sourceRoot)
+const domainFileHints = projectType === 'backend' ? collectBackendFileHints(domains, sourceRoot) : {}
 // 2.5 扫描编码规范来源
 const conventionSources = discoverConventionSources()
 
@@ -320,7 +570,14 @@ if (dryRun) {
     projectType,
     sourceRoot,
     domainAxis,
+    ...(profile.maven_modules ? { mavenModules: profile.maven_modules } : {}),
+    ...(profile.source_roots ? { sourceRoots: profile.source_roots } : {}),
+    ...(profile.resource_root ? { resourceRoot: profile.resource_root } : {}),
+    ...(profile.resource_roots ? { resourceRoots: profile.resource_roots } : {}),
+    ...(profile.test_root ? { testRoot: profile.test_root } : {}),
+    ...(profile.test_roots ? { testRoots: profile.test_roots } : {}),
     domains,
+    domainFileHints,
     conventionSources,
     templates: selectTemplates(projectType),
     kbRoot: '.docs/llm-knowledge'
@@ -351,6 +608,12 @@ if (!fs.existsSync(PROFILE_PATH) || force) {
     `project_type: "${profile.project_type}"`,
     `source_root: "${profile.source_root}"`,
     `domain_axis: "${profile.domain_axis}"`,
+    ...(profile.maven_modules ? [`maven_modules: [${profile.maven_modules.map(v => `"${v}"`).join(', ')}]`] : []),
+    ...(profile.source_roots ? [`source_roots: [${profile.source_roots.map(v => `"${v}"`).join(', ')}]`] : []),
+    ...(profile.resource_root ? [`resource_root: "${profile.resource_root}"`] : []),
+    ...(profile.resource_roots ? [`resource_roots: [${profile.resource_roots.map(v => `"${v}"`).join(', ')}]`] : []),
+    ...(profile.test_root ? [`test_root: "${profile.test_root}"`] : []),
+    ...(profile.test_roots ? [`test_roots: [${profile.test_roots.map(v => `"${v}"`).join(', ')}]`] : []),
     ''
   ].join('\n')
   try { fs.writeFileSync(PROFILE_PATH, profileYaml, 'utf-8'); created++; console.log(`  ✅ .profile.yaml`) }
@@ -436,7 +699,8 @@ if (fs.existsSync(typeTplDir)) {
     const base = f.replace('.template.md', '')
     if (!selectedTemplates.includes(base)) continue
     const dst = path.join(KB_ROOT, 'templates', f)
-    if (fs.existsSync(dst) && !force) { skipped++; continue }
+    const overridesCommon = commonTemplates.includes(base)
+    if (fs.existsSync(dst) && !force && !overridesCommon) { skipped++; continue }
     fs.copyFileSync(path.join(typeTplDir, f), dst)
     created++; console.log(`  ✅ templates/${f}`)
   }
@@ -450,7 +714,14 @@ console.log('\n' + JSON.stringify({
   projectType,
   sourceRoot,
   domainAxis,
+  ...(profile.maven_modules ? { mavenModules: profile.maven_modules } : {}),
+  ...(profile.source_roots ? { sourceRoots: profile.source_roots } : {}),
+  ...(profile.resource_root ? { resourceRoot: profile.resource_root } : {}),
+  ...(profile.resource_roots ? { resourceRoots: profile.resource_roots } : {}),
+  ...(profile.test_root ? { testRoot: profile.test_root } : {}),
+  ...(profile.test_roots ? { testRoots: profile.test_roots } : {}),
   domains,
+  domainFileHints,
   conventionSources,
   templates: selectedTemplates,
   kbRoot: '.docs/llm-knowledge'

@@ -9,6 +9,8 @@ description: "自动生成项目结构化知识库文档。按项目画像（pro
 
 > 框架无关：不限定 Vue/React/Angular，也不限定前端项目。数据驱动：从 `.profile.yaml`（项目画像）确定文档类型，从 `meta.yaml` 获取每个域的扫描目标。
 > 本 Skill 自包含：脚本 `./gen-docs.cjs` 收集文件路径（确定操作），AI 生成文档内容（认知操作）。
+> 后端项目按业务域聚合生成文档。即使一个域包含多个 Controller/Service/Mapper/DTO/Entity，也只生成该域的 `routes.md` / `api.md` / `models.md` 等聚合文档，禁止按类生成独立 md。
+> 多模块 Maven 项目使用带 module 前缀的 `entry_files`，例如 `order-service/src/main/java/com/example/order/**/*.java`。
 
 ---
 
@@ -73,6 +75,14 @@ description: "自动生成项目结构化知识库文档。按项目画像（pro
 | 数据/契约 | — | store.md | schemas.md | models.md | — |
 
 **通用 5 类**（overview/architecture/config/pitfalls/log）所有项目类型都生成；**特有切面**按 project_type 选择。
+
+后端生成约束：
+
+- `routes.md` 聚合 HTTP Controller、RPC/消息/定时任务等入口
+- `api.md` 聚合接口契约、入参、出参、错误码和外部依赖
+- `models.md` 聚合 DTO/VO/Entity/Mapper/XML/Repository 和关键数据约束
+- 不生成 `OrderController.md`、`OrderService.md`、`OrderMapper.md` 等类级文档
+- 单域文件过多时，优先总结核心入口和契约，把完整文件列表作为索引，不把源码内容整段复制进知识库
 
 ---
 

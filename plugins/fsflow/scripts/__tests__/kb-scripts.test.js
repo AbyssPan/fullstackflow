@@ -113,6 +113,104 @@ section('1. kb-init: 嵌套插件市场仓识别（修复回归）')
   fs.rmSync(sb, { recursive: true, force: true })
 }
 
+section('1b. kb-init: Java Maven 后端按业务域聚合（不按类生成文档）')
+{
+  const sb = mkSandbox('kb-init-java-')
+  fs.writeFileSync(path.join(sb, 'pom.xml'), '<project><modelVersion>4.0.0</modelVersion></project>')
+  fs.mkdirSync(path.join(sb, 'src', 'main', 'java', 'com', 'demo', 'order', 'controller'), { recursive: true })
+  fs.mkdirSync(path.join(sb, 'src', 'main', 'java', 'com', 'demo', 'order', 'service'), { recursive: true })
+  fs.mkdirSync(path.join(sb, 'src', 'main', 'java', 'com', 'demo', 'order', 'mapper'), { recursive: true })
+  fs.mkdirSync(path.join(sb, 'src', 'main', 'java', 'com', 'demo', 'user', 'controller'), { recursive: true })
+  fs.mkdirSync(path.join(sb, 'src', 'main', 'resources', 'mapper', 'order'), { recursive: true })
+  fs.writeFileSync(path.join(sb, 'src', 'main', 'java', 'com', 'demo', 'order', 'controller', 'OrderController.java'), 'class OrderController {}')
+  fs.writeFileSync(path.join(sb, 'src', 'main', 'java', 'com', 'demo', 'order', 'service', 'OrderService.java'), 'class OrderService {}')
+  fs.writeFileSync(path.join(sb, 'src', 'main', 'java', 'com', 'demo', 'order', 'mapper', 'OrderMapper.java'), 'class OrderMapper {}')
+  fs.writeFileSync(path.join(sb, 'src', 'main', 'java', 'com', 'demo', 'user', 'controller', 'UserController.java'), 'class UserController {}')
+  fs.writeFileSync(path.join(sb, 'src', 'main', 'resources', 'mapper', 'order', 'OrderMapper.xml'), '<mapper></mapper>')
+
+  const dry = runScript(KB_INIT, ['--dry-run'], sb)
+  ok('Maven 项目识别 projectType=backend', dry.projectType === 'backend', JSON.stringify(dry).slice(0, 160))
+  ok('Maven sourceRoot=src/main/java', dry.sourceRoot === 'src/main/java', dry.sourceRoot)
+  ok('后端域按 order/user 聚合', dry.domains.includes('order') && dry.domains.includes('user'), JSON.stringify(dry.domains))
+  ok('不把 Java 类名当成 domain', !dry.domains.includes('order-controller') && !dry.domains.includes('order-service'), JSON.stringify(dry.domains))
+  ok('后端模板包含 routes/api/models', ['routes', 'api', 'models'].every(t => dry.templates.includes(t)), JSON.stringify(dry.templates))
+  ok('order 域文件线索聚合 Controller/Service/Mapper/XML',
+    dry.domainFileHints?.order?.source_files?.length === 3 &&
+    dry.domainFileHints?.order?.resource_files?.some(f => f.endsWith('OrderMapper.xml')),
+    JSON.stringify(dry.domainFileHints?.order))
+
+  const init = runScript(KB_INIT, [], sb)
+  ok('正式初始化 backend 模板落盘 routes/api/models',
+    ['routes.template.md', 'api.template.md', 'models.template.md'].every(f => fs.existsSync(path.join(sb, '.docs', 'llm-knowledge', 'templates', f))))
+  ok('正式初始化 backend overview 模板覆盖通用前端化模板',
+    /后端域总览/.test(fs.readFileSync(path.join(sb, '.docs', 'llm-knowledge', 'templates', 'overview.template.md'), 'utf-8')))
+  ok('正式初始化 profile 记录 resource_root',
+    /resource_root: "src\/main\/resources"/.test(fs.readFileSync(path.join(sb, '.docs', 'llm-knowledge', '.profile.yaml'), 'utf-8')))
+  ok('正式初始化没有生成类级 md',
+    !fs.existsSync(path.join(sb, '.docs', 'llm-knowledge', 'business', 'order', 'OrderController.md')) &&
+    init.domains.includes('order'))
+
+  fs.rmSync(sb, { recursive: true, force: true })
+}
+
+section('1c. kb-init: Java 分层包从类名前缀聚合业务域')
+{
+  const sb = mkSandbox('kb-init-java-layered-')
+  fs.writeFileSync(path.join(sb, 'pom.xml'), '<project><modelVersion>4.0.0</modelVersion></project>')
+  fs.mkdirSync(path.join(sb, 'src', 'main', 'java', 'com', 'demo', 'controller'), { recursive: true })
+  fs.mkdirSync(path.join(sb, 'src', 'main', 'java', 'com', 'demo', 'service'), { recursive: true })
+  fs.writeFileSync(path.join(sb, 'src', 'main', 'java', 'com', 'demo', 'controller', 'OrderController.java'), 'class OrderController {}')
+  fs.writeFileSync(path.join(sb, 'src', 'main', 'java', 'com', 'demo', 'service', 'OrderService.java'), 'class OrderService {}')
+  fs.writeFileSync(path.join(sb, 'src', 'main', 'java', 'com', 'demo', 'controller', 'UserController.java'), 'class UserController {}')
+
+  const dry = runScript(KB_INIT, ['--dry-run'], sb)
+  ok('分层包按类名前缀识别 order/user', dry.domains.includes('order') && dry.domains.includes('user'), JSON.stringify(dry.domains))
+  ok('分层包不把应用包 demo 当业务域', !dry.domains.includes('demo'), JSON.stringify(dry.domains))
+
+  fs.rmSync(sb, { recursive: true, force: true })
+}
+
+section('1d. kb-init: 多模块 Maven reactor 跨 module 聚合业务域')
+{
+  const sb = mkSandbox('kb-init-maven-multi-')
+  fs.writeFileSync(path.join(sb, 'pom.xml'), [
+    '<project>',
+    '  <packaging>pom</packaging>',
+    '  <modules>',
+    '    <module>order-service</module>',
+    '    <module>user-service</module>',
+    '  </modules>',
+    '</project>'
+  ].join('\n'))
+  for (const mod of ['order-service', 'user-service']) {
+    fs.mkdirSync(path.join(sb, mod, 'src', 'main', 'java', 'com', 'demo', mod.startsWith('order') ? 'order' : 'user', 'controller'), { recursive: true })
+    fs.mkdirSync(path.join(sb, mod, 'src', 'main', 'resources', 'mapper', mod.startsWith('order') ? 'order' : 'user'), { recursive: true })
+    fs.writeFileSync(path.join(sb, mod, 'pom.xml'), '<project><parent/></project>')
+  }
+  fs.writeFileSync(path.join(sb, 'order-service', 'src', 'main', 'java', 'com', 'demo', 'order', 'controller', 'OrderController.java'), 'class OrderController {}')
+  fs.writeFileSync(path.join(sb, 'order-service', 'src', 'main', 'java', 'com', 'demo', 'order', 'controller', 'OrderService.java'), 'class OrderService {}')
+  fs.writeFileSync(path.join(sb, 'order-service', 'src', 'main', 'resources', 'mapper', 'order', 'OrderMapper.xml'), '<mapper></mapper>')
+  fs.writeFileSync(path.join(sb, 'user-service', 'src', 'main', 'java', 'com', 'demo', 'user', 'controller', 'UserController.java'), 'class UserController {}')
+
+  const dry = runScript(KB_INIT, ['--dry-run'], sb)
+  ok('多模块 Maven 识别 projectType=backend', dry.projectType === 'backend', JSON.stringify(dry).slice(0, 160))
+  ok('多模块 Maven sourceRoot=.', dry.sourceRoot === '.', dry.sourceRoot)
+  ok('多模块 Maven 输出 module 清单', dry.mavenModules?.includes('order-service') && dry.mavenModules?.includes('user-service'), JSON.stringify(dry.mavenModules))
+  ok('多模块 Maven 输出 sourceRoots', dry.sourceRoots?.includes('order-service/src/main/java') && dry.sourceRoots?.includes('user-service/src/main/java'), JSON.stringify(dry.sourceRoots))
+  ok('多模块 Maven 跨 module 聚合 order/user 域', dry.domains.includes('order') && dry.domains.includes('user'), JSON.stringify(dry.domains))
+  ok('多模块 Maven 文件线索保留 module 前缀',
+    dry.domainFileHints?.order?.source_files?.some(f => f === 'order-service/src/main/java/com/demo/order/controller/OrderController.java') &&
+    dry.domainFileHints?.order?.resource_files?.some(f => f === 'order-service/src/main/resources/mapper/order/OrderMapper.xml'),
+    JSON.stringify(dry.domainFileHints?.order))
+
+  const init = runScript(KB_INIT, [], sb)
+  const profile = fs.readFileSync(path.join(sb, '.docs', 'llm-knowledge', '.profile.yaml'), 'utf-8')
+  ok('多模块 profile 写入 maven_modules', /maven_modules: \["order-service", "user-service"\]/.test(profile), profile)
+  ok('多模块不生成模块级 md', !fs.existsSync(path.join(sb, '.docs', 'llm-knowledge', 'business', 'order-service.md')) && init.domains.includes('order'))
+
+  fs.rmSync(sb, { recursive: true, force: true })
+}
+
 // ══════════════════════════════════════════════════════════
 // 2. kb-update
 // ══════════════════════════════════════════════════════════
@@ -241,6 +339,34 @@ section('3. gen-docs: 全量/单域/裸文件名 src 兜底（修复回归）')
   const stale1 = runScript(GEN_DOCS, ['--stale'], sb)
   ok('stale=true（有新提交）', stale1.stale === true, JSON.stringify(stale1))
   ok('changedCount>=1', (stale1.changedCount || 0) >= 1, String(stale1.changedCount))
+
+  fs.rmSync(sb, { recursive: true, force: true })
+}
+
+section('3b. gen-docs: 后端递归 glob 收集 Java 包文件')
+{
+  const sb = mkSandbox('kb-gen-java-')
+  fs.mkdirSync(path.join(sb, 'src', 'main', 'java', 'com', 'demo', 'order', 'controller'), { recursive: true })
+  fs.mkdirSync(path.join(sb, 'src', 'main', 'java', 'com', 'demo', 'order', 'service'), { recursive: true })
+  fs.mkdirSync(path.join(sb, 'src', 'main', 'resources', 'mapper', 'order'), { recursive: true })
+  fs.writeFileSync(path.join(sb, 'src', 'main', 'java', 'com', 'demo', 'order', 'controller', 'OrderController.java'), 'class OrderController {}')
+  fs.writeFileSync(path.join(sb, 'src', 'main', 'java', 'com', 'demo', 'order', 'service', 'OrderService.java'), 'class OrderService {}')
+  fs.writeFileSync(path.join(sb, 'src', 'main', 'resources', 'mapper', 'order', 'OrderMapper.xml'), '<mapper></mapper>')
+  git(sb, 'git add -A && git commit -qm init')
+  const baseHash = git(sb, 'git rev-parse HEAD').trim()
+
+  fs.mkdirSync(path.join(sb, '.docs', 'llm-knowledge', 'business', 'order'), { recursive: true })
+  fs.writeFileSync(path.join(sb, '.docs', 'llm-knowledge', '.profile.yaml'),
+    'project_type: "backend"\nsource_root: "src/main/java"\ndomain_axis: "service"\nresource_root: "src/main/resources"\n')
+  writeMeta(sb, baseHash, [
+    { id: 'order', path: 'business/order/', files: ['src/main/java/com/demo/order/**/*.java', 'src/main/resources/mapper/order/*.xml'] }
+  ])
+
+  const all = runScript(GEN_DOCS, ['--all'], sb)
+  const dom = ((all.domains || []).find(d => d.id === 'order')) || {}
+  const files = (dom.files && dom.files.all) || []
+  ok('后端 **/*.java 递归收集 Controller/Service', files.some(f => f.endsWith('OrderController.java')) && files.some(f => f.endsWith('OrderService.java')), JSON.stringify(files))
+  ok('后端同时收集 Mapper XML', files.some(f => f.endsWith('OrderMapper.xml')), JSON.stringify(files))
 
   fs.rmSync(sb, { recursive: true, force: true })
 }

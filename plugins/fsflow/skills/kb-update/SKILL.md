@@ -36,6 +36,16 @@ domains:
   - id: "scripts-core"
     path: "business/scripts-core/"
     entry_files: ["plugins/harness/scripts/lib/*.js"]   # 插件项目示例
+  - id: "order"
+    path: "business/order/"
+    entry_files:
+      - "src/main/java/com/example/order/**/*.java"
+      - "src/main/resources/mapper/order/*.xml"          # 后端聚合示例
+  - id: "payment"
+    path: "business/payment/"
+    entry_files:
+      - "payment-service/src/main/java/com/example/payment/**/*.java"
+      - "payment-service/src/main/resources/mapper/payment/*.xml" # 多模块 Maven 示例
 ```
 
 ---
@@ -78,7 +88,12 @@ node "<skill_dir>/kb-update.cjs"
 1. 读取已有文档
 2. 保留 `<!-- CUSTOM:START --> ... <!-- CUSTOM:END -->` 手工批注
 3. 扫描变更文件，提取新增/修改的函数、组件、API
-4. 更新对应文档（overview / pages / api / store 等）
+4. 按 `.profile.yaml` 的 `project_type` 更新对应文档：
+   - frontend: `overview` / `pages` / `api` / `store` / `architecture`
+   - backend: `overview` / `routes` / `api` / `models` / `architecture` / `config`
+   - plugin: `overview` / `entry-files` / `commands` / `schemas` / `architecture`
+
+后端增量更新仍保持**域级聚合**：变更多个 Controller/Service/Mapper 时更新该域的聚合文档，不新增类级 md。
 
 ### Step 3: 更新索引
 

@@ -127,6 +127,9 @@ function expandGlob (pattern) {
   if (!pattern.includes('*')) {
     return candidates.filter(p => fs.existsSync(p))
   }
+  if (pattern.includes('**')) {
+    return expandRecursiveGlob(pattern)
+  }
   // 含通配符：对每个候选根拆目录 + 文件名模式，扫描匹配
   const results = []
   for (const base of candidates) {
@@ -139,6 +142,59 @@ function expandGlob (pattern) {
     } catch (e) { /* ignore */ }
   }
   return results
+}
+
+function expandRecursiveGlob (pattern) {
+  const relPattern = path.isAbsolute(pattern)
+    ? path.relative(PROJECT_ROOT, pattern).replace(/\\/g, '/')
+    : pattern.replace(/\\/g, '/')
+  const firstStar = relPattern.indexOf('*')
+  const slashBeforeStar = relPattern.lastIndexOf('/', firstStar)
+  const baseRel = slashBeforeStar >= 0 ? relPattern.slice(0, slashBeforeStar) : '.'
+  const baseAbs = path.join(PROJECT_ROOT, baseRel)
+  if (!fs.existsSync(baseAbs)) return []
+
+  const regex = globToRegex(relPattern)
+  const results = []
+  const visit = (dir) => {
+    let entries
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch (e) { return }
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue
+      const abs = path.join(dir, entry.name)
+      if (entry.isDirectory()) visit(abs)
+      else if (entry.isFile()) {
+        const rel = path.relative(PROJECT_ROOT, abs).replace(/\\/g, '/')
+        if (regex.test(rel)) results.push(abs)
+      }
+    }
+  }
+  visit(baseAbs)
+  return results
+}
+
+function globToRegex (pattern) {
+  let out = '^'
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i]
+    const next = pattern[i + 1]
+    if (ch === '*' && next === '*') {
+      const after = pattern[i + 2]
+      if (after === '/') {
+        out += '(?:.*/)?'
+        i += 2
+      } else {
+        out += '.*'
+        i += 1
+      }
+    } else if (ch === '*') {
+      out += '[^/]*'
+    } else {
+      out += ch.replace(/[|\\{}()[\]^$+?.]/g, '\\$&')
+    }
+  }
+  out += '$'
+  return new RegExp(out)
 }
 
 console.log(JSON.stringify(result, null, 2))

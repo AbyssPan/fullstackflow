@@ -11,7 +11,7 @@ Git/MR → 知识库更新 → 发布收尾 → 归档。用 `/fsflow:run` 一�
 
 > 兼容 Claude Code 与 CodeBuddy Code，安装步骤完全一致。
 > 市场清单分别位于 `.claude-plugin/marketplace.json` 与 `.codebuddy-plugin/marketplace.json`，内容一致。
-> 当前版本 **1.2.0**。
+> 当前版本 **1.3.0**。
 
 ## 目录
 
@@ -334,7 +334,7 @@ fullstackflow/
 ├── .codebuddy-plugin/marketplace.json   # CodeBuddy Code 市场清单
 ├── .claude-plugin/marketplace.json      # Claude Code 市场清单（内容一致）
 └── plugins/
-    └── fullstackflow/                   # 插件本体
+    └── fsflow/                          # 插件本体
         ├── .claude-plugin/plugin.json   # Claude Code 插件元信息
         ├── .codebuddy-plugin/plugin.json # CodeBuddy Code 插件元信息
         ├── plugin.json                  # 旧宿主兼容元信息
@@ -345,7 +345,7 @@ fullstackflow/
         ├── output-styles/harness.md     # 汇报输出风格
         ├── scripts/                     # dispatch / advance-phase / archive / policy 门控等
         ├── scripts/audit/plugin-check.js # manifest / 命令 / Skill / Hook 一致性检查
-        ├── scripts/__tests__/           # 6 组回归测试（当前 255 项断言）
+        ├── scripts/__tests__/           # 8 组回归测试（当前 293 项断言）
         └── vendor/ajv.bundle.js         # 内置 ajv（免 npm install）
 ```
 

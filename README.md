@@ -232,8 +232,16 @@ AI 修改源码受 dev-pass 通行证约束：仅在开发阶段由脚本自动�
 | 测试工程师 | `test-engineer` | 前端 Playwright 实跑 + 后端三层验证（接口契约真实请求 / mvn test 业务逻辑 / 只读 SELECT 数据落库） |
 | 发布助手 | `release-assistant` | Git 提交 / push / 创建 MR 三点强制用户确认；KB 增量更新；前端走 devops MCP 云端构建，后端跳过云端部署确认合并即收尾 |
 
-Agent 不固定供应商专属模型 ID，默认继承宿主当前模型；这样同一份插件可在 Claude Code 与
-CodeBuddy Code 中加载，避免因模型下线或宿主不识别而导致 Agent 无法启动。
+各 Agent 在 frontmatter 中声明推荐模型，便于宿主按角色能力与成本路由：
+
+| Agent | 模型 |
+|---|---|
+| 需求分析师 | `deepseek-v4.1-flash` |
+| 任务规划师 | `deepseek-v4-pro` |
+| 全栈开发工程师 | `GLM-5.3` |
+| 代码审查师 | `hy4-preview` |
+| 测试工程师 | `hy4-preview` |
+| 发布助手 | `hy3` |
 
 ## 12 个 Skill
 

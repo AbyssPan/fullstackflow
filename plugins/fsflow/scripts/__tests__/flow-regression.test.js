@@ -36,6 +36,7 @@ const policy = require(path.join(SCRIPTS_DIR, 'services/policy'))
 const promptBuilder = require(path.join(SCRIPTS_DIR, 'services/prompt-builder'))
 const contextRefresh = require(path.join(SCRIPTS_DIR, 'services/context-refresh'))
 const trace = require(path.join(SCRIPTS_DIR, 'lib/trace'))
+const schemaValidator = require(path.join(SCRIPTS_DIR, 'services/schema-validator'))
 const { dispatch } = require(path.join(SCRIPTS_DIR, 'commands/dispatch'))
 
 let pass = 0
@@ -193,6 +194,43 @@ const g3 = policy.runGateCheck('FG1-OK', 1, state.readStateFile('FG1-OK'))
 const hasFrameIncomplete = g3.blockers.some(b => b.type === 'figma_frame_incomplete')
 ok('frame-inventory 完整（含 link）-> 无 figma_frame_incomplete BLOCKER', !hasFrameIncomplete,
   JSON.stringify(g3.blockers.map(b => b.type + ':' + b.message)))
+
+// 场景 D：后端任务常见 schema 漂移（figmaRefs:null / estimate:"3" / mustCheck:["..."]）→ --auto-fix 可归一化
+const dir4d = storyDir('TDJ-DRIFT')
+fs.mkdirSync(dir4d, { recursive: true })
+fs.writeFileSync(path.join(dir4d, 'e2e-state.json'), JSON.stringify({ storyId: 'TDJ-DRIFT', phase: 1, status: 'running', hasFigmaDesign: false }))
+fs.writeFileSync(path.join(dir4d, 'task-dag.md'), '# DAG')
+fs.writeFileSync(path.join(dir4d, 'acceptance-criteria.json'), JSON.stringify({
+  featurePoints: [{ id: 'FP-1', source: '需求', coverage: 'covered', acIds: ['AC-1'] }],
+  criteria: [{ id: 'AC-1', description: '后端接口必须返回审批任务列表', testType: 'api' }]
+}))
+fs.writeFileSync(path.join(dir4d, 'task-dag.json'), JSON.stringify({
+  tasks: [
+    {
+      id: 'task-1',
+      title: '后端任务列表接口',
+      files: ['**/controller/TaskController.java', '**/service/TaskService.java'],
+      acceptanceCriteria: ['AC-1'],
+      figmaLink: null,
+      figmaRefs: null,
+      parallelizable: false,
+      estimate: '3'
+    }
+  ],
+  batches: [{ batchId: 1, taskIds: ['task-1'] }],
+  mustCheck: ['避免 N+1 查询']
+}))
+const driftGate = policy.runGateCheck('TDJ-DRIFT', 1, state.readStateFile('TDJ-DRIFT'))
+ok('task-dag schema 漂移 -> BLOCKER(task_dag_schema_drift)',
+  driftGate.blockers.some(b => b.type === 'task_dag_schema_drift'),
+  JSON.stringify(driftGate.blockers.map(b => b.type + ':' + b.message)))
+const driftRecovery = policy.attemptAutoRecovery('TDJ-DRIFT', driftGate.recoveries)
+ok('task-dag schema 漂移可自动修复', driftRecovery.fixed === true, JSON.stringify(driftRecovery.details))
+const driftSchema = schemaValidator.validateArtifact('TDJ-DRIFT', 'task-dag.json')
+ok('自动修复后 task-dag schema 通过', driftSchema.valid === true, JSON.stringify(driftSchema.errors))
+const driftGateAfter = policy.runGateCheck('TDJ-DRIFT', 1, state.readStateFile('TDJ-DRIFT'))
+ok('自动修复后 Phase 1 门控通过', driftGateAfter.passed === true,
+  JSON.stringify(driftGateAfter.blockers.map(b => b.type + ':' + b.message)))
 
 // ════════════════════════════════════════════════════════════
 section('5. dispatch 单一 prompt 出口 + advance 精简输出')

@@ -59,6 +59,62 @@ const {
 
 const schemaValidator = require('./schema-validator')
 
+function isValidMustCheckItem (item) {
+  return item &&
+    typeof item === 'object' &&
+    !Array.isArray(item) &&
+    typeof item.fingerprint === 'string' &&
+    item.fingerprint.trim() &&
+    typeof item.failureType === 'string' &&
+    item.failureType.trim()
+}
+
+/**
+ * 归一化 task-dag.json 中 LLM 常见的无歧义 schema 漂移。
+ *
+ * 只处理不改变任务语义的格式问题：null figmaRefs、数字字符串 estimate、
+ * 以及旧 prompt 偶发写出的 mustCheck 字符串清单。无法安全推断的内容留给门控阻塞。
+ */
+function normalizeTaskDagSchemaDrift (storyId) {
+  const data = readJsonArtifact(storyId, 'task-dag.json')
+  if (!data || data._parseError) return false
+
+  let fixed = false
+
+  if (Array.isArray(data.tasks)) {
+    for (const task of data.tasks) {
+      if (Object.prototype.hasOwnProperty.call(task, 'figmaRefs') && task.figmaRefs === null) {
+        task.figmaRefs = []
+        fixed = true
+      }
+
+      if (typeof task.estimate === 'string' && /^\d+$/.test(task.estimate.trim())) {
+        task.estimate = parseInt(task.estimate.trim(), 10)
+        fixed = true
+      }
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(data, 'mustCheck')) {
+    if (data.mustCheck === null) {
+      data.mustCheck = []
+      fixed = true
+    } else if (Array.isArray(data.mustCheck)) {
+      const validItems = data.mustCheck.filter(isValidMustCheckItem)
+      if (validItems.length !== data.mustCheck.length) {
+        data.mustCheck = validItems
+        fixed = true
+      }
+    }
+  }
+
+  if (!fixed) return false
+
+  const filePath = path.join(getStoryDir(storyId), 'task-dag.json')
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8')
+  return true
+}
+
 // ─── 错误恢复建议表 ─────────────────────────────────────────────
 
 /**
@@ -141,6 +197,13 @@ const RECOVERY_SUGGESTIONS = {
       }
       return fixed
     }
+  },
+  // Phase 1→2: task-dag schema 漂移（figmaRefs/estimate/mustCheck 等）
+  task_dag_schema_drift: {
+    level: 1,
+    action: '归一化 task-dag.json 中可安全修复的 schema 漂移（figmaRefs null、estimate 数字字符串、mustCheck 字符串项）',
+    autoFixable: true,
+    autoFix: normalizeTaskDagSchemaDrift
   },
   // Phase 1→2: task 缺少 id
   task_missing_id: {
@@ -434,11 +497,14 @@ function runGateCheck (storyId, phaseNum, state) {
       const schemaResult = schemaValidator.validateArtifact(storyId, fileName)
       if (!schemaResult.valid) {
         for (const err of schemaResult.errors) {
+          const type = fileName === 'task-dag.json' ? 'task_dag_schema_drift' : 'schema_validation_failed'
           result.blockers.push(structuredError(
-            'schema_validation_failed',
+            type,
             `Schema 校验失败: ${err}`,
             2,
-            `请检查 ${fileName} 格式是否符合规范，参考 schemas/ 目录下的 schema 定义`
+            fileName === 'task-dag.json'
+              ? '请检查 task-dag.json 中 figmaRefs/estimate/mustCheck 等字段类型是否符合 schema；可先用 --auto-fix 归一化安全漂移'
+              : `请检查 ${fileName} 格式是否符合规范，参考 schemas/ 目录下的 schema 定义`
           ))
         }
         result.passed = false

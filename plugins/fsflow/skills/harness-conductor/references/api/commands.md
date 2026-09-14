@@ -25,10 +25,14 @@ node $HARNESS/dispatch.js <storyId>
 | `readyToAdvance` | boolean | true 表示应先执行 `advanceCommand` 再回 Step 1 |
 | `instruction` | string\|null | 人类可读的下一步说明 |
 | `warnings` | string[] | 不阻塞的告警，转述给用户但不改变分支 |
-| `recovery` | object\|null | `{ type, command, description }`；`command` 为 null 表示转人工 |
+| `recovery` | object\|null | `{ type, command, description }`；测试选择等待态另含 `question` / `options`，其余 `command` 为 null 表示转人工 |
 
 **四态含义**：`ready` 干活或推进 / `fix_loop` Phase 3-4 有 BLOCKER，执行 `recovery.command`
-回退修复 / `blocked` 状态异常 / `terminal` 未建流、已归档、已完成。
+回退修复 / `blocked` 等待用户测试选择或状态异常 / `terminal` 未建流、已归档、已完成。
+
+`recovery.type=verification_choice_required` 时，转述 `question` 并等待用户回答，
+再执行匹配的 `options[].command` 并重新 dispatch。每个选项含 `label` / `value` / `command`；
+未回答时不执行选项命令、不启动测试、不推进 Phase。
 
 门控预检只是「预读」，裁定权在 `advance-phase.js` —— dispatch 绝不写状态。
 
@@ -79,12 +83,14 @@ node $HARNESS/harness-workflow.js status
 ```bash
 node $HARNESS/create-workflow.js <storyId> "<title>" [--bypass] [--figma] [--mode=run|fixbugs] [--input <file>]
 node $HARNESS/create-workflow.js <storyId> --refresh-input [--figma]
+node $HARNESS/create-workflow.js <storyId> --set-verification=full|review-only
 ```
 
 | flag | 作用 |
 |------|------|
 | `--input <file>` | **正向路径**：先有输入再建流，判定一次算准。fail-closed，非法即拒绝建流 |
-| `--refresh-input` | **补救路径**：建流后才拿到/改动输入时回填。只改原型/Figma 两项，不碰 phase |
+| `--refresh-input` | **补救路径**：建流后才拿到/改动输入时回填原型/Figma 和验证模式，不碰 phase |
+| `--set-verification=<m>` | Phase 4 收到用户回答后记录 `full` / `review-only`，同步输入与状态，不推进 phase |
 | `--figma` | 手工强制开启 Figma 硬门控，覆盖自动推导（任何模式生效） |
 | `--bypass` | 跳过 Phase 0-1 直接进 Phase 2 并立即签发 dev-pass（hotfix） |
 | `--mode=<m>` | `run`（默认）/ `fixbugs` |

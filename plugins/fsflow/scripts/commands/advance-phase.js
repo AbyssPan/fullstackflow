@@ -924,6 +924,8 @@ if (!combinedResult.passed) {
     const aggregated = new Map()
     for (const b of combinedResult.blockers) {
       const failureType = errorToType(b)
+      // 等待用户选择属于正常交互，不作为失败经验沉淀。
+      if (failureType === 'verification_choice_required') continue
       const suggestion = policy.matchRecoverySuggestion(b)
       const key = failureType !== 'unknown'
         ? failureType
@@ -1041,7 +1043,8 @@ state.gateChecks.gateValidationResults.push({
 // 放在 state 写入之前，信息注入到 state 中
 const phaseArtifacts = require('../lib/state').PHASE_ARTIFACTS
 const completedPhaseArtifacts = phaseArtifacts && phaseArtifacts[currentPhase]
-if (completedPhaseArtifacts && Array.isArray(completedPhaseArtifacts.artifacts)) {
+if (completedPhaseArtifacts && Array.isArray(completedPhaseArtifacts.artifacts) &&
+    !(currentPhase === 4 && state.verificationMode === 'review-only')) {
   const allMissing = completedPhaseArtifacts.artifacts.every(art => {
     // Phase 2/5/6/7 产出物不是文件（git diff / commit / 部署），跳过
     if (!art.fileName) return false
@@ -1132,7 +1135,7 @@ if (targetPhase === 5) {
   const devPassPath = path.join(PLANS_DIR, storyId, 'dev-pass.json')
   if (fs.existsSync(devPassPath)) {
     revokeDevPass(storyId)
-    console.log('  ✓ dev-pass 兜底撤销 (Phase 4→5，审查+测试双通过，开发窗口关闭)')
+    console.log('  ✓ dev-pass 兜底撤销 (Phase 4→5，验证门控已放行，开发窗口关闭)')
     trace.appendTrace(storyId, { type: 'dev_pass', phase: String(targetPhase), result: 'revoked', reason: 'phase_4_to_5_safety_net' })
     if (state.devPass) delete state.devPass
   }

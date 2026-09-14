@@ -190,8 +190,9 @@ AI 修改源码受 dev-pass 通行证约束：仅在开发阶段由脚本自动�
 ### 1. 工作流初始化
 - **入口先写 `story-input.json`，再用 `harness-workflow.js start --input <file>` 一步建流**。脚本会在任何状态写入前校验输入并一次算准原型 / Figma 门控；`--refresh-input` 只用于旧流程或输入后补的恢复场景。
 - **`story-input.json` 只搬运参数、不做分析**。把用户给的链接 / 终端 / 描述原样写入即可；判断需求影响哪些文件、该怎么改，归 Phase 0 需求分析师。
-- **功能测试默认保留**。`story-input.json` 可选写 `"verificationMode": "review-only"`
-  显式跳过 Phase 4 独立测试；未写或写 `full` 时仍执行完整验证流程。
+- **功能测试默认先询问**。新工作流未写 `verificationMode` 或写 `ask` 时，代码审查通过后主动询问是否执行独立测试，未回答则等待。
+  用户选择测试后执行 Phase 4；选择跳过则记为 `skipped` 并继续交付。此前已明确选择时，入口写 `full` / `review-only`，恢复会话和修复回路不重复询问。
+  旧工作流保留原有配置；旧状态未含该字段时仍按 `full` 执行。跳过独立测试不改变代码审查和项目原有检查配置。
 
 ### 2. 状态文件纪律（铁律）
 - 🚫 **AI 不手改 `e2e-state.json` / `dev-pass.json`**。Phase 推进、dev-pass 签发/撤销全部由脚本完成，AI 只按 `dispatch.js` 的四态（ready / fix_loop / blocked / terminal）机械分支。

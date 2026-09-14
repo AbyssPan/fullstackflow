@@ -12,9 +12,9 @@
     },
     "verificationMode": {
       "type": "string",
-      "enum": ["full", "review-only"],
-      "default": "full",
-      "description": "验证模式：full=保留独立功能测试 Phase；review-only=显式跳过独立测试，仍保留代码审查与项目自身检查"
+      "enum": ["ask", "full", "review-only"],
+      "default": "ask",
+      "description": "验证模式：ask=代码审查后询问用户是否执行独立测试（新工作流默认）；full=用户已选择测试；review-only=用户已选择跳过独立测试，仍保留代码审查与项目自身检查"
     },
     "storyId": { "type": "string" },
     "title": { "type": "string" },

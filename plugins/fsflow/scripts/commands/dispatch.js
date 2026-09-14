@@ -73,6 +73,7 @@ const MAX_PHASE = PHASE_SLUGS.length - 1
 
 /** 插件根目录下 advance-phase.js 的调用形式（文档中统一用 ${CLAUDE_PLUGIN_ROOT}） */
 const ADVANCE_CMD = 'node ${CLAUDE_PLUGIN_ROOT}/scripts/commands/advance-phase.js'
+const VERIFICATION_CMD = 'node ${CLAUDE_PLUGIN_ROOT}/scripts/commands/create-workflow.js'
 
 /**
  * 构造调度结果骨架
@@ -231,6 +232,21 @@ function dispatch (storyId) {
     result.warnings.push(`门控预检异常（不阻塞调度）: ${e.message}`)
   }
   result.warnings.push(...(gate.warnings || []))
+
+  if (gate._meta && gate._meta.verificationChoiceRequired) {
+    result.status = 'blocked'
+    result.recovery = {
+      type: 'verification_choice_required',
+      command: null,
+      description: '主动询问用户是否执行独立功能测试；等待明确回答后执行对应选项的 command，再重新 dispatch。未回答时不得启动测试或推进，不把默认选项当成回答。',
+      question: '代码审查已通过，是否执行独立功能测试？测试会运行页面/接口验证，耗时较长；跳过则继续交付，保留代码审查和项目原有检查。',
+      options: [
+        { label: '执行测试', value: 'full', command: `${VERIFICATION_CMD} ${storyId} --set-verification=full` },
+        { label: '跳过独立测试', value: 'review-only', command: `${VERIFICATION_CMD} ${storyId} --set-verification=review-only` }
+      ]
+    }
+    return result
+  }
 
   const fixLoop = detectFixLoop(storyId)
 

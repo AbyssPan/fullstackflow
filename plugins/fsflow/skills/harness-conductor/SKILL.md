@@ -41,7 +41,8 @@ Step 2: 按 status 分支（四态互斥且穷尽，无「其他情况自行处�
   ┌ ready     → 若 readyToAdvance=true: 先执行 advanceCommand，再回 Step 1
   │             否则: Spawn nextAgent，prompt = agentPrompt（原样注入，不加工）
   ├ fix_loop  → 执行 recovery.command
-  ├ blocked   → 按 recovery.description 处理，无 command 则转人工
+  ├ blocked   → verification_choice_required：询问 recovery.question，等待用户选择后执行对应 options[].command，再回 Step 1
+  │             其他情况按 recovery.description 处理，无 command 则转人工
   └ terminal  → 流程结束（未创建／已完成／已归档），按 recovery 提示收尾
 
 Step 3: 子 Agent 汇报产出物路径 → 回到 Step 1
@@ -49,13 +50,17 @@ Step 3: 子 Agent 汇报产出物路径 → 回到 Step 1
 
 如有 `warnings` → 转述给用户确认，但不因此改变分支。
 
+`recovery.type=verification_choice_required` 是测试选择等待态。主动询问是否执行独立功能测试，
+收到明确回答后才执行对应命令；用户未回答时暂停，不启动测试、不推进，也不把预选项或超时当作回答。
+用户已在本次 Story 明确选择过时，直接记录已有选择；选择由脚本持久化，恢复会话和修复回路不重复询问。
+
 **主 Agent 禁止的行为**:
 - 🚫 禁止直接读取 e2e-state.json（由 dispatch.js 读取）
 - 🚫 禁止自行判断当前 Phase 和下一步该调谁（由 dispatch.js 查表）
 - 🚫 禁止自行处理异常恢复（由 dispatch.js 输出 recovery）
 - 🚫 禁止改写 `agentPrompt` 正文或替换其内容（它已完整，无占位符）
 - 🚫 子 Agent 中断、无产出或产出缺失时，禁止主 Agent 接管该 Phase 的实质工作（读契约、读业务代码、跑测试/编译、手写产出物）；只能重新 dispatch/重派对应 Agent，或按 `dispatch.js` / `advance-phase.js` 给出的 recovery 转人工
-- ✅ 主 Agent 只做两件机械动作: Spawn 指定的 Agent、执行给定的命令
+- ✅ 主 Agent 按调度结果 Spawn 指定的 Agent、执行给定命令，或转述脚本给出的测试选择并等待回答
 
 ## Spawn 前置注入（唯一允许的 prompt 加工）
 

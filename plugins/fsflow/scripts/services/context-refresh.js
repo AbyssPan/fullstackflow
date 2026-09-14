@@ -48,8 +48,9 @@ function generatePhaseSummary (storyId, phase) {
 
   const phaseName = getPhaseName(phase)
   const phaseSlug = PHASE_SLUGS[phase] || 'unknown'
+  const skippedTest = phase === 4 && state.verificationMode === 'review-only'
   const summaryLines = [
-    `# Phase ${phase} (${phaseName}) 完成摘要`,
+    `# Phase ${phase} (${phaseName}) ${skippedTest ? '跳过' : '完成'}摘要`,
     '',
     `> Story: ${storyId} | 完成时间: ${new Date().toISOString()}`,
     `> 本文件供下个 Agent 加载，替代完整对话历史。`,
@@ -57,6 +58,7 @@ function generatePhaseSummary (storyId, phase) {
     '## 关键产出物',
     ''
   ]
+  if (skippedTest) summaryLines.push('- 用户选择跳过独立功能测试（verificationMode=review-only）；未执行测试，不代表测试通过。')
 
   // 根据 Phase 收集产出物信息
   const artifacts = getPhaseArtifacts(storyId, phase)
@@ -171,6 +173,8 @@ function injectMustCheck (storyId) {
  * @returns {Array<{name: string, path: string, summary?: string}>}
  */
 function getPhaseArtifacts (storyId, phase) {
+  // 历史报告可能仍在磁盘上；跳过的本轮测试不得复用它们作为完成证据。
+  if (phase === 4 && readStateFile(storyId)?.verificationMode === 'review-only') return []
   const storyDir = getStoryDir(storyId)
   const artifacts = []
 
@@ -453,6 +457,12 @@ function getRuntimeEvidence (storyId, phase) {
 function getContractFiles (storyId, phase) {
   // 下个 Phase 需要的契约文件
   const nextPhase = phase + 1
+  const verificationMode = readStateFile(storyId)?.verificationMode
+  // 等待选择时不让恢复 Hook 提前引导执行测试；跳过后只交接审查结论。
+  if (nextPhase === 4 && ['ask', 'review-only'].includes(verificationMode)) return []
+  if (nextPhase === 5 && verificationMode === 'review-only') {
+    return ['.codebuddy/plans/' + storyId + '/code-review.json']
+  }
   const storyDir = getStoryDir(storyId)
   const baseContracts = {
     1: ['.codebuddy/plans/' + storyId + '/acceptance-criteria.json', '.codebuddy/plans/' + storyId + '/task-dag.json'],

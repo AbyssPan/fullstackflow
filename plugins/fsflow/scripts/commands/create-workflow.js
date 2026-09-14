@@ -8,6 +8,7 @@
  *   - 确保 story 级 repos.json 存在；--bypass 时直接进入 Phase 2 并立即签发 dev-pass
  *   - --input: 建流前摄入并校验 story-input.json，使上述两项判定一次算准
  *   - --refresh-input: 在 story-input.json 写入后补算上述两项判定，不触碰 phase / status
+ *   - --set-verification=full|review-only: Phase 4 记录用户测试选择，同步输入与状态，不推进 phase
  *
  * 用法:
  *   node plugins/fsflow/scripts/commands/create-workflow.js <storyId> "<title>" [--bypass] [--figma] [--mode=run|fixbugs] [--input <file>]
@@ -179,7 +180,7 @@ function ingestStoryInput (storyId, title, inputFile, cliMode, modeExplicit) {
   return {
     ok: true,
     mode: pre.mode,
-    verificationMode: input.verificationMode === 'review-only' ? 'review-only' : 'full',
+    verificationMode: input.verificationMode || 'ask',
     target
   }
 }
@@ -235,7 +236,7 @@ function resolveFigmaDesign (storyId, hasFigmaFlag, workflowMode, bypass) {
 function createWorkflow (storyId, title, bypass, hasFigma, mode, opts = {}) {
   const errors = []
   let workflowMode = mode === 'fixbugs' ? 'fixbugs' : 'run'
-  let verificationMode = 'full'
+  let verificationMode = 'ask'
 
   // 1. 检查是否已有状态文件
   const existingState = readStateFile(storyId)
@@ -412,11 +413,13 @@ function refreshStoryInput (storyId, hasFigmaFlag = false) {
     ? { required: false, reason: bypass ? 'bypass 模式跳过 Phase 0' : 'fixbugs 模式，Bug 修复无原型依赖' }
     : isPrototypeRequired(storyId)
   const figma = resolveFigmaDesign(storyId, hasFigmaFlag || state.hasFigmaDesign, workflowMode, bypass)
-  let verificationMode = state.verificationMode === 'review-only' ? 'review-only' : 'full'
+  let verificationMode = state.verificationMode || 'full'
   try {
     const inputPath = path.join(PLANS_DIR, storyId, STORY_INPUT_FILE)
     const input = JSON.parse(fs.readFileSync(inputPath, 'utf-8'))
-    verificationMode = input.verificationMode === 'review-only' ? 'review-only' : 'full'
+    if (['ask', 'full', 'review-only'].includes(input.verificationMode)) {
+      verificationMode = input.verificationMode
+    }
   } catch (_) { /* 无输入或解析失败时保留当前模式 */ }
 
   const before = {
@@ -448,6 +451,31 @@ function refreshStoryInput (storyId, hasFigmaFlag = false) {
   }
 }
 
+/** 记录 Phase 4 的用户选择；只更新验证策略，不推进 Phase。 */
+function setVerificationMode (storyId, mode) {
+  if (!storyId || storyId.startsWith('--')) {
+    return { success: false, errors: ['记录测试选择需要 storyId'] }
+  }
+  if (!['full', 'review-only'].includes(mode)) {
+    return { success: false, errors: ['验证选择仅支持 full / review-only'] }
+  }
+  const state = readStateFile(storyId)
+  if (!state || state._parseError || state.phase !== 4 || state.status !== 'running') {
+    return { success: false, errors: ['仅可在运行中的 Phase 4 记录测试选择'] }
+  }
+  const inputPath = path.join(PLANS_DIR, storyId, STORY_INPUT_FILE)
+  if (fs.existsSync(inputPath)) {
+    const checked = validateFile(inputPath, 'story-input.schema.json')
+    if (!checked.valid) return { success: false, errors: checked.errors }
+    checked.data.verificationMode = mode
+    fs.writeFileSync(inputPath, JSON.stringify(checked.data, null, 2) + '\n', 'utf-8')
+  }
+  state.verificationMode = mode
+  state.updatedAt = new Date().toISOString()
+  writeStateFile(storyId, state)
+  return { success: true, storyId, verificationMode: mode, phase: state.phase }
+}
+
 // ─── 执行（CLI 模式） ──────────────────────────────────────────
 
 if (require.main === module) {
@@ -462,6 +490,12 @@ if (require.main === module) {
   const modeArg = args.find(a => a.startsWith('--mode='))
   const cliMode = modeArg ? modeArg.slice('--mode='.length) : 'run'
   const cliRefreshInput = args.includes('--refresh-input')
+  const verificationArg = args.find(a => a.startsWith('--set-verification='))
+  if (verificationArg) {
+    const result = setVerificationMode(cliStoryId, verificationArg.slice('--set-verification='.length))
+    console.log(JSON.stringify(result, null, 2))
+    process.exit(result.success ? 0 : 1)
+  }
 
   // --refresh-input 只需 storyId（模式/bypass 从既有状态文件读取）
   if (cliRefreshInput) {
@@ -477,6 +511,7 @@ if (require.main === module) {
   if (!cliStoryId || !cliTitle) {
     console.error('用法: node create-workflow.js <storyId> "<title>" [--bypass] [--figma] [--mode=run|fixbugs] [--input <file>]')
     console.error('      node create-workflow.js <storyId> --refresh-input [--figma]')
+    console.error('      node create-workflow.js <storyId> --set-verification=full|review-only')
     console.error('示例: node create-workflow.js STORY-001 "1v1客服等级分配模式"')
     console.error('  --bypass          跳过 Phase 0-1')
     console.error('  --figma           手工强制开启 Figma 硬门控（任何模式生效，覆盖自动推导）')
@@ -504,4 +539,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { createWorkflow, refreshStoryInput, precheckStoryInput, takeFlagValue }
+module.exports = { createWorkflow, refreshStoryInput, setVerificationMode, precheckStoryInput, takeFlagValue }

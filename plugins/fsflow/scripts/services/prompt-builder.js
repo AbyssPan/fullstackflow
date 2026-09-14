@@ -477,6 +477,9 @@ function buildAgentPrompt (opts) {
   // 本 Story 原始输入（仅 Phase 0 注入完整内容）
   const storyInputSection = buildStoryInputSection(storyId, targetPhase)
   const storyMode = getStoryMode(storyId)
+  const verificationInstruction = targetPhase >= 5 && readStateFile(storyId)?.verificationMode === 'review-only'
+    ? '## 测试选择\n用户已选择跳过独立功能测试（verificationMode=review-only）。继续交付，不要求测试工程师验收信号或测试产物，不重复询问是否测试；交付说明如实标注「未执行独立功能测试」，不得声称测试通过。\n'
+    : ''
   const kbPreflightInstruction = targetPhase === 0
     ? [
         '## 知识库前置确认（需求分析开始时唯一执行）',
@@ -543,6 +546,7 @@ function buildAgentPrompt (opts) {
     agentInfo ? `\n## 你的任务\n${agentInfo.instruction}` : '',
     '',
     storyInputSection,
+    verificationInstruction,
     kbPreflightInstruction,
     storyContext.length > 0 ? `## Story 背景资料\n请读取以下文件获取完整内容：\n${storyContext.join('\n')}\n` : '',
     (targetPhase === 1 && taskPlannerFigmaInstruction.length > 0) ? taskPlannerFigmaInstruction.join('\n') : '',

@@ -39,4 +39,4 @@ use_skill("fsflow:harness-conductor")
 - 主 Agent 不加载 `tapd-bug-analyzer`；Bug 分析必须留在 Phase 0 需求分析师的上下文中。
 - 不自行拼 Phase 0 prompt；`dispatch.js` 是 `agentPrompt` 唯一出口。
 - 不直接修改 `e2e-state.json` 或 `dev-pass.json`。
-- 独立功能测试默认保留。只有用户明确要求快速/免测试流程时，才在输入中选 `review-only`。
+- 新工作流默认 `verificationMode=ask`，代码审查通过后由 conductor 主动询问是否执行独立功能测试。用户此前已明确要求测试或跳过独立测试时，分别写 `full` / `review-only`，后续不重复询问；仅说「尽快」不能视为跳过测试。

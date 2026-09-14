@@ -100,6 +100,11 @@ function buildAdditionalContext (workflowResults) {
     lines.push(`   当前 Phase: ${state.phase} (${hookUtils.getPhaseName(state.phase)})`)
     lines.push(`   状态: ${state.status}`)
     lines.push(`   最后更新: ${state.updatedAt || '未知'}`)
+    if (state.phase === 4 && state.verificationMode === 'ask') {
+      lines.push('   测试选择待确认：重新 dispatch，按 recovery.question 主动询问用户是否执行独立测试。未收到明确回答前，不启动测试、不推进；此前已有明确回答则按该选择记录，不重复询问。')
+    } else if (state.verificationMode === 'review-only') {
+      lines.push('   用户已选择跳过独立功能测试；不要求测试报告，不重复询问是否测试，不得声称测试通过。')
+    }
 
     // ── Gap A: 上轮产出物摘要 ────────────────────────────────
     // 只取编号不超过当前 Phase 的最新 summary（避免加载后续 Phase 的摘要）

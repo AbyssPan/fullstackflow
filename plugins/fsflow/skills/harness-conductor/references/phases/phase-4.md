@@ -1,8 +1,11 @@
 # Phase 4 — 功能测试
 
-> 默认 `verificationMode=full`，执行本 Phase。若用户在 `story-input.json` 中显式选择
-> `verificationMode=review-only`，`dispatch.js` 会给出直接推进指令，本 Phase 在状态中记为 `skipped`。
-> 该选项只跳过独立功能测试，不跳过代码审查、lint/编译和项目 git hook。
+> 新工作流默认 `verificationMode=ask`。进入本 Phase 时，`dispatch.js` 返回
+> `blocked` + `recovery.type=verification_choice_required`，主 Agent 主动询问用户是否执行独立测试，
+> 等待回答后执行对应 `recovery.options[].command`，再重新 dispatch。
+> 选择 `full` 则执行测试；选择 `review-only` 则直接推进，本 Phase 记为 `skipped`。
+> 未回答时不得测试或推进。已有明确选择、恢复会话或测试返修时不重复询问。
+> 旧状态缺少该字段时保持原 full 行为。该选项不改变代码审查、项目原有 lint/编译配置和 git hook。
 
 > 门控实现：`services/policy.js` → `checkPhase4Gate()` / `crossCheckReviewVsAcceptance()` /
 > `checkEvidenceQuality()` / `checkContractRegression()`

@@ -125,6 +125,11 @@ function normalizeTaskDagSchemaDrift (storyId) {
  * Level 4: 阻止 + 人工介入
  */
 const RECOVERY_SUGGESTIONS = {
+  verification_choice_required: {
+    level: 4,
+    action: '重新 dispatch，询问是否执行独立测试，等待用户回答后记录选择',
+    autoFixable: false
+  },
   // Phase 6→7: 知识库分支尚未留下可审计结果
   phase6_outcome_missing: {
     level: 4,
@@ -463,6 +468,19 @@ function runGateCheck (storyId, phaseNum, state) {
   const result = { passed: true, blockers: [], warnings: [], recoveries: [], _meta: {} }
 
   if (phaseNum < 0) return result // Phase 0 无前置
+
+  // 未回答时不得启动测试或推进交付；旧状态未含此字段时保留原 full 行为。
+  if (phaseNum === 4 && state && state.verificationMode === 'ask') {
+    result.passed = false
+    result._meta.verificationChoiceRequired = true
+    result.blockers.push(structuredError(
+      'verification_choice_required',
+      '请先询问用户是否执行独立功能测试，并记录选择',
+      4,
+      '等待用户回答后执行 create-workflow.js <storyId> --set-verification=full|review-only，再重新 dispatch'
+    ))
+    return result
+  }
 
   // review-only 是用户在 story-input.json 中显式选择的快速通道。
   // 仅跳过独立功能测试 Phase，不改变代码审查、lint/编译或项目 git hook。

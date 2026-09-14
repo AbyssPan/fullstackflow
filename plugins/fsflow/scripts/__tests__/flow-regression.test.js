@@ -7,7 +7,7 @@
  *   4. Phase 1→2 门控：figma-frame-inventory 存在性与完整性
  *   5. dispatch 是 prompt 唯一出口；advance-phase.js 只返回推进结果
  *   5b. Graphify 仓库状态与 cwd 入口注入
- *   5c. review-only 显式跳过独立功能测试，full 默认不变
+ *   5c. review-only 显式跳过独立功能测试，full 保留测试门控
  *   6. Phase 0 唯一知识库前置确认 + Phase 6 仅增量收尾
  *
  * 无外部依赖，用临时沙箱（同时覆盖 CODEBUDDY/CLAUDE_PROJECT_DIR），跑完自动清理。

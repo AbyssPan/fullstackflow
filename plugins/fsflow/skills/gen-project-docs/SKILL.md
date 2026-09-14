@@ -11,6 +11,7 @@ description: "自动生成项目结构化知识库文档。按项目画像（pro
 > 本 Skill 自包含：脚本 `./gen-docs.cjs` 收集文件路径（确定操作），AI 生成文档内容（认知操作）。
 > 后端项目按业务域聚合生成文档。即使一个域包含多个 Controller/Service/Mapper/DTO/Entity，也只生成该域的 `routes.md` / `api.md` / `models.md` 等聚合文档，禁止按类生成独立 md。
 > 多模块 Maven 项目使用带 module 前缀的 `entry_files`，例如 `order-service/src/main/java/com/example/order/**/*.java`。
+> 后端有 `backend-index.json` 时，脚本优先使用其完整领域文件列表；独立生成文档前运行 `kb-init` 的 `--index-only` 刷新索引。`kb-update` 已刷新时无需重复。
 
 ---
 
@@ -74,15 +75,20 @@ description: "自动生成项目结构化知识库文档。按项目画像（pro
 | 接口/能力 | — | api.md | commands.md | api.md | usage.md |
 | 数据/契约 | — | store.md | schemas.md | models.md | — |
 
-**通用 5 类**（overview/architecture/config/pitfalls/log）所有项目类型都生成；**特有切面**按 project_type 选择。
+前端、插件和库保持原模板生成方式。后端将这些类型视为可选切面：每域首先生成 `overview.md`，内容足够复杂时才拆分文档，不生成空白占位文档。
 
 后端生成约束：
 
+- 全局模块、依赖及部署边界写入 `common/architecture.md`，公共技术约定按需写入 `common/`；领域内只补充业务特有差异
+- `overview.md` 包含职责、业务规则、核心流程、数据变化和可追溯源码入口；复杂流程按需拆为 `flows.md`，说明事务、幂等、重试和失败处理
 - `routes.md` 聚合 HTTP Controller、RPC/消息/定时任务等入口
 - `api.md` 聚合接口契约、入参、出参、错误码和外部依赖
 - `models.md` 聚合 DTO/VO/Entity/Mapper/XML/Repository 和关键数据约束
 - 不生成 `OrderController.md`、`OrderService.md`、`OrderMapper.md` 等类级文档
 - 单域文件过多时，优先总结核心入口和契约，把完整文件列表作为索引，不把源码内容整段复制进知识库
+- 读取脚本输出的 `commonFiles` 和 `unclassifiedFiles`：公共内容聚合说明，待归类项核实源码后通过 `backend.config.json` 明确归属，不能自行把每个文件变成领域
+- `evidence` 中的注解与符号是定位线索，组合路由、动态 SQL 和实际调用关系仍以源码为准；文档记录来源文件和生成版本
+- 生成成功后同步 `meta.yaml` 的领域导航和文件列表，并推进文档的 `git.hash`；保留现有描述、设计索引和手工批注
 
 ---
 

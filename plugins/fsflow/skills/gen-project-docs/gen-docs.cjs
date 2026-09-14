@@ -80,8 +80,29 @@ const targetId = mode === 'single' ? args[0] : null
 
 if (!fs.existsSync(META_PATH)) { console.error(JSON.stringify({ error: 'meta.yaml 不存在，请先运行 kb-init' })); process.exit(1) }
 const meta = parseMetaYaml(fs.readFileSync(META_PATH, 'utf-8'))
+const profileText = fs.existsSync(PROFILE_PATH) ? fs.readFileSync(PROFILE_PATH, 'utf8') : ''
+const isBackend = /project_type:\s*["']?backend\b/.test(profileText)
+const backend = isBackend && fs.existsSync(path.join(KB_ROOT, 'backend-index.json'))
+  ? JSON.parse(fs.readFileSync(path.join(KB_ROOT, 'backend-index.json'), 'utf8')) : null
+if (backend) meta.domains = backend.domains
 
 if (mode === 'stale') {
+  if (backend) {
+    try {
+      if (!meta.git.hash) {
+        console.log(JSON.stringify({ mode: 'stale', stale: true, changedCount: backend.files.length, reason: 'documents-not-generated' }))
+      } else {
+        const { buildBackendIndex, changesSinceDocument, backendImpact } = require('../kb-init/backend-index.cjs')
+        const current = buildBackendIndex(PROJECT_ROOT, backend.source_roots, backend.resource_roots, backend.modules)
+        const pending = changesSinceDocument(PROJECT_ROOT, meta.git.hash)
+        const changed = backendImpact(backend, current, pending).changedFiles
+        console.log(JSON.stringify({ mode: 'stale', stale: changed.length > 0, changedCount: changed.length }))
+      }
+    } catch (e) {
+      console.log(JSON.stringify({ mode: 'stale', stale: true, reason: 'verification-failed', error: e.message }))
+    }
+    process.exit(0)
+  }
   try {
     const cur = execSync('git rev-parse HEAD', { cwd: PROJECT_ROOT, encoding: 'utf-8', timeout: 5000 }).trim()
     const diff = execSync(`git diff --name-only ${meta.git.hash || cur}..${cur}`, { cwd: PROJECT_ROOT, encoding: 'utf-8', timeout: 10000 }).trim()
@@ -92,7 +113,7 @@ if (mode === 'stale') {
 }
 
 const domains = mode === 'single' ? meta.domains.filter(d => d.id === targetId) : meta.domains
-const result = { mode, domains: [] }
+const result = { mode, domains: [], ...(backend ? { backendIndex: 'backend-index.json', commonFiles: backend.common_files, unclassifiedFiles: backend.unclassified_files, documentation: 'overview-first; expand routes/api/models/flows only when needed' } : {}) }
 
 for (const domain of domains) {
   // v2：文件路径统一解析。meta.yaml 里的文件字段可能是：
@@ -108,7 +129,7 @@ for (const domain of domains) {
   }
   const customDir = path.join(KB_ROOT, domain.path, 'custom')
   const hasCustom = fs.existsSync(customDir) && fs.readdirSync(customDir).filter(f => f.endsWith('.md')).length > 0
-  result.domains.push({ id: domain.id, path: domain.path, files, hasCustom })
+  result.domains.push({ id: domain.id, path: domain.path, files, hasCustom, ...(backend ? { evidence: backend.files.filter(f => f.domain === domain.id).map(f => ({ path: f.path, sha256: f.sha256, entries: f.entries, symbols: f.symbols })) } : {}) })
 }
 
 /**

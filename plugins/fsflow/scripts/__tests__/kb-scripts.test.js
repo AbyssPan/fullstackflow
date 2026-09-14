@@ -211,6 +211,127 @@ section('1d. kb-init: 多模块 Maven reactor 跨 module 聚合业务域')
   fs.rmSync(sb, { recursive: true, force: true })
 }
 
+section('1e. backend index: package ownership, common code, resources and refresh')
+{
+  const sb = mkSandbox('kb-backend-index-')
+  const put = (file, content) => {
+    fs.mkdirSync(path.dirname(path.join(sb, file)), { recursive: true })
+    fs.writeFileSync(path.join(sb, file), content)
+  }
+  const java = 'src/main/java/com/example/app/'
+  put('pom.xml', '<project/>')
+  put(java + 'Application.java', 'package com.example.app;\n@SpringBootApplication\nclass Application {}')
+  put(java + 'chat/controller/MessageController.java', 'package com.example.app.chat.controller;\nimport com.example.app.common.Clock;\n@GetMapping("/messages")\nclass MessageController {}')
+  put(java + 'chat/mapper/MessageMapper.java', 'package com.example.app.chat.mapper;\ninterface MessageMapper {}')
+  put(java + 'document/service/ParserService.java', 'package com.example.app.document.service;\nimport com.example.app.common.Clock;\nclass ParserService {}')
+  put(java + 'common/Clock.java', 'package com.example.app.common;\nclass Clock {}')
+  put(java + 'http/HttpClient.java', 'package com.example.app.http;\nclass HttpClient {}')
+  put(java + 'Mystery.java', 'package com.example.app;\nclass Mystery {}')
+  put('src/main/kotlin/com/example/app/chat/model/Reply.kt', 'package com.example.app.chat.model\ndata class Reply(val text: String)')
+  put('src/main/resources/mappers/MessageMapper.xml', '<mapper namespace="com.example.app.chat.mapper.MessageMapper"/>')
+  put('src/main/resources/notchat/settings.xml', '<settings/>')
+  put('src/main/resources/application.yml', 'server:\n  port: 8080')
+  git(sb, 'git add -A && git commit -qm baseline')
+  const baseline = git(sb, 'git rev-parse HEAD').trim()
+
+  const dry = runScript(KB_INIT, ['--dry-run'], sb)
+  ok('business package wins over Message/Parser class prefixes', JSON.stringify(dry.domains) === '["chat","document"]', JSON.stringify(dry.domains))
+  ok('dry-run with backend facts remains read-only', !fs.existsSync(path.join(sb, '.docs/llm-knowledge/backend-index.json')))
+  ok('Java and Kotlin source roots both indexed', dry.backendIndex?.source_roots.length === 2)
+  ok('common and technical classes do not become business domains', dry.backendIndex?.common_files.includes(java + 'http/HttpClient.java') && dry.backendIndex.common_files.includes(java + 'common/Clock.java'))
+  ok('uncertain classes and substring-only resources stay unclassified', dry.backendIndex?.unclassified_files.includes(java + 'Mystery.java') && dry.backendIndex.unclassified_files.includes('src/main/resources/notchat/settings.xml'))
+  ok('mapper namespace links XML despite unrelated resource directory', dry.domainFileHints?.chat.resource_files.includes('src/main/resources/mappers/MessageMapper.xml'))
+  const entry = dry.backendIndex?.files.find(f => f.path.endsWith('MessageController.java'))
+  ok('entry annotations retain line and lexical status', entry?.entries[0]?.line === 3 && entry.entries[0].status === 'lexical_hint' && entry.entries[0].declaration.includes('/messages'))
+
+  runScript(KB_INIT, [], sb)
+  ok('backend init creates navigation and structure explanation', ['backend-index.json', 'STRUCTURE.md', 'overview.md', 'meta.yaml'].every(f => fs.existsSync(path.join(sb, '.docs/llm-knowledge', f))))
+  ok('initial skeleton is not reported as synchronized documentation', runScript(GEN_DOCS, ['--stale'], sb).stale === true)
+  writeMeta(sb, baseline, [{ id: 'obsolete', path: 'business/obsolete/', files: ['old.java'] }])
+  put('.docs/llm-knowledge/business/chat/custom/README.md', 'handwritten rules')
+  put('.docs/llm-knowledge/common/conventions.md', '<!-- CUSTOM:START -->team rules<!-- CUSTOM:END -->')
+  put('.docs/llm-knowledge/common/README.md', 'team knowledge index')
+  const metaBefore = fs.readFileSync(path.join(sb, '.docs/llm-knowledge/meta.yaml'), 'utf8')
+  runScript(KB_INIT, ['--force'], sb)
+  ok('backend force retains handwritten content and existing meta', fs.readFileSync(path.join(sb, '.docs/llm-knowledge/business/chat/custom/README.md'), 'utf8') === 'handwritten rules' && fs.readFileSync(path.join(sb, '.docs/llm-knowledge/meta.yaml'), 'utf8') === metaBefore)
+  ok('backend force preserves common conventions and index', fs.readFileSync(path.join(sb, '.docs/llm-knowledge/common/conventions.md'), 'utf8').includes('team rules') && fs.readFileSync(path.join(sb, '.docs/llm-knowledge/common/README.md'), 'utf8') === 'team knowledge index')
+
+  put(java + 'common/Clock.java', 'package com.example.app.common;\nclass Clock { int version = 2; }')
+  put(java + 'chat/service/NewService.java', 'package com.example.app.chat.service;\nclass NewService {}')
+  fs.renameSync(path.join(sb, java + 'document/service/ParserService.java'), path.join(sb, java + 'document/service/ReaderService.java'))
+  ok('backend stale check includes uncommitted source changes', runScript(GEN_DOCS, ['--stale'], sb).stale === true)
+  const update = runScript(KB_UPDATE, [], sb)
+  ok('shared changes affect import-dependent domains', update.affectedDomains?.some(d => d.id === 'chat') && update.affectedDomains.some(d => d.id === 'document'), JSON.stringify(update))
+  ok('uncommitted additions/deletions detected from index hashes', update.changedFiles?.includes(java + 'chat/service/NewService.java') && update.changedFiles.includes(java + 'document/service/ParserService.java') && update.changedFiles.includes(java + 'document/service/ReaderService.java'))
+  ok('common update surfaced separately', update.backend?.commonFiles.includes(java + 'common/Clock.java'))
+  ok('index refresh does not make unsynchronized documents fresh', runScript(GEN_DOCS, ['--stale'], sb).stale === true)
+  const repeated = runScript(KB_UPDATE, [], sb)
+  ok('repeated update retains pending worktree changes', repeated.changedFiles?.includes(java + 'common/Clock.java') && repeated.changedFiles.includes(java + 'chat/service/NewService.java'))
+  const gen = runScript(GEN_DOCS, ['--all'], sb)
+  ok('generation follows refreshed index rather than stale meta file list', gen.domains?.some(d => d.id === 'chat' && d.files.all.some(f => f.endsWith('NewService.java'))) && !gen.domains.some(d => d.id === 'obsolete'))
+  ok('generation exposes unclassified and source evidence', gen.unclassifiedFiles?.includes(java + 'Mystery.java') && gen.domains[0].evidence[0].sha256.length === 64)
+  git(sb, 'git add -A && git commit -qm synchronized')
+  const synchronized = git(sb, 'git rev-parse HEAD').trim()
+  writeMeta(sb, synchronized, gen.domains.map(d => ({ id: d.id, path: d.path, files: d.files.all.map(f => path.relative(fs.realpathSync(sb), f).replace(/\\/g, '/')) })))
+  runScript(KB_INIT, ['--index-only'], sb)
+  ok('synchronized backend does not replay the previous commit', runScript(KB_UPDATE, [], sb).affectedDomains?.length === 0)
+  const removed = java + 'chat/service/NewService.java'
+  fs.unlinkSync(path.join(sb, removed))
+  runScript(KB_UPDATE, [], sb)
+  const retryDelete = runScript(KB_UPDATE, [], sb)
+  ok('deleted file remains mapped through document metadata on retry', retryDelete.affectedDomains?.some(d => d.id === 'chat' && d.matchedFiles.includes(removed)), JSON.stringify(retryDelete))
+  fs.rmSync(sb, { recursive: true, force: true })
+}
+
+section('1f. backend index: explicit boundaries and module collisions')
+{
+  const sb = mkSandbox('kb-backend-modules-')
+  const put = (file, content) => {
+    fs.mkdirSync(path.dirname(path.join(sb, file)), { recursive: true })
+    fs.writeFileSync(path.join(sb, file), content)
+  }
+  put('pom.xml', '<project><modules><module>crm</module><module>billing</module></modules></project>')
+  for (const mod of ['crm', 'billing']) {
+    put(`${mod}/pom.xml`, '<project/>')
+    put(`${mod}/src/main/java/com/example/app/Application.java`, 'package com.example.app;\n@SpringBootApplication class Application {}')
+    put(`${mod}/src/main/java/com/example/app/user/controller/UserController.java`, 'package com.example.app.user.controller;\nclass UserController {}')
+  }
+  const dry = runScript(KB_INIT, ['--dry-run'], sb)
+  ok('same domain in separate modules does not silently merge', JSON.stringify(dry.domains) === '["billing-user","crm-user"]', JSON.stringify(dry.domains))
+  put('src/main/java/com/example/root/Application.java', 'package com.example.root;\n@SpringBootApplication class Application {}')
+  put('src/main/java/com/example/root/audit/AuditService.java', 'package com.example.root.audit;\nclass AuditService {}')
+  put('src/main/resources/application.yml', 'server:\n  port: 8080')
+  put('crm/src/main/resources/application.yml', 'server:\n  port: 8081')
+  const withRoot = runScript(KB_INIT, ['--dry-run'], sb)
+  ok('reactor root source and resources are retained alongside modules', withRoot.backendIndex?.source_roots.includes('src/main/java') && withRoot.backendIndex.resource_roots.includes('src/main/resources') && withRoot.domains.includes('audit'))
+  put('.docs/llm-knowledge/backend.config.json', JSON.stringify({ auto_discover: false, domains: [{ id: 'account', include: ['crm/**/user/**/*.java', 'billing/**/user/**/*.java'] }], common: ['**/Application.java'] }))
+  const configured = runScript(KB_INIT, ['--dry-run'], sb)
+  ok('explicit rule merges a business across physical modules', JSON.stringify(configured.domains) === '["account"]' && configured.domainFileHints.account.total_files === 2)
+  put('.docs/llm-knowledge/backend.config.json', JSON.stringify({ domains: [{ id: 'one', include: ['**/*.java'] }, { id: 'two', include: ['crm/**/*.java'] }] }))
+  ok('overlapping ownership rules fail instead of guessing', Boolean(runScript(KB_INIT, ['--dry-run'], sb).__error))
+  put('.docs/llm-knowledge/backend.config.json', JSON.stringify({ domains: [{ id: '../escape', include: ['**/*.java'] }] }))
+  ok('invalid domain IDs rejected before directory creation', Boolean(runScript(KB_INIT, [], sb).__error) && !fs.existsSync(path.join(sb, '.docs/llm-knowledge/backend-index.json')))
+  put('.docs/llm-knowledge/backend.config.json', JSON.stringify({ domains: [{ include: ['**/*.java'] }] }))
+  ok('missing domain ID cannot become an undefined domain', Boolean(runScript(KB_INIT, ['--dry-run'], sb).__error))
+  put('.docs/llm-knowledge/backend.config.json', '[]')
+  ok('configuration must be a JSON object', Boolean(runScript(KB_INIT, ['--dry-run'], sb).__error))
+  fs.rmSync(sb, { recursive: true, force: true })
+}
+
+section('1g. frontend and non-JVM backend retain existing initialization')
+{
+  const sb = mkSandbox('kb-frontend-unchanged-')
+  fs.mkdirSync(path.join(sb, 'src/views/account'), { recursive: true })
+  fs.writeFileSync(path.join(sb, 'package.json'), JSON.stringify({ dependencies: { vue: '3' } }))
+  const init = runScript(KB_INIT, [], sb)
+  ok('frontend keeps page-domain and template behavior', init.projectType === 'frontend' && JSON.stringify(init.domains) === '["account"]' && init.templates.includes('pages') && !init.templates.includes('flows'))
+  ok('frontend creates no backend index or backend structure files', !fs.existsSync(path.join(sb, '.docs/llm-knowledge/backend-index.json')) && !fs.existsSync(path.join(sb, '.docs/llm-knowledge/STRUCTURE.md')))
+  fs.mkdirSync(path.join(sb, 'server/service/order'), { recursive: true })
+  const backend = runScript(KB_INIT, ['--project-type', 'backend', '--dry-run'], sb)
+  ok('non-JVM backend retains service directory fallback', backend.domains?.includes('order') && !backend.backendIndex)
+  fs.rmSync(sb, { recursive: true, force: true })
+}
+
 // ══════════════════════════════════════════════════════════
 // 2. kb-update
 // ══════════════════════════════════════════════════════════

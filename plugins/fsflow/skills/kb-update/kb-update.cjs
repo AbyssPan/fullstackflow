@@ -11,7 +11,7 @@
 
 const fs = require('fs')
 const path = require('path')
-const { execSync } = require('child_process')
+const { execSync, execFileSync } = require('child_process')
 
 const PROJECT_ROOT = process.cwd()
 // v2：去掉 frontend 硬编码层，知识库根为 .docs/llm-knowledge/
@@ -100,7 +100,8 @@ if (fs.existsSync(META_PATH)) {
 }
 
 try {
-  const diff = execSync(`git diff --name-only ${lastHash}..${currentHash}`, { cwd: PROJECT_ROOT, encoding: 'utf-8', timeout: 10000 }).trim()
+  if (!/^[a-f0-9]{7,64}$/i.test(lastHash) || !/^[a-f0-9]{7,64}$/i.test(currentHash)) throw new Error('Invalid Git revision')
+  const diff = execFileSync('git', ['diff', '--name-only', `${lastHash}..${currentHash}`], { cwd: PROJECT_ROOT, encoding: 'utf-8', timeout: 10000 }).trim()
   changedFiles = diff ? diff.split('\n').filter(Boolean) : []
 } catch (e) {
   // lastHash 无效（如 rebase 后消失）或 diff 失败：记录并走兜底
@@ -115,7 +116,7 @@ if (changedFiles.length === 0) {
 }
 
 // 加载 meta.yaml（始终加载，后面的原型文档匹配也需要）
-let meta = {}
+let meta = { domains: [] }
 if (fs.existsSync(META_PATH)) {
   meta = parseMetaYaml(fs.readFileSync(META_PATH, 'utf-8'))
 }
@@ -127,6 +128,31 @@ if (changedFiles.length > 0) {
     const matched = changedFiles.filter(f => matchFileToDomain(f, domain))
     if (matched.length > 0) affectedDomains.push({ id: domain.id, path: domain.path, matchedFiles: matched })
   }
+}
+
+let backend = null
+const profileText = fs.existsSync(path.join(KB_ROOT, '.profile.yaml')) ? fs.readFileSync(path.join(KB_ROOT, '.profile.yaml'), 'utf8') : ''
+if (/project_type:\s*["']?backend\b/.test(profileText) && fs.existsSync(path.join(KB_ROOT, 'backend-index.json'))) {
+  try {
+    const { readBackendIndex, refreshBackendIndex, changesSinceDocument, backendImpact } = require('../kb-init/backend-index.cjs')
+    const previous = readBackendIndex(PROJECT_ROOT)
+    const pending = changesSinceDocument(PROJECT_ROOT, meta.git?.hash || currentHash)
+    const current = refreshBackendIndex(PROJECT_ROOT)
+    if (!meta.git?.hash) pending.push(...current.files.map(f => f.path))
+    backend = backendImpact(previous, current, pending)
+    // Deleted files may already be absent from both scan snapshots on a retry.
+    for (const domain of meta.domains || []) {
+      const matched = pending.filter(file => matchFileToDomain(file, domain))
+      if (!matched.length) continue
+      const existing = backend.affectedDomains.find(d => d.id === domain.id)
+      if (existing) existing.matchedFiles = [...new Set([...existing.matchedFiles, ...matched])]
+      else backend.affectedDomains.push({ id: domain.id, path: domain.path, matchedFiles: matched, reason: 'document-source-map' })
+    }
+    const retired = (meta.domains || []).filter(d => !current.domains.some(n => n.id === d.id))
+    backend.retiredDomains = [...new Set([...backend.retiredDomains, ...retired.map(d => d.id)])]
+    changedFiles = backend.changedFiles
+    affectedDomains = backend.affectedDomains
+  } catch (e) { errors.push('backend index refresh failed: ' + e.message) }
 }
 
 // ─── 原型文档扫描 ──────────────────────────────────────────
@@ -185,4 +211,4 @@ if (fs.existsSync(PLANS_DIR)) {
   }
 }
 
-console.log(JSON.stringify({ lastHash, currentHash, changedFiles, affectedDomains, designDocs, errors }, null, 2))
+console.log(JSON.stringify({ lastHash, currentHash, changedFiles, affectedDomains, designDocs, ...(backend ? { backend } : {}), errors }, null, 2))

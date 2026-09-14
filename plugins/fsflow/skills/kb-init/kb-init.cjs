@@ -15,6 +15,7 @@
 
 const fs = require('fs')
 const path = require('path')
+const { buildBackendIndex, INDEX_PATH } = require('./backend-index.cjs')
 
 // Skill 捆绑目录
 const SKILL_DIR = __dirname
@@ -176,30 +177,6 @@ const NON_DOMAIN_DIRS = new Set([
   'target', 'build', 'generated', 'generated-sources'
 ])
 
-const BACKEND_ROLE_DIRS = new Set([
-  'controller', 'controllers', 'service', 'services', 'mapper', 'mappers',
-  'dao', 'repository', 'repositories', 'entity', 'entities', 'model', 'models',
-  'dto', 'vo', 'bo', 'po', 'domain', 'application', 'infrastructure',
-  'config', 'configuration', 'security', 'job', 'jobs', 'scheduler',
-  'schedulers', 'task', 'tasks', 'event', 'events', 'listener', 'listeners'
-])
-
-const BACKEND_SUFFIXES = [
-  'Controller', 'Resource', 'Endpoint', 'ServiceImpl', 'Service', 'Manager',
-  'Mapper', 'Dao', 'Repository', 'Entity', 'Model', 'DTO', 'Dto', 'VO', 'Vo',
-  'BO', 'Bo', 'PO', 'Po', 'DO', 'Do', 'Request', 'Response', 'Command',
-  'Query', 'Event', 'Listener', 'Handler', 'Job', 'Task', 'Config',
-  'Configuration', 'Properties'
-]
-
-const BACKEND_COMMON_NAMES = new Set([
-  'application', 'bootstrap', 'common', 'base', 'abstract', 'global',
-  'default', 'health', 'error', 'exception', 'util', 'utils', 'constant',
-  'constants', 'config', 'configuration', 'security'
-])
-
-const BACKEND_RESOURCE_EXTS = ['.xml', '.yml', '.yaml', '.properties', '.sql']
-
 /**
  * 按项目类型扫描真实域（替代硬编码 DOMAINS）
  * @param {string} projectType - 项目类型
@@ -245,9 +222,7 @@ function discoverDomains (projectType, sourceRoot) {
     }
 
     case 'backend': {
-      // 后端：优先从 Java/Kotlin 包结构和类名聚合业务域，避免按类生成知识库。
-      const codeDomains = discoverBackendDomains(getBackendSourceRoots(sourceRoot))
-      if (codeDomains.length > 0) return codeDomains
+      if (backendIndex) return backendIndex.domains.map(d => d.id)
 
       // 兼容非 Maven 后端：优先 service 下的二级目录（order/user/payment 等业务域）
       const serviceDirs = scanSubDirs(path.join(root, 'service'))
@@ -285,7 +260,9 @@ function getBackendSourceRoots (sourceRoot) {
       if (fs.existsSync(abs)) moduleRoots.push(abs)
     }
   }
-  if (moduleRoots.length > 0) return moduleRoots
+  const standardRoots = ['src/main/java', 'src/main/kotlin']
+    .map(p => path.join(PROJECT_ROOT, p)).filter(p => fs.existsSync(p))
+  if (moduleRoots.length || standardRoots.length) return [...new Set([...moduleRoots, ...standardRoots])]
   const root = path.join(PROJECT_ROOT, sourceRoot)
   return fs.existsSync(root) ? [root] : []
 }
@@ -295,139 +272,8 @@ function getBackendResourceRoots () {
   const moduleRoots = modules
     .map(mod => path.join(PROJECT_ROOT, mod, 'src', 'main', 'resources'))
     .filter(p => fs.existsSync(p))
-  if (moduleRoots.length > 0) return moduleRoots
   const root = path.join(PROJECT_ROOT, 'src', 'main', 'resources')
-  return fs.existsSync(root) ? [root] : []
-}
-
-function discoverBackendDomains (roots) {
-  const domains = new Set()
-  for (const root of roots) {
-    const files = walkFiles(root, ['.java', '.kt'])
-    for (const abs of files) {
-      const rel = path.relative(root, abs).replace(/\\/g, '/')
-      const d = inferBackendDomainFromPath(rel)
-      if (d) domains.add(d)
-    }
-  }
-  return [...domains].sort()
-}
-
-function walkFiles (dir, exts, maxFiles = 3000) {
-  const results = []
-  const visit = (cur) => {
-    if (results.length >= maxFiles || !fs.existsSync(cur)) return
-    let entries
-    try { entries = fs.readdirSync(cur, { withFileTypes: true }) } catch (e) { return }
-    for (const entry of entries) {
-      if (entry.name.startsWith('.') || NON_DOMAIN_DIRS.has(entry.name)) continue
-      const p = path.join(cur, entry.name)
-      if (entry.isDirectory()) visit(p)
-      else if (entry.isFile() && exts.some(ext => entry.name.endsWith(ext))) results.push(p)
-    }
-  }
-  visit(dir)
-  return results
-}
-
-function inferBackendDomainFromPath (rel) {
-  const parts = rel.split('/').filter(Boolean)
-  if (parts.length === 0) return null
-  const base = parts[parts.length - 1].replace(/\.(java|kt)$/i, '')
-
-  const roleIdx = parts.findIndex(p => BACKEND_ROLE_DIRS.has(p.toLowerCase()))
-  const stripped = stripBackendSuffix(base)
-  const byName = normalizeDomainId(firstBusinessToken(stripped))
-  if (roleIdx === parts.length - 2 && byName && !BACKEND_COMMON_NAMES.has(byName)) return byName
-
-  if (roleIdx > 0) {
-    const prev = normalizeDomainId(parts[roleIdx - 1])
-    if (prev && !BACKEND_COMMON_NAMES.has(prev)) return prev
-  }
-  if (roleIdx >= 0 && roleIdx < parts.length - 2) {
-    const next = normalizeDomainId(parts[roleIdx + 1])
-    if (next && !BACKEND_COMMON_NAMES.has(next)) return next
-  }
-
-  if (byName && !BACKEND_COMMON_NAMES.has(byName)) return byName
-  return null
-}
-
-function stripBackendSuffix (name) {
-  let result = name
-  for (const suffix of BACKEND_SUFFIXES) {
-    if (result.endsWith(suffix) && result.length > suffix.length) {
-      result = result.slice(0, -suffix.length)
-      break
-    }
-  }
-  return result
-}
-
-function firstBusinessToken (name) {
-  if (!name) return ''
-  const normalized = name.replace(/[_-]+/g, ' ')
-  const m = normalized.match(/^[A-Z]?[a-z0-9]+|^[A-Z]+(?=[A-Z][a-z]|$)/)
-  return m ? m[0] : normalized.split(/\s+/)[0]
-}
-
-function normalizeDomainId (value) {
-  if (!value) return ''
-  return value
-    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
-    .replace(/[_\s]+/g, '-')
-    .toLowerCase()
-    .replace(/[^a-z0-9-]/g, '')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-}
-
-function collectBackendFileHints (domains, sourceRoot) {
-  if (!domains.length) return {}
-  const sourceRoots = getBackendSourceRoots(sourceRoot)
-  const resourceRoots = getBackendResourceRoots()
-  const hints = Object.fromEntries(domains.map(d => [d, {
-    source_files: [],
-    resource_files: [],
-    total_files: 0,
-    truncated: false
-  }]))
-
-  for (const sourceAbs of sourceRoots) {
-    for (const abs of walkFiles(sourceAbs, ['.java', '.kt'])) {
-      const relToSource = path.relative(sourceAbs, abs).replace(/\\/g, '/')
-      const domain = inferBackendDomainFromPath(relToSource)
-      if (!domain || !hints[domain]) continue
-      pushHint(hints[domain], 'source_files', path.relative(PROJECT_ROOT, abs).replace(/\\/g, '/'))
-    }
-  }
-
-  for (const resourcesAbs of resourceRoots) {
-    const resources = walkFiles(resourcesAbs, BACKEND_RESOURCE_EXTS)
-    for (const abs of resources) {
-      const rel = path.relative(PROJECT_ROOT, abs).replace(/\\/g, '/')
-      const lower = rel.toLowerCase()
-      for (const domain of domains) {
-        const needle = domain.replace(/-/g, '')
-        if (lower.includes(domain) || lower.replace(/[-_]/g, '').includes(needle)) {
-          pushHint(hints[domain], 'resource_files', rel)
-        }
-      }
-    }
-  }
-
-  for (const h of Object.values(hints)) {
-    h.total_files = h.source_files.length + h.resource_files.length
-  }
-  return hints
-}
-
-function pushHint (hint, field, value, maxPerKind = 80) {
-  if (hint[field].length >= maxPerKind) {
-    hint.truncated = true
-    return
-  }
-  hint[field].push(value)
+  return [...new Set([...moduleRoots, ...(fs.existsSync(root) ? [root] : [])])]
 }
 
 /**
@@ -443,7 +289,7 @@ function selectTemplates (projectType) {
   // 项目类型特有切面
   const specific = {
     frontend: ['pages', 'api', 'store'],
-    backend: ['routes', 'api', 'models'],
+    backend: ['routes', 'api', 'models', 'flows'],
     plugin: ['entry-files', 'schemas', 'commands'],
     library: ['public-api', 'usage']
   }
@@ -527,6 +373,7 @@ const force = args.includes('--force')
 const dryRun = args.includes('--dry-run')
 const typeIdx = args.indexOf('--project-type')
 const manualType = typeIdx >= 0 ? args[typeIdx + 1] : null
+const indexOnly = args.includes('--index-only')
 
 // 1. 项目画像（支持手动覆盖）
 const projectType = manualType || inferProjectType()
@@ -549,9 +396,32 @@ if (projectType === 'backend') {
   if (testRoots.length > 1) profile.test_roots = testRoots
 }
 
+// Backend facts remain separate from hand-maintained knowledge documents.
+let backendIndex = projectType === 'backend'
+  ? buildBackendIndex(PROJECT_ROOT,
+    getBackendSourceRoots(sourceRoot).map(p => path.relative(PROJECT_ROOT, p).replace(/\\/g, '/')),
+    getBackendResourceRoots().map(p => path.relative(PROJECT_ROOT, p).replace(/\\/g, '/')),
+    discoverMavenModules())
+  : null
+if (backendIndex && !hasBackendBuildFile() && !backendIndex.files.some(f => f.kind === 'source')) backendIndex = null
+if (indexOnly) {
+  if (!backendIndex) throw new Error('--index-only requires a backend project')
+  if (!dryRun) {
+    fs.mkdirSync(KB_ROOT, { recursive: true })
+    fs.writeFileSync(path.join(PROJECT_ROOT, INDEX_PATH), JSON.stringify(backendIndex, null, 2) + '\n')
+  }
+  console.log(JSON.stringify(backendIndex, null, 2))
+  process.exit(0)
+}
+
 // 2. 扫描真实域
 const domains = discoverDomains(projectType, sourceRoot)
-const domainFileHints = projectType === 'backend' ? collectBackendFileHints(domains, sourceRoot) : {}
+const domainFileHints = backendIndex ? Object.fromEntries(backendIndex.domains.map(d => [d.id, {
+  source_files: backendIndex.files.filter(f => f.domain === d.id && f.kind === 'source').map(f => f.path),
+  resource_files: backendIndex.files.filter(f => f.domain === d.id && f.kind === 'resource').map(f => f.path),
+  total_files: d.files.length,
+  truncated: false
+}])) : {}
 // 2.5 扫描编码规范来源
 const conventionSources = discoverConventionSources()
 
@@ -578,6 +448,7 @@ if (dryRun) {
     ...(profile.test_roots ? { testRoots: profile.test_roots } : {}),
     domains,
     domainFileHints,
+    ...(backendIndex ? { backendIndex } : {}),
     conventionSources,
     templates: selectTemplates(projectType),
     kbRoot: '.docs/llm-knowledge'
@@ -598,6 +469,24 @@ for (const dir of DIRS) {
   if (fs.existsSync(dir)) { skipped++; continue }
   try { fs.mkdirSync(dir, { recursive: true }); created++; console.log(`  ✅ ${path.relative(PROJECT_ROOT, dir)}`) }
   catch (e) { errors.push(`创建失败: ${dir}`) }
+}
+
+if (backendIndex) {
+  fs.writeFileSync(path.join(PROJECT_ROOT, INDEX_PATH), JSON.stringify(backendIndex, null, 2) + '\n')
+  fs.copyFileSync(path.join(SKILL_DIR, 'references', 'backend-structure.md'), path.join(KB_ROOT, 'STRUCTURE.md'))
+  const metaPath = path.join(KB_ROOT, 'meta.yaml')
+  if (!fs.existsSync(metaPath)) {
+    const lines = ['git:', '  hash: ""', 'backend_index: "backend-index.json"', 'domains:']
+    for (const d of backendIndex.domains) {
+      lines.push(`  - id: ${JSON.stringify(d.id)}`, `    path: ${JSON.stringify(d.path)}`, `    entry_files: ${JSON.stringify(d.files)}`)
+    }
+    fs.writeFileSync(metaPath, lines.join('\n') + '\n')
+  }
+  const overviewPath = path.join(KB_ROOT, 'overview.md')
+  if (!fs.existsSync(overviewPath)) {
+    const rows = backendIndex.domains.map(d => `| ${d.id} | [${d.id}](${d.path}overview.md) | 待源码分析补充 |`)
+    fs.writeFileSync(overviewPath, ['# 后端知识库', '', '> 初始化索引；业务说明由 gen-project-docs 读取源码后补充。', '', '## 域地图', '', '| 域 | 文档入口 | 业务关键词 |', '|---|---|---|', ...rows, '', '代码定位见 backend-index.json；目录说明见 STRUCTURE.md。', ''].join('\n'))
+  }
 }
 
 // 4. 写项目画像 .profile.yaml
@@ -625,7 +514,7 @@ const CUSTOM_README = (d) =>
   `# ${d} 域 — 手工文档索引\n\n<!-- CUSTOM:START -->\n后续开发中由人工补充。\n<!-- CUSTOM:END -->\n`
 for (const d of domains) {
   const f = path.join(KB_ROOT, 'business', d, 'custom', 'README.md')
-  if (fs.existsSync(f) && !force) { skipped++; continue }
+  if (fs.existsSync(f) && (!force || backendIndex)) { skipped++; continue }
   try { fs.writeFileSync(f, CUSTOM_README(d), 'utf-8'); created++; console.log(`  ✅ business/${d}/custom/README.md`) }
   catch (e) { errors.push(`写入失败: ${f}`) }
 }
@@ -633,7 +522,7 @@ for (const d of domains) {
 // 6. common/README.md（通用切面索引）
 const COMMON_README = `# 通用知识\n\n<!-- CUSTOM:START -->\n跨域共享的开发规范、常用库指南、技术专题。\n<!-- CUSTOM:END -->\n`
 const commonReadme = path.join(KB_ROOT, 'common', 'README.md')
-if (!fs.existsSync(commonReadme) || force) {
+if (!fs.existsSync(commonReadme) || (force && !backendIndex)) {
   try { fs.writeFileSync(commonReadme, COMMON_README, 'utf-8'); created++; console.log(`  ✅ common/README.md`) }
   catch (e) { errors.push(`写入失败: ${commonReadme}`) }
 }
@@ -641,7 +530,7 @@ if (!fs.existsSync(commonReadme) || force) {
 // 6.5 生成编码规范文档骨架（common/conventions.md）
 // 脚本只做「扫描来源 + 生成骨架」，真正的「总结规范」由 AI（kb-init SKILL）完成
 const conventionsPath = path.join(KB_ROOT, 'common', 'conventions.md')
-if (!fs.existsSync(conventionsPath) || force) {
+if (!fs.existsSync(conventionsPath) || (force && !backendIndex)) {
   const sourceRows = conventionSources.length > 0
     ? conventionSources.map(s => `| ${s.path} | ${s.type} | |`).join('\n')
     : '| （未检测到规范来源文件，请人工补充） | — | |'
@@ -722,6 +611,7 @@ console.log('\n' + JSON.stringify({
   ...(profile.test_roots ? { testRoots: profile.test_roots } : {}),
   domains,
   domainFileHints,
+  ...(backendIndex ? { backendIndex } : {}),
   conventionSources,
   templates: selectedTemplates,
   kbRoot: '.docs/llm-knowledge'

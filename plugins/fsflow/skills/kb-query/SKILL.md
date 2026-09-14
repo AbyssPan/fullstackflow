@@ -37,13 +37,20 @@ description: "渐进式分层知识库检索。三层检索：L1 overview关键�
 
 ## 检索流程
 
-### L1: 全局总览匹配（始终执行）
+### 后端精确定位分支
+
+后端问题包含类名、文件路径、路由片段或表名时，优先搜索 `.docs/llm-knowledge/backend-index.json` 的 `files[].path/symbols/entries`，读取命中源码位置及所属领域文档，无需先通过业务关键词匹配。索引未覆盖的表名、组合注解或动态路由直接搜索源码；索引不存在时使用下述文档检索。
+
+`entries` 是词法线索，不能当作已解析的完整路由或调用链。公共文件对应 `common/`，待归类文件直接查看源码，不虚构业务域。业务概念问题继续走 L1-L3。此分支仅适用于后端。
+
+### L1: 全局总览匹配（业务问题及其他项目类型）
 
 加载 `.docs/llm-knowledge/overview.md` 的「域地图」表。
 
 - 提取用户问题关键词
 - 与域地图的关键词列匹配 → 收敛到 1-2 个域
 - 无法匹配 → 返回概述，询问补充上下文
+- 后端无法匹配时，先查代码索引和源码补充证据，仍有歧义才询问
 
 ### L2: meta.yaml 精确筛选
 
@@ -51,6 +58,7 @@ description: "渐进式分层知识库检索。三层检索：L1 overview关键�
 
 - 在匹配到的域配置中获取文件字段（`entry_files / files / stores / apis / components`，按项目类型而异）
 - 读取 `.docs/llm-knowledge/.profile.yaml` 的 `project_type`，根据查询模式和项目类型确定需加载的文档类型
+- 后端有 `backend-index.json` 时，用其文件归属补充或纠正旧 meta 的源码列表；业务文档缺失时读取源码
 
 ### L3: 按需加载
 
@@ -66,18 +74,20 @@ description: "渐进式分层知识库检索。三层检索：L1 overview关键�
 - `search_content` 在 `.profile.yaml` 的 `source_root/source_roots` 或 `meta.yaml` 的文件字段范围内搜索关键词
 - `search_file` 文件名模式匹配
 
+后端的域文档按需生成，L3 表中各文件不是必备文件清单。先读已有 `overview.md`，再按问题加载 `flows.md`、`routes.md`、`api.md`、`models.md` 或源码；公共架构与配置从 `common/` 获取。
+
 ---
 
 ## 检索策略
 
 ### ❌ 禁止
 - 一次加载所有域文档
-- 跳过 L1 overview 直接搜代码
+- 非后端精确定位场景，跳过 L1 overview 直接搜代码
 - 精准定位域后仍全量搜索
 
 ### ✅ 必须
-- 始终先读 overview.md
-- meta.yaml 确认域后再加载域文档
+- 业务问题先读 overview.md；后端精确定位按上述分支执行
+- 通过领域索引确认归属后再加载域文档（后端可使用 backend-index.json，其他项目使用 meta.yaml）
 - 优先 `read_file` 读已生成文档，不命中才 `search_content`
 - 加载时说明命中了哪个域、哪种模式
 - 后端查询不得套用 `pages.md/store.md`；优先加载 `routes.md/api.md/models.md`

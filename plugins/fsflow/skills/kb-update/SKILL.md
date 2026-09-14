@@ -82,6 +82,9 @@ node "<skill_dir>/kb-update.cjs"
 
 匹配算法（脚本内）：对每个变更文件，遍历 meta.yaml 所有域，检查是否命中该域的文件字段（`entry_files` / `files` 等，支持通配符 `*`）前缀。
 
+后端存在 `backend-index.json` 时使用专用分支：脚本刷新索引，比较新旧文件哈希与归属并结合 Git 变更，沿导入及同包依赖反向检查受影响领域。结果 `backend` 包含 `commonFiles`、`unclassifiedFiles`、`retiredDomains`；新增文件、删除、改名和未提交改动均参与。全局配置或构建文件变化会保守列出所有相关领域，需读取源码确认。没有后端索引时保留原匹配方式。
+后端 Git 变更以 `meta.yaml` 的文档同步版本到当前工作区为准，含未跟踪文件；重复刷新不会消除待同步状态。已从扫描索引删除的文件继续用 meta 的来源映射定位文档。脚本通过同插件的 `kb-init/backend-index.cjs` 刷新索引，需保留该兄弟 Skill 目录。
+
 ### Step 2: AI 增量更新文档
 
 对每个受影响域：
@@ -94,12 +97,14 @@ node "<skill_dir>/kb-update.cjs"
    - plugin: `overview` / `entry-files` / `commands` / `schemas` / `architecture`
 
 后端增量更新仍保持**域级聚合**：变更多个 Controller/Service/Mapper 时更新该域的聚合文档，不新增类级 md。
+后端先更新已有概览，复杂内容才按需拆分 `flows/routes/api/models`；公共技术更新 `common/`。对 `retiredDomains` 检查是否需要合并文档和手工内容，不直接删除旧目录。索引刷新失败时不得宣称文档已同步。
 
 ### Step 3: 更新索引
 
 - `meta.yaml` `git.hash` = 当前 HEAD
 - 更新 `doc_stats` 计数
 - 追加 `log.md` 记录
+- 后端从最新代码索引同步 meta 的领域及源码列表，保留人工描述和设计文档字段；仅在文档更新成功后推进 `git.hash`，索引的扫描版本不等于文档已同步版本
 
 ### Step 4: 沉淀原型设计文档 🆕
 

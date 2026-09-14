@@ -69,6 +69,9 @@ Step 3: 子 Agent 汇报产出物路径 → 回 Step 1
 
 `dispatch.js` 输出的 `nextAgent` / `agentPrompt` 原样注入 Spawn，主 Agent 不读 Phase、
 不拼 prompt、不判断下一步该调谁。
+如果子 Agent 中断、超时或未实际产出文件，主 Agent 只能重新执行 `dispatch.js` 并重派对应 Agent
+（可在 prompt 前追加重试说明块），或向用户转人工；禁止主 Agent 亲自接管该 Phase 的需求分析、
+任务规划、开发、审查、测试或发布职责。
 
 ### 脚本路径约定
 
@@ -88,6 +91,7 @@ HARNESS=${CLAUDE_PLUGIN_ROOT}/scripts/commands
 | 🚫 AI 自行将 `open-questions.json` 的 `resolved` 设为 `true` | 待确认项必须由用户确认 |
 | 🚫 跳过 Phase 直接进入开发 | 逐 Phase 推进，门控校验前置产出物 |
 | 🚫 Phase ≠ 2 时编辑 `src/` | 先确认 Phase=2 且有有效 dev-pass（Hook 会拦截） |
+| 🚫 子 Agent 失败后主 Agent 接管该 Phase 实质工作 | 重新 dispatch/重派 Agent；连续失败则转人工 |
 | 🚫 归档后执行 `--rollback` / `--fix-loop` | 先执行 `archive-story.js <storyId> restore` 复档 |
 
 ---

@@ -515,6 +515,20 @@ function buildAgentPrompt (opts) {
   const expectedDescriptions = requiredArtifacts
     .map(a => a.fileName ? `${a.fileName} — ${a.description}` : a.description)
 
+  function buildArtifactCompletionInstruction (outputs) {
+    if (!outputs || outputs.length === 0) {
+      return '汇报完成情况，不要自行推进 Phase。'
+    }
+
+    const outputLines = outputs.map(f => `- .codebuddy/plans/${storyId}/${f}`)
+    return [
+      '完成前必须实际写入以下产出物文件，并在写入后重读或 ls 确认文件存在：',
+      ...outputLines,
+      '只有确认文件已落盘后才能汇报；不要只在回复里列出文件名或文件内容摘要。',
+      '汇报产出物的完整路径，不要自行推进 Phase。'
+    ].join('\n')
+  }
+
   // fixbugs 模式下 Phase 0 额外要求 Bug 分析报告（文件名含动态标题，无法进 PHASE_ARTIFACTS 固定表）
   // 同时进 expectedOutputs —— 主 Agent 靠它校验子 Agent 的产出物汇报，只写 descriptions 会漏检
   if (targetPhase === 0 && storyMode === 'fixbugs') {
@@ -555,7 +569,7 @@ function buildAgentPrompt (opts) {
     ...agentConstraints.map(c => `- 🚫 ${c}`),
     '',
     '## 完成后',
-    '汇报产出物的完整路径，不要自行推进 Phase。'
+    buildArtifactCompletionInstruction(expectedOutputs)
   ]
 
   const result = {

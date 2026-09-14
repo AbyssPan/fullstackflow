@@ -191,6 +191,7 @@ function buildAdditionalContext (workflowResults) {
   lines.push('2. 主 Agent 不亲自编写代码 → 必须 spawn 专用 Agent 执行')
   lines.push('3. 禁止直接写/改 e2e-state.json 和 dev-pass.json → 状态机由 advance-phase.js 独占维护')
   lines.push('4. 推进 Phase → 必须执行 node ${CLAUDE_PLUGIN_ROOT}/scripts/commands/advance-phase.js <storyId> <targetPhase>')
+  lines.push('5. 子 Agent 中断或未落盘产出物 → 重新 dispatch/重派对应 Agent 或转人工，禁止主 Agent 接管该 Phase 的实质工作、跑测试/编译或手写产出物')
   lines.push('')
   lines.push('如果门控验证失败 → 向用户报告 blockers，等待用户解决，不可自行推进')
 

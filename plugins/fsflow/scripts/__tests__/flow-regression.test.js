@@ -301,6 +301,17 @@ ok('review-only 推进后将 Phase 4 标记为 skipped',
   quickAdvance.status === 0 && skippedState.phases['4_e2e_verification'].status === 'skipped',
   (quickAdvance.stdout || '') + (quickAdvance.stderr || ''))
 
+const p4Prompt = promptBuilder.buildAgentPrompt({ storyId: 'FG1-OK', targetPhase: 4, summaryPhase: 3 }).agentPrompt
+ok('Phase 4 prompt 要求 test-report.md 实际落盘',
+  /test-report\.md/.test(p4Prompt) && /实际写入/.test(p4Prompt) && /确认文件存在/.test(p4Prompt))
+ok('Phase 4 prompt 禁止只在回复里列文件名', /不要只在回复里列出文件名/.test(p4Prompt))
+const conductorDoc = fs.readFileSync(path.join(SCRIPTS_DIR, '..', 'skills/harness-conductor/SKILL.md'), 'utf-8')
+const sessionStartHook = fs.readFileSync(path.join(SCRIPTS_DIR, 'hooks/session-start.js'), 'utf-8')
+ok('conductor 禁止子 Agent 中断后主 Agent 接管 Phase 工作',
+  /子 Agent 中断/.test(conductorDoc) && /禁止主 Agent 接管/.test(conductorDoc))
+ok('session-start 注入子 Agent 无产出恢复规则',
+  /子 Agent 中断或未落盘产出物/.test(sessionStartHook) && /禁止主 Agent 接管/.test(sessionStartHook))
+
 // ═══════════════════════════════════════════════════════════
 section('5d. Phase 0 需求分析开始时的唯一知识库前置确认')
 

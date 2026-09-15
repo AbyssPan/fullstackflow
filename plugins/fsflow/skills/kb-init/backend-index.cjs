@@ -2,6 +2,7 @@ const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
 const { execFileSync } = require('child_process')
+const { globRegex, changesSince } = require('../../scripts/lib/kb.cjs')
 
 const ROLES = new Set('controller controllers service services impl mapper mappers dao repository repositories entity entities model models dto vo bo po domain application infrastructure job jobs task tasks scheduler schedulers event events listener listeners'.split(' '))
 const COMMON = new Set('common shared util utils config configuration security exception exceptions constant constants base bootstrap support'.split(' '))
@@ -15,17 +16,6 @@ const CONFIG_PATH = '.docs/llm-knowledge/backend.config.json'
 
 function slug (s) {
   return s.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-}
-
-function globRegex (pattern) {
-  let out = '^'
-  for (let i = 0; i < pattern.length; i++) {
-    if (pattern[i] === '*' && pattern[i + 1] === '*') {
-      if (pattern[i + 2] === '/') { out += '(?:.*/)?'; i += 2 } else { out += '.*'; i++ }
-    } else if (pattern[i] === '*') out += '[^/]*'
-    else out += pattern[i].replace(/[|\\{}()[\]^$+?.]/g, '\\$&')
-  }
-  return new RegExp(out + '$')
 }
 
 function matches (file, patterns) {
@@ -73,7 +63,9 @@ function sourceFacts (text, file, root) {
   const symbols = [...clean.matchAll(/\b(?:class|interface|enum|record|object)\s+(\w+)/g)].map(m => ({ name: m[1], qualified_name: packageName + '.' + m[1], line: clean.slice(0, m.index).split('\n').length }))
   const imports = [...clean.matchAll(/^\s*import\s+(?:static\s+)?([\w.*]+)/gm)].map(m => m[1])
   const entries = [...clean.matchAll(/@(RequestMapping|GetMapping|PostMapping|PutMapping|PatchMapping|DeleteMapping|KafkaListener|RabbitListener|JmsListener|Scheduled|EventListener|Table|TableName)\b(?:\s*\([^)]*\))?/g)].map(m => ({ kind: m[1], declaration: m[0], line: clean.slice(0, m.index).split('\n').length, status: 'lexical_hint' }))
-  return { package: packageName, symbols, imports, entries, application: /@SpringBootApplication\b/.test(clean) }
+  const code = clean.replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, ' ').replace(/^\s*(?:package|import)\s+[^;\n]+;?/gm, '')
+  const references = [...new Set(code.match(/\b[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\b/g) || [])]
+  return { package: packageName, symbols, imports, entries, references, application: /@SpringBootApplication\b/.test(clean) }
 }
 
 function basePackage (files, configured) {
@@ -106,14 +98,41 @@ function infer (f, base) {
   return { category: 'unclassified', reason: 'insufficient-evidence' }
 }
 
-function buildBackendIndex (root, sourceRoots, resourceRoots, modules) {
+function buildBackendIndex (root, sourceRoots, resourceRoots, modules, options = {}) {
   const config = readConfig(root)
+  const cacheKey = crypto.createHash('sha256').update(JSON.stringify({ version: 2, config, sourceRoots, resourceRoots, modules })).digest('hex')
+  let previous = options.previous
+  if (!previous) { try { previous = readBackendIndex(root) } catch (_) { /* Rebuild a damaged scan cache. */ } }
+  const cached = new Map((previous?.cache_key === cacheKey ? previous.files : []).map(f => [f.path, f]))
+  const scanStats = { reused: 0, read: 0, parsed: 0 }
+  const factsFor = (file, sourceRoot, kind) => {
+    const abs = path.join(root, file)
+    const stat = fs.statSync(abs)
+    const stamp = [stat.size, stat.mtimeMs, stat.ctimeMs, stat.ino]
+    const old = cached.get(file)
+    if (old?.facts && JSON.stringify(old.stamp) === JSON.stringify(stamp)) {
+      scanStats.reused++
+      return { sha256: old.sha256, stamp, facts: old.facts }
+    }
+    const text = fs.readFileSync(abs, 'utf8')
+    scanStats.read++
+    const sha256 = crypto.createHash('sha256').update(text).digest('hex')
+    if (old?.facts && old.sha256 === sha256) {
+      scanStats.reused++
+      return { sha256, stamp, facts: old.facts }
+    }
+    scanStats.parsed++
+    const facts = kind === 'source' ? sourceFacts(text, file, sourceRoot) : {
+      namespace: text.match(/<mapper\b[^>]*\bnamespace\s*=\s*["']([^"']+)["']/)?.[1]
+    }
+    return { sha256, stamp, facts }
+  }
   const records = []
   const moduleFor = file => [...modules].sort((a, b) => b.length - a.length).find(m => file.startsWith(m + '/')) || '.'
   for (const sourceRoot of sourceRoots) {
     for (const file of walk(root, sourceRoot, SOURCE)) {
-      const text = fs.readFileSync(path.join(root, file), 'utf8')
-      records.push({ path: file, source_root: sourceRoot, module: moduleFor(file), kind: 'source', sha256: crypto.createHash('sha256').update(text).digest('hex'), ...sourceFacts(text, file, sourceRoot) })
+      const cachedFacts = factsFor(file, sourceRoot, 'source')
+      records.push({ path: file, source_root: sourceRoot, module: moduleFor(file), kind: 'source', ...cachedFacts, ...cachedFacts.facts })
     }
   }
   const bases = Object.fromEntries(sourceRoots.map(r => [r, basePackage(records.filter(f => f.source_root === r), config.base_packages?.[r])]))
@@ -149,9 +168,9 @@ function buildBackendIndex (root, sourceRoots, resourceRoots, modules) {
   }
   for (const resourceRoot of resourceRoots) {
     for (const file of walk(root, resourceRoot, RESOURCE)) {
-      const text = fs.readFileSync(path.join(root, file), 'utf8')
-      const f = { path: file, module: moduleFor(file), kind: 'resource', sha256: crypto.createHash('sha256').update(text).digest('hex'), symbols: [], imports: [], entries: [] }
-      const namespace = text.match(/<mapper\b[^>]*\bnamespace\s*=\s*["']([^"']+)["']/)?.[1]
+      const cachedFacts = factsFor(file, resourceRoot, 'resource')
+      const f = { path: file, module: moduleFor(file), kind: 'resource', ...cachedFacts, symbols: [], imports: [], entries: [] }
+      const namespace = cachedFacts.facts.namespace
       const segments = path.posix.relative(resourceRoot, file).split('/').slice(0, -1)
       const candidates = records.filter(s => s.domain && s.module === f.module && (namespace ? s.symbols.some(sym => sym.qualified_name === namespace) : segments.includes(s.candidate)))
       const domains = [...new Set(candidates.map(s => s.domain))]
@@ -171,21 +190,38 @@ function buildBackendIndex (root, sourceRoots, resourceRoots, modules) {
   }
   for (const f of records) {
     const dependencies = new Set()
+    const refs = new Set((f.references || []).flatMap(ref => [ref, ref.split('.')[0]]))
+    const uncertain = []
     for (const imp of f.imports) {
       const direct = symbolFiles.get(imp) || symbolFiles.get(imp.slice(0, imp.lastIndexOf('.')))
       const targets = direct || (imp.endsWith('.*') ? [...(packageFiles.get(imp.slice(0, -2)) || []), ...(symbolFiles.get(imp.slice(0, -2)) || [])] : [])
-      for (const target of targets) if (target.path !== f.path) dependencies.add(target.path)
+      for (const target of targets) {
+        if (target.path !== f.path && (!imp.endsWith('.*') || target.symbols.some(s => refs.has(s.name)))) dependencies.add(target.path)
+      }
+      if (imp.endsWith('.*')) uncertain.push('wildcard-import:' + imp)
     }
-    // Java types in the same package need no import; conservatively include siblings.
-    for (const sibling of packageFiles.get(f.package) || []) if (f.package && sibling.module === f.module && sibling.path !== f.path) dependencies.add(sibling.path)
+    // Same-package types need no import. Only link identifiers used in code,
+    // never all package siblings (which creates N*(N-1) edges).
+    for (const ref of refs) for (const sibling of symbolFiles.get(`${f.package}.${ref}`) || []) {
+      if (f.package && sibling.module === f.module && sibling.path !== f.path) dependencies.add(sibling.path)
+    }
+    for (const ref of f.references || []) {
+      const parts = ref.split('.')
+      while (parts.length > 1) {
+        for (const target of symbolFiles.get(parts.join('.')) || []) if (target.path !== f.path) dependencies.add(target.path)
+        parts.pop()
+      }
+    }
+    if (f.path.endsWith('.kt')) uncertain.push('kotlin-top-level-and-extension-calls')
     f.dependencies = [...dependencies].sort()
+    f.dependency_review = uncertain
     delete f.application
     delete f.seed
   }
   const domainIds = [...new Set(records.map(f => f.domain).filter(Boolean))].sort()
   let gitHash = ''
   try { gitHash = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() } catch (e) { /* Uncommitted projects have no HEAD. */ }
-  return { version: 1, project_type: 'backend', generated_at: new Date().toISOString(), git_hash: gitHash, source_roots: sourceRoots, resource_roots: resourceRoots, modules, base_packages: bases, analysis: 'lexical-hints; imports and same-package dependencies are conservative, not a complete call graph', domains: domainIds.map(id => ({ id, path: `business/${id}/`, files: records.filter(f => f.domain === id).map(f => f.path) })), files: records, common_files: records.filter(f => f.category === 'common').map(f => f.path), unclassified_files: records.filter(f => f.category === 'unclassified').map(f => f.path) }
+  return { version: 2, cache_key: cacheKey, scan_stats: scanStats, project_type: 'backend', generated_at: new Date().toISOString(), git_hash: gitHash, source_roots: sourceRoots, resource_roots: resourceRoots, modules, base_packages: bases, analysis: 'lexical-hints; referenced same-package types and imports, not a complete call graph; dependency_review requires source verification', domains: domainIds.map(id => ({ id, path: `business/${id}/`, files: records.filter(f => f.domain === id).map(f => f.path) })), files: records, common_files: records.filter(f => f.category === 'common').map(f => f.path), unclassified_files: records.filter(f => f.category === 'unclassified').map(f => f.path) }
 }
 
 function readBackendIndex (root) {
@@ -199,13 +235,7 @@ function refreshBackendIndex (root) {
 }
 
 function changesSinceDocument (root, hash) {
-  if (!/^[a-f0-9]{7,64}$/i.test(hash || '')) throw new Error('Invalid document revision')
-  const git = args => execFileSync('git', args, { cwd: root, encoding: 'utf8', timeout: 10000 }).split('\0').filter(Boolean)
-  // Compare against the document revision, not the replaceable scan snapshot.
-  const tracked = git(['diff', '--no-renames', '--name-only', '-z', hash, '--'])
-  const untracked = git(['ls-files', '--others', '--exclude-standard', '-z'])
-  return [...new Set([...tracked, ...untracked])]
-    .filter(file => !file.startsWith('.docs/llm-knowledge/') || file === CONFIG_PATH)
+  return changesSince(root, hash)
 }
 
 function backendImpact (previous, current, changedFiles) {
@@ -234,7 +264,9 @@ function backendImpact (previous, current, changedFiles) {
     changedFiles: [...changed].sort(),
     affectedDomains: [...ids].sort().map(id => ({ id, path: `business/${id}/`, matchedFiles: [...new Set(records.filter(f => f.domain === id && (globalConfig || impacted.has(f.path))).map(f => f.path))], reason: globalConfig ? 'shared-config-review' : 'source-or-dependency' })),
     commonFiles: common,
-    unclassifiedFiles: current.unclassified_files,
+    unclassifiedFiles: current.unclassified_files.filter(p => changed.has(p)),
+    reviewFiles: current.files.filter(f => f.dependency_review?.length && (impacted.has(f.path) || f.imports?.some(imp => imp.endsWith('.*') && records.some(r => changed.has(r.path) && r.package === imp.slice(0, -2)))))
+      .map(f => ({ path: f.path, reasons: f.dependency_review })),
     retiredDomains: previous.domains.filter(d => !current.domains.some(n => n.id === d.id)).map(d => d.id)
   }
 }

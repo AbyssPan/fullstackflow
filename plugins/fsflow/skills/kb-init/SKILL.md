@@ -10,7 +10,7 @@ description: "初始化项目知识库目录结构和规范。自动推断项目
 > 本 Skill 自包含：模板从 `./templates/`（分套：common + 各项目类型）读取，脚本执行 `./kb-init.cjs`。
 > 不依赖项目中的任何文件，可跨项目复用。
 
-后端初始化先阅读 [后端目录结构与归属配置](references/backend-structure.md)。后端使用业务文档、公共知识和结构化代码索引；前端流程不变。
+后端初始化先阅读 [后端目录结构与归属配置](references/backend-structure.md)。后端使用业务文档、公共知识和结构化代码索引；前端保持业务域文档结构，后续增量更新会建立轻量 import 索引。
 
 **v2 核心变化**：不再硬编码客服业务域。改为「项目画像 + 动态域扫描」——根据目标项目的实际类型（前端/插件/后端/库），自动推断域列表和文档模板。**新增编码规范总结**：扫描项目规范来源，生成 `common/conventions.md`。
 
@@ -37,7 +37,7 @@ description: "初始化项目知识库目录结构和规范。自动推断项目
 先跑 dry-run，让脚本推断项目画像并输出候选域清单：
 
 ```bash
-node "<skill_dir>/kb-init.cjs" --dry-run
+node "<skill_dir>/kb-init.cjs" --dry-run --summary
 ```
 
 输出示例（插件项目）：
@@ -51,6 +51,8 @@ node "<skill_dir>/kb-init.cjs" --dry-run
 }
 ```
 
+`--summary` 只返回领域、计数和少量文件样本，完整索引留在磁盘；不把整个索引读入 AI 上下文。首次 dry-run 尚未落盘，样本不足以确认归属时可去掉 `--summary` 获取完整线索。
+
 ### Step 1: 确认域清单（AI 认知操作）
 
 检查 dry-run 输出的域清单是否符合项目实际：
@@ -62,13 +64,15 @@ node "<skill_dir>/kb-init.cjs" --dry-run
 ### Step 2: 执行脚本（确定性操作）
 
 ```bash
-node "<skill_dir>/kb-init.cjs"           # 正式初始化
+node "<skill_dir>/kb-init.cjs" --summary # 正式初始化
 node "<skill_dir>/kb-init.cjs" --force   # 重建（覆盖）
-node "<skill_dir>/kb-init.cjs" --index-only # 后端：仅刷新代码索引
+node "<skill_dir>/kb-init.cjs" --index-only --summary # 后端：仅刷新代码索引
 ```
 
 脚本负责：创建目录、写入 `.profile.yaml`、写入 `custom/README.md`、按项目类型复制模板。
 后端还写入 `backend-index.json` 和 `STRUCTURE.md`，在不存在时创建 `overview.md`、`meta.yaml` 骨架。既有后端总览、meta 和 custom 不覆盖；历史错误目录不自动删除。
+
+后端索引根据文件状态和内容 hash 复用解析结果；归属配置、源码根和模块结构变化会重新计算。缓存不代表文档已同步。
 
 ### Step 3: 生成 overview.md（AI 认知操作）
 
@@ -170,4 +174,4 @@ domain_axis: "feature"          # 域划分依据：business | feature | service
 - 后端已有 `custom/` 手工文档不被覆盖；迁移旧知识库时先合并手工内容并更新文档链接，再处理旧目录
 - 脚本为 CommonJS（`.cjs`），兼容 ES module 项目
 - 模板从 Skill 目录复制到项目 `.docs/llm-knowledge/templates/`
-- 后端支持精确标识直接查询代码索引，业务问题仍按总览、索引、按需加载文档检索；前端保持原规则
+- 后端支持精确标识直接查询代码索引，业务问题仍按总览、索引、按需加载文档检索；前端也支持路径和组件名精确定位

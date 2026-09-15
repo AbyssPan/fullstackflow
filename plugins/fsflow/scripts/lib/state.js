@@ -296,7 +296,7 @@ const PHASE_ARTIFACTS = {
     ]
   },
   5: { artifacts: [{ fileName: null, description: 'Git commit + push', contract: false }] },
-  6: { artifacts: [{ fileName: null, description: '已有知识库时已增量更新；未初始化时已留痕跳过', contract: false }] },
+  6: { artifacts: [{ fileName: null, description: '用户同意后已增量更新；用户拒绝更新或未初始化时已留痕跳过', contract: false }] },
   7: { artifacts: [{ fileName: null, description: '部署 URL + 构建号', contract: false }] }
 }
 
@@ -347,7 +347,7 @@ const PHASE_AGENTS = {
   6: {
     agent: 'release-assistant',
     label: '发布助手',
-    instruction: '仅执行知识库收尾：meta.yaml 存在时调用 kb-update 增量更新；不存在时直接留痕跳过。本 Phase 不询问、不初始化、不全量生成'
+    instruction: '仅执行知识库收尾：meta.yaml 存在时先询问用户是否更新，说明会消耗 token 和时间；本次更新已明确授权则不重复询问，用户同意后才调用 kb-update 增量更新，拒绝则记录 skipped_by_user（knowledge_base_update_declined），未答复则等待，不执行扫描或更新、不推进 Phase 7。meta.yaml 不存在时直接留痕跳过（knowledge_base_not_initialized），不询问初始化。本 Phase 不初始化、不全量生成；Phase 0 初始化同意不代表本次更新授权'
   },
   7: {
     agent: 'release-assistant',

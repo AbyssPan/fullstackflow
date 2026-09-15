@@ -349,10 +349,7 @@ function evidenceGitCommits (storyId) {
  * @returns {string} hash 值，未找到返回空串
  */
 function parseMetaHash (content) {
-  const gitBlock = content.match(/git:\s*\n([\s\S]*?)(?=\n\S|$)/)
-  if (!gitBlock) return ''
-  const hashMatch = gitBlock[1].match(/hash:\s*"([^"]+)"/)
-  return hashMatch ? hashMatch[1] : ''
+  return require('../lib/kb.cjs').parseMeta(content).git.hash
 }
 
 /**
@@ -372,7 +369,13 @@ function evidenceKbRefresh (storyId) {
     lines.push(`- Phase 6 结果: \`${latestOutcome.result}\`${detail ? `（${detail}）` : ''}`)
   }
   if (latestOutcome && latestOutcome.result === 'skipped_by_user') {
-    lines.push('- 用户拒绝初始化项目知识库；该结果不阻断 Phase 7')
+    const reason = latestOutcome.details && latestOutcome.details.reason
+    const explanation = reason === 'knowledge_base_update_declined'
+      ? '用户跳过本次知识库增量更新'
+      : reason === 'knowledge_base_not_initialized'
+        ? '项目未初始化知识库，本次跳过更新'
+        : '本次知识库更新已留痕跳过'
+    lines.push(`- ${explanation}；该结果不阻断 Phase 7`)
     return lines
   }
 

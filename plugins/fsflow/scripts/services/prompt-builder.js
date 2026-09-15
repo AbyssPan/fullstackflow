@@ -83,7 +83,7 @@ const AGENT_CONSTRAINTS = [
 ]
 
 const SEARCH_CONSTRAINTS = [
-  '查找/定位代码时按「代码检索入口」选择 graphify 或已指定的 kb-query + Grep 降级路径，禁止猜测文件路径',
+  '查找/定位代码时先用 kb-query 精确定位或复用同版本证据；调用关系不明、跨域影响或证据冲突时补充 graphify，禁止猜测文件路径',
   'graphify / Bash 在已标注图谱可用时仍检索失败，必须停下上报主 Agent，禁止静默降级后猜测实现'
 ]
 
@@ -134,7 +134,7 @@ function buildRepoSearchEntries (storyId, targetPhase) {
       `- ${entry.name}${entry.primary ? '（主仓，即当前工作目录）' : ''} → \`${toPosix(entry.root)}\`（${entry.graph.label}）`
     ),
     '',
-    '检索统一走 `graphify` skill（`/graphify`）：`graphify query "<模块/关键词>"`。',
+    '精确路径、组件或类名先用 kb-query 定位；跨域影响、调用关系不明或证据冲突时补充 `graphify query "<模块/关键词>"`，已有同版本证据复用。',
     '',
     '> 图谱按 **cwd** 解析：检索非主仓前先 `cd` 到上述目录。',
     '',
@@ -566,7 +566,7 @@ function buildAgentPrompt (opts) {
       : '',
     '',
     (storyMode === 'fixbugs' && targetPhase === 2)
-      ? '## Bug 修复说明\nBug 事实（问题复述 / 复现步骤 / 代码定位 / 根因）已在 Phase 0 分析完毕、并在 Phase 1 消化进 `task-dag.json` 与 `acceptance-criteria.json`。\n**以契约文件为准动手**: `task-dag.json` 的 `files[]` 就是改动范围，`acceptanceCriteria` 关联的 AC 描述里带 Bug 编号。\n修复怎么改由你设计: 先用 kb-query ∥ graphify 双源交叉验证确认真实改动点，再给出实现。\n'
+      ? '## Bug 修复说明\nBug 事实（问题复述 / 复现步骤 / 代码定位 / 根因）已在 Phase 0 分析完毕、并在 Phase 1 消化进 `task-dag.json` 与 `acceptance-criteria.json`。\n**以契约文件为准动手**: `task-dag.json` 的 `files[]` 就是改动范围，`acceptanceCriteria` 关联的 AC 描述里带 Bug 编号。\n修复怎么改由你设计: 先用 kb-query 定位；调用关系不明时补充 graphify，复用同版本证据确认真实改动点，再给出实现。\n'
       : '',
     repoSearchEntries.length > 0 ? repoSearchEntries.join('\n') : '',
     '## 约束',

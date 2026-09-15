@@ -374,6 +374,14 @@ const dryRun = args.includes('--dry-run')
 const typeIdx = args.indexOf('--project-type')
 const manualType = typeIdx >= 0 ? args[typeIdx + 1] : null
 const indexOnly = args.includes('--index-only')
+const summaryOnly = args.includes('--summary')
+function indexOutput (index) {
+  if (!summaryOnly) return index
+  return { path: INDEX_PATH, version: index.version, scan_stats: index.scan_stats,
+    file_count: index.files.length, domain_count: index.domains.length,
+    common_count: index.common_files.length, unclassified_count: index.unclassified_files.length,
+    unclassified_sample: index.unclassified_files.slice(0, 10) }
+}
 
 // 1. 项目画像（支持手动覆盖）
 const projectType = manualType || inferProjectType()
@@ -410,17 +418,17 @@ if (indexOnly) {
     fs.mkdirSync(KB_ROOT, { recursive: true })
     fs.writeFileSync(path.join(PROJECT_ROOT, INDEX_PATH), JSON.stringify(backendIndex, null, 2) + '\n')
   }
-  console.log(JSON.stringify(backendIndex, null, 2))
+  console.log(JSON.stringify(indexOutput(backendIndex), null, 2))
   process.exit(0)
 }
 
 // 2. 扫描真实域
 const domains = discoverDomains(projectType, sourceRoot)
 const domainFileHints = backendIndex ? Object.fromEntries(backendIndex.domains.map(d => [d.id, {
-  source_files: backendIndex.files.filter(f => f.domain === d.id && f.kind === 'source').map(f => f.path),
-  resource_files: backendIndex.files.filter(f => f.domain === d.id && f.kind === 'resource').map(f => f.path),
+    source_files: backendIndex.files.filter(f => f.domain === d.id && f.kind === 'source').map(f => f.path).slice(0, summaryOnly ? 10 : undefined),
+    resource_files: backendIndex.files.filter(f => f.domain === d.id && f.kind === 'resource').map(f => f.path).slice(0, summaryOnly ? 10 : undefined),
   total_files: d.files.length,
-  truncated: false
+    truncated: summaryOnly && d.files.length > 10
 }])) : {}
 // 2.5 扫描编码规范来源
 const conventionSources = discoverConventionSources()
@@ -448,7 +456,7 @@ if (dryRun) {
     ...(profile.test_roots ? { testRoots: profile.test_roots } : {}),
     domains,
     domainFileHints,
-    ...(backendIndex ? { backendIndex } : {}),
+    ...(backendIndex ? { backendIndex: indexOutput(backendIndex) } : {}),
     conventionSources,
     templates: selectTemplates(projectType),
     kbRoot: '.docs/llm-knowledge'
@@ -611,7 +619,7 @@ console.log('\n' + JSON.stringify({
   ...(profile.test_roots ? { testRoots: profile.test_roots } : {}),
   domains,
   domainFileHints,
-  ...(backendIndex ? { backendIndex } : {}),
+  ...(backendIndex ? { backendIndex: indexOutput(backendIndex) } : {}),
   conventionSources,
   templates: selectedTemplates,
   kbRoot: '.docs/llm-knowledge'

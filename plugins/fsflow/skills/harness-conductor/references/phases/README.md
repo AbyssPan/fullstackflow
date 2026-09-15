@@ -13,7 +13,7 @@
 | 3 | 代码审查 | `code-reviewer` | `code-review.json` | `checkPhase3Gate` |
 | 4 | 功能测试 | `test-engineer` | `test-report.md` `acceptance-verification.json` | `checkPhase4Gate` |
 | 5 | Git 提交 | `release-assistant` | commit + push + MR | 仅产出物存在性 |
-| 6 | 知识库增量更新 | `release-assistant` | meta.yaml 刷新，或缺库留痕跳过（不做初始化确认） | `checkPhase6Gate` |
+| 6 | 知识库增量更新 | `release-assistant` | 用户同意后刷新 meta.yaml，拒绝更新或缺库留痕跳过（不做初始化确认） | `checkPhase6Gate` |
 | 7 | 发布收尾 | `release-assistant` | 前端：部署 URL + 构建号；后端：合并分支 + 变更清单（跳过云端部署） | 仅产出物存在性 |
 | 8 | —（终态） | — | 流程结束 | — |
 

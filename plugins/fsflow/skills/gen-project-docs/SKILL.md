@@ -55,10 +55,17 @@ description: "自动生成项目结构化知识库文档。按项目画像（pro
 |------|------|------|
 | 全量 | `./gen-docs.cjs --all` | 首次 / 重建全量知识库 |
 | 单域 | `./gen-docs.cjs <domain_id>` | 只生成指定域 |
-| 增量 | `./gen-docs.cjs` | Phase 6 自动触发（配合 kb-update） |
-| 新鲜度 | `./gen-docs.cjs --stale` | 只检测不生成，输出 `{ stale, changedCount }` |
+| 增量 | `./gen-docs.cjs` | 只返回受影响源码、删除文件和文档章节；Phase 6 经用户同意后使用 |
+| 新鲜度 | `./gen-docs.cjs --stale` | 只检测不生成，输出 `{ stale, changedCount }`；验证失败时 `stale: null`，不得视为已同步 |
+
+Phase 6 增量命令可加 `--story <storyId>`，与 kb-update 使用同一 Story 归属；不会扩大源码范围。
 
 ---
+
+## 增量读取预算
+
+默认只读 `domains[].files.all` 和 `documents[].sections` 指向的章节，删除文件按 `deletedFiles` 清理过期描述。API 变化更新接口条目，Store 变化更新状态和数据流；不因一个文件变化重写整域所有文档。
+`commonFiles`、`unclassifiedFiles`、`reviewFiles` 和 `retiredDomains` 分别处理，不把整个代码索引当生成输入；证据不足才扩展读取相邻源码或单域清单。源码和文档原文不要复制进日志。
 
 ## 文档类型（按项目画像动态确定）
 

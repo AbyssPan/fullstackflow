@@ -237,6 +237,9 @@ section('1e. backend index: package ownership, common code, resources and refres
   const dry = runScript(KB_INIT, ['--dry-run'], sb)
   ok('business package wins over Message/Parser class prefixes', JSON.stringify(dry.domains) === '["chat","document"]', JSON.stringify(dry.domains))
   ok('dry-run with backend facts remains read-only', !fs.existsSync(path.join(sb, '.docs/llm-knowledge/backend-index.json')))
+  const summary = runScript(KB_INIT, ['--dry-run', '--summary'], sb)
+  ok('summary 输出计数而非整份后端索引', summary.backendIndex?.file_count === dry.backendIndex.files.length && !summary.backendIndex.files)
+  ok('summary 预览保持只读', !fs.existsSync(path.join(sb, '.docs/llm-knowledge/backend-index.json')))
   ok('Java and Kotlin source roots both indexed', dry.backendIndex?.source_roots.length === 2)
   ok('common and technical classes do not become business domains', dry.backendIndex?.common_files.includes(java + 'http/HttpClient.java') && dry.backendIndex.common_files.includes(java + 'common/Clock.java'))
   ok('uncertain classes and substring-only resources stay unclassified', dry.backendIndex?.unclassified_files.includes(java + 'Mystery.java') && dry.backendIndex.unclassified_files.includes('src/main/resources/notchat/settings.xml'))
@@ -365,6 +368,34 @@ section('2. kb-update: 通配符域匹配（修复回归：*.md 去星号后前�
   fs.rmSync(sb, { recursive: true, force: true })
 }
 
+section('2a. kb-update: 成功的空 diff 不重放上次提交')
+{
+  const sb = mkSandbox('kb-upd-empty-')
+  const source = path.join(sb, 'src', 'settings.js')
+  fs.mkdirSync(path.dirname(source), { recursive: true })
+  fs.writeFileSync(source, 'v1')
+  git(sb, 'git add -A && git commit -qm init')
+  const baseHash = git(sb, 'git rev-parse HEAD').trim()
+  fs.writeFileSync(source, 'v2')
+  git(sb, 'git add -A && git commit -qm change')
+  const domains = [{ id: 'settings', path: 'business/settings/', files: ['src/settings.js'] }]
+  writeMeta(sb, git(sb, 'git rev-parse HEAD').trim(), domains)
+
+  const synced = runScript(KB_UPDATE, [], sb)
+  ok('已同步 HEAD 时不返回旧变更或受影响域', synced.changedFiles?.length === 0 && synced.affectedDomains?.length === 0,
+    JSON.stringify(synced))
+  ok('已同步 HEAD 时无错误', synced.errors?.length === 0)
+
+  // 两个不同提交具有相同源码树：净变更为空也不能回退到最后一次提交。
+  fs.writeFileSync(source, 'v1')
+  git(sb, 'git add src/settings.js && git commit -qm revert')
+  writeMeta(sb, baseHash, domains)
+  const reverted = runScript(KB_UPDATE, [], sb)
+  ok('不同 hash 的空 diff 不返回旧变更', reverted.lastHash !== reverted.currentHash &&
+    reverted.changedFiles?.length === 0 && reverted.affectedDomains?.length === 0, JSON.stringify(reverted))
+  fs.rmSync(sb, { recursive: true, force: true })
+}
+
 section('2b. kb-update: designDocs 归域不硬编码 settings（修复回归）')
 {
   const sb = mkSandbox('kb-upd2-')
@@ -388,7 +419,7 @@ section('2b. kb-update: designDocs 归域不硬编码 settings（修复回归）
   // e2e-state 不写 domain → 走受影响域兜底逻辑
   fs.writeFileSync(path.join(sb, '.codebuddy', 'plans', 'STORY-001', 'prototype-analysis.md'), '# 聊天改版\nprototype_url: https://modao.cc/x\n')
 
-  const r = runScript(KB_UPDATE, [], sb)
+  const r = runScript(KB_UPDATE, ['--story', 'STORY-001'], sb)
   const dd = (r.designDocs || [])[0]
   ok('designDocs 非空', !!dd, JSON.stringify(r.designDocs))
   ok('原型文档归到匹配文件数最多的 chat 域（修复前硬编码 settings）', dd && dd.targetDomain === 'chat', dd && dd.targetDomain)

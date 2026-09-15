@@ -324,7 +324,7 @@ ok('Phase 0 用户拒绝后留痕并继续需求分析', /phase-outcome <storyId
 ok('Phase 2 不再注入初始化确认逻辑', !/知识库前置确认/.test(p2Kb.agentPrompt) && !/fsflow:kb-init/.test(p2Kb.agentPrompt) && !/gen-project-docs/.test(p2Kb.agentPrompt))
 
 // ═══════════════════════════════════════════════════════════
-section('6. Phase 6 仅执行增量更新或缺库留痕')
+section('6. Phase 6 经用户确认后增量更新，或拒绝 / 缺库留痕')
 
 const dir6 = storyDir('KB6-SKIP')
 fs.mkdirSync(dir6, { recursive: true })
@@ -336,7 +336,7 @@ const p6 = promptBuilder.buildAgentPrompt({ storyId: 'KB6-SKIP', targetPhase: 6,
 ok('Phase 6 prompt 先检查 meta.yaml', /meta\.yaml/.test(p6.agentPrompt))
 ok('Phase 6 正常职责是 kb-update 增量更新', /kb-update/.test(p6.agentPrompt) && /增量更新/.test(p6.agentPrompt))
 ok('Phase 6 缺库时直接留痕跳过', /meta\.yaml/.test(p6.agentPrompt) && /不存在时直接留痕跳过/.test(p6.agentPrompt))
-ok('Phase 6 不再询问或执行初始化', /不询问、不初始化、不全量生成/.test(p6.agentPrompt) && !/兼容流程询问/.test(p6.agentPrompt))
+ok('Phase 6 不再询问或执行初始化', /不询问初始化/.test(p6.agentPrompt) && /不初始化、不全量生成/.test(p6.agentPrompt))
 
 const missingOutcomeGate = policy.runGateCheck('KB6-SKIP', 6, state.readStateFile('KB6-SKIP'))
 ok('Phase 6 无结果证据时禁止直接进 Phase 7', missingOutcomeGate.blockers.some(b =>
@@ -355,6 +355,16 @@ ok('skipped_by_user 证据不阻断 Phase 7', kbEvidence.some(line => /不阻断
 const skippedOutcomeGate = policy.runGateCheck('KB6-SKIP', 6, state.readStateFile('KB6-SKIP'))
 ok('skipped_by_user 记录可恢复放行', skippedOutcomeGate.passed,
   JSON.stringify(skippedOutcomeGate.blockers))
+ok('缺库证据不误报用户拒绝初始化', kbEvidence.some(line => /项目未初始化知识库/.test(line)) &&
+  !kbEvidence.some(line => /用户拒绝初始化/.test(line)))
+
+trace.tracePhaseOutcome('KB6-SKIP', 6, 'skipped_by_user', {
+  reason: 'knowledge_base_update_declined'
+})
+const declinedEvidence = contextRefresh.getRuntimeEvidence('KB6-SKIP', 6)
+ok('拒绝增量更新可恢复放行', policy.runGateCheck('KB6-SKIP', 6, state.readStateFile('KB6-SKIP')).passed)
+ok('拒绝更新的摘要与缺库区分', declinedEvidence.some(line => /用户跳过本次知识库增量更新/.test(line)) &&
+  !declinedEvidence.some(line => /未初始化|拒绝初始化/.test(line)), JSON.stringify(declinedEvidence))
 
 // ════════════════════════════════════════════════════════════
 try {

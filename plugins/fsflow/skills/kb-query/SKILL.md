@@ -1,6 +1,6 @@
 ---
 name: "kb-query"
-description: "渐进式分层知识库检索。三层检索：L1 overview关键词匹配定位域 → L2 meta.yaml精确筛选 → L3 按需加载文档。支持4种模式：需求拆解/技术方案/接口搜索/知识问答。自动触发：代码修改、需求分析、接口查找、技术方案、改bug、新增功能等场景。查找代码时应与 graphify 双源交叉验证（query/explain/path）。"
+description: "渐进式分层知识库检索。三层检索：L1 overview关键词匹配定位域 → L2 meta.yaml精确筛选 → L3 按需加载文档。支持4种模式：需求拆解/技术方案/接口搜索/知识问答。自动触发：代码修改、需求分析、接口查找、技术方案、改bug、新增功能等场景。前后端支持精确定位；调用关系不明、跨域变更或证据冲突时补充 graphify。"
 ---
 
 # kb-query — 渐进式分层知识库检索（全局 Skill）
@@ -10,38 +10,31 @@ description: "渐进式分层知识库检索。三层检索：L1 overview关键�
 
 ---
 
-## 双源交叉验证（kb-query ∥ graphify）— 查找代码辅助
+## 按需补充结构检索
 
-> 全局通用：在查找/定位代码时，**kb-query 应与 graphify 同时调用，双源交叉验证收敛**，不要只依赖单一检索方式（如仅 Explore agent 或仅文本搜索）。
+先用知识库或精确路径定位目标。仅当需要追踪调用链、跨域影响、修复根因或知识库与源码冲突时，补充 `graphify query/explain/path`。
+同一任务已有文件、版本和相关调用关系证据时复用，不因进入新 Phase 重复查询；源码变化后重新核实受影响部分。
+`graphify-out/graph.json` 存在时使用查询，不为普通定位重建图谱。graphify 不可用时直接用源码搜索，不反复重试。
 
-### 为何双源并行
-- **kb-query**（本 skill）：业务语义层——按功能模块/接口名检索，拿到业务语义、候选文件、该域历史踩坑（`pitfalls.md`）。
-- **graphify**：结构层——`query "<报错信息/功能关键词>"` 拿结构视图，`explain "<模块>"` 理解职责，`path "<API>" "<渲染出口>"` 追数据流与调用链。
-
-两者互补：kb-query 的历史踩坑常直接命中同类历史 bug；graphify 的调用链常暴露「需求没提但被波及」的隐式路径。缺一路容易定位到表象而非根因。
-
-### 交叉验证收敛规则
-| 情况 | 处理 |
-|------|------|
-| 两者指向同一文件 | 最高置信度，优先精读该文件 |
-| 仅 kb-query 命中 | graphify `query` 补调用方，bug 可能在上游 |
-| 仅 graphify 命中 | 知识库缺此模块，报告末尾建议 `kb-update` |
-| 两边冲突 | 当前实现事实以源码为准；编码规范以知识库为准；疑似过期时标注证据并安排 `kb-update` |
-
-### 兜底
-- `search_content` + `search_file`：仅当上述两路都没定位到文件时使用。
-- **graphify 未安装**（`use_skill("graphify")` 失败）：降级为 kb-query 单源 + `search_content`
-  文本检索，并在收尾汇报中提示用户安装 graphify 以恢复双源交叉验证；不要反复重试调用。
+实现事实冲突以源码为准，编码规范以知识库为准；疑似过期内容记录证据，交 Phase 6 经用户同意后更新。
 
 ---
 
 ## 检索流程
 
-### 后端精确定位分支
+### 前后端精确定位
 
-后端问题包含类名、文件路径、路由片段或表名时，优先搜索 `.docs/llm-knowledge/backend-index.json` 的 `files[].path/symbols/entries`，读取命中源码位置及所属领域文档，无需先通过业务关键词匹配。索引未覆盖的表名、组合注解或动态路由直接搜索源码；索引不存在时使用下述文档检索。
+问题给出文件路径、组件名、类名、路由片段或表名时，先运行：
 
-`entries` 是词法线索，不能当作已解析的完整路由或调用链。公共文件对应 `common/`，待归类文件直接查看源码，不虚构业务域。业务概念问题继续走 L1-L3。此分支仅适用于后端。
+```bash
+node "<skill_dir>/kb-query.cjs" "<查询词>" --limit 10
+```
+
+脚本按项目类型读取前端或后端索引，只返回有限条匹配、所属域和文档入口，不把整个 JSON 索引加载进上下文。无索引时查 Git 文件清单，不隐式初始化或刷新知识库。
+前端索引包含页面、组件、API、Store 的 import 归属；后端索引包含类与注解位置。`sourceChangedSinceScan` 为 true、文件已删除或未命中时，直接用源码搜索补充证据。
+返回结果是定位线索，不是完整调用链。组合路由、动态 SQL、前端导出符号或自定义路径别名未被覆盖时直接搜索源码，仍有歧义才询问用户。
+
+业务概念问题继续走 L1-L3。
 
 ### L1: 全局总览匹配（业务问题及其他项目类型）
 
@@ -49,12 +42,11 @@ description: "渐进式分层知识库检索。三层检索：L1 overview关键�
 
 - 提取用户问题关键词
 - 与域地图的关键词列匹配 → 收敛到 1-2 个域
-- 无法匹配 → 返回概述，询问补充上下文
-- 后端无法匹配时，先查代码索引和源码补充证据，仍有歧义才询问
+- 前后端无法匹配时，先查索引和源码补充证据，仍有歧义才询问
 
 ### L2: meta.yaml 精确筛选
 
-加载 `.docs/llm-knowledge/meta.yaml`。
+通过脚本或文本搜索读取命中域的配置片段，不重复加载完整 `meta.yaml`。
 
 - 在匹配到的域配置中获取文件字段（`entry_files / files / stores / apis / components`，按项目类型而异）
 - 读取 `.docs/llm-knowledge/.profile.yaml` 的 `project_type`，根据查询模式和项目类型确定需加载的文档类型
@@ -74,7 +66,7 @@ description: "渐进式分层知识库检索。三层检索：L1 overview关键�
 - `search_content` 在 `.profile.yaml` 的 `source_root/source_roots` 或 `meta.yaml` 的文件字段范围内搜索关键词
 - `search_file` 文件名模式匹配
 
-后端的域文档按需生成，L3 表中各文件不是必备文件清单。先读已有 `overview.md`，再按问题加载 `flows.md`、`routes.md`、`api.md`、`models.md` 或源码；公共架构与配置从 `common/` 获取。
+前后端的域文档均按需读取，L3 表中各文件是候选范围，不是一次加载清单。先读已有 `overview.md`，再按问题加载 `flows.md`、`routes.md`、`api.md`、`models.md` 或源码；公共架构与配置从 `common/` 获取。
 
 ---
 
@@ -82,13 +74,13 @@ description: "渐进式分层知识库检索。三层检索：L1 overview关键�
 
 ### ❌ 禁止
 - 一次加载所有域文档
-- 非后端精确定位场景，跳过 L1 overview 直接搜代码
+- 业务概念尚未定位时，一次读取整个代码库
 - 精准定位域后仍全量搜索
 
 ### ✅ 必须
-- 业务问题先读 overview.md；后端精确定位按上述分支执行
-- 通过领域索引确认归属后再加载域文档（后端可使用 backend-index.json，其他项目使用 meta.yaml）
-- 优先 `read_file` 读已生成文档，不命中才 `search_content`
+- 业务问题先读 overview.md；前后端精确定位按上述分支执行
+- 通过检索结果确认归属后再加载相关文档；不要整段读取 backend-index.json / frontend-index.json
+- 只读回答问题所需的章节；证据不足时再加载下一篇文档或源码
 - 加载时说明命中了哪个域、哪种模式
 - 后端查询不得套用 `pages.md/store.md`；优先加载 `routes.md/api.md/models.md`
 

@@ -1230,7 +1230,7 @@ function checkPhase6Gate (storyId, result) {
   if (!latest || !allowed.has(latest.result)) {
     result.blockers.push(structuredError(
       'phase6_outcome_missing',
-      'Phase 6 尚无有效结果记录：有知识库时需完成 kb-update，无知识库时需留痕跳过',
+      'Phase 6 尚无有效结果记录：有知识库时先确认是否更新，同意后完成 kb-update；用户拒绝或无知识库时需留痕跳过，未答复时等待',
       4,
       `执行 Phase 6 分支后运行 trace.js phase-outcome ${storyId} 6 <updated|skipped_by_user|completed_with_errors>`
     ))

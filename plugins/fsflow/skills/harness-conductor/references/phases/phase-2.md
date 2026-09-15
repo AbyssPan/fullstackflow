@@ -9,7 +9,7 @@ Agent 注册名 **`fullstack-developer`**（全栈开发工程师）。按 `task
 同一 batch 内的任务可并行 Spawn 多个开发 Agent，batch 之间串行。
 
 `mode=fixbugs` 时 prompt 会额外注入「修复方案自行设计」说明：bug 分析报告只给事实，
-怎么改由开发工程师用 `kb-query ∥ graphify` 双源验证后自行决定。
+怎么改由开发工程师根据源码和知识库证据自行决定；调用关系不明或跨域影响时补充 graphify，已有同版本证据可复用。
 
 ## 产出物
 

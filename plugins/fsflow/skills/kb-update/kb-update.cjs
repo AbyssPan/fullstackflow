@@ -1,214 +1,115 @@
 #!/usr/bin/env node
-/**
- * kb-update.cjs — 知识库增量更新脚本
- *
- * 自包含于 kb-update Skill，从任意前端项目调用。
- * "脚本负责执行": git diff + meta.yaml 数据驱动域匹配。
- * 输出 JSON 供 kb-update Skill (AI) 消费。
- *
- * 用法: node "<skill_dir>/kb-update.cjs" [commitHash]
- */
-
+// Collect a bounded update plan. Only index refreshes write files; documents and
+// their synchronized revision are changed by the skill after user confirmation.
 const fs = require('fs')
 const path = require('path')
-const { execSync, execFileSync } = require('child_process')
+const crypto = require('crypto')
+const { KB_DIR, readMeta, readProfile, relativePath, matchesSource, changesSince, git } = require('../../scripts/lib/kb.cjs')
 
-const PROJECT_ROOT = process.cwd()
-// v2：去掉 frontend 硬编码层，知识库根为 .docs/llm-knowledge/
-const KB_ROOT = path.join(PROJECT_ROOT, '.docs', 'llm-knowledge')
-const META_PATH = path.join(KB_ROOT, 'meta.yaml')
-
-/** 简化 YAML 解析 — 只提取 domains[] 和 git.hash（v2：文件字段通用化） */
-function parseMetaYaml (content) {
-  const result = { git: {}, domains: [] }
-  // 只匹配 git: 块下的 hash（避免误匹配 doc_stats.git_hash_at_generation）
-  const gitBlock = content.match(/git:\s*\n([\s\S]*?)(?=\n\S|$)/)
-  if (gitBlock) {
-    const hashMatch = gitBlock[1].match(/hash:\s*"([^"]+)"/)
-    if (hashMatch) result.git.hash = hashMatch[1]
-  }
-
-  // 全局匹配 domains: 块中 2 空格缩进的 - id:"xxx"（domain 级别）
-  const domainsBlock = content.match(/domains:\s*\n([\s\S]*?)(?=\n\S|$)/)
-  if (!domainsBlock) return result
-
-  const idRe = /^  - id:\s*"([^"]+)"/gm
-  let m
-  while ((m = idRe.exec(domainsBlock[1])) !== null) {
-    result.domains.push({ id: m[1], path: '', files: [] })
-  }
-
-  // 补齐每个 domain 的 path 和文件字段（v2：不再假设前端字段名）
-  // 文件字段名可能因项目类型而异：entry_files / stores / apis / components / files / ...
-  for (const domain of result.domains) {
-    const pathRe = new RegExp(String.raw`  - id:\s*"` + domain.id + String.raw`"[\s\S]*?path:\s*"([^"]+)"`)
-    const pathMatch = domainsBlock[1].match(pathRe)
-    if (pathMatch) domain.path = pathMatch[1]
-
-    // 提取该 domain 块的所有「文件类」字段值，统一归入 files[]
-    const domainBlockRe = new RegExp(String.raw`  - id:\s*"` + domain.id + String.raw`"([\s\S]*?)(?=\n  - id:\s*"|\n\S|$)`)
-    const blockMatch = domainsBlock[1].match(domainBlockRe)
-    if (!blockMatch) continue
-    const block = blockMatch[1]
-
-    // 匹配任意 *_files / stores / apis / components / files 等字段
-    const fileFieldRe = /\b(\w*(?:files|stores|apis|components|entries))\s*:\s*(\[[\s\S]*?\]|\n\s*- "[\s\S]*?(?=\n\s{4}\w|\n  -|\n\s*$))/g
-    let fm
-    const collected = []
-    while ((fm = fileFieldRe.exec(block)) !== null) {
-      const raw = fm[2]
-      // 提取所有被引号包裹的字符串
-      const strs = raw.match(/"([^"]+)"/g)
-      if (strs) collected.push(...strs.map(s => s.replace(/"/g, '')))
-    }
-    // 兜底：匹配内联数组形式的 entry_files: ["a", "b"]
-    const inlineRe = /entry_files\s*:\s*\[([^\]]+)\]/g
-    let im
-    while ((im = inlineRe.exec(block)) !== null) {
-      collected.push(...im[1].split(',').map(s => s.trim().replace(/["']/g, '')).filter(Boolean))
-    }
-    domain.files = [...new Set(collected)]
-  }
-
-  return result
-}
-
-/** 判断变更文件是否属于指定域（前缀匹配 meta.yaml 中的文件字段，v2：字段通用化）
- *  通配符语义：以第一个 * 为界，* 之前的部分作为目录前缀匹配
- *  （如 "plugins/harness/agents/*.md" → 前缀 "plugins/harness/agents/"） */
-function matchFileToDomain (file, domain) {
-  const sources = domain.files || []
-  return sources.some(s => {
-    const starIdx = s.indexOf('*')
-    const prefix = starIdx >= 0 ? s.slice(0, starIdx) : s
-    return prefix === '' || file === s || file.startsWith(prefix)
-  })
-}
-
-// ─── 主逻辑 ──────────────────────────────────────────────────
-
-let changedFiles = []
-const errors = []
-
-try { var currentHash = execSync('git rev-parse HEAD', { cwd: PROJECT_ROOT, encoding: 'utf-8', timeout: 10000 }).trim() }
-catch (e) { errors.push('git rev-parse failed: ' + e.message); currentHash = '' }
-
-let lastHash = currentHash
-if (fs.existsSync(META_PATH)) {
-  const meta = parseMetaYaml(fs.readFileSync(META_PATH, 'utf-8'))
-  lastHash = meta.git.hash || currentHash
-}
-
-try {
-  if (!/^[a-f0-9]{7,64}$/i.test(lastHash) || !/^[a-f0-9]{7,64}$/i.test(currentHash)) throw new Error('Invalid Git revision')
-  const diff = execFileSync('git', ['diff', '--name-only', `${lastHash}..${currentHash}`], { cwd: PROJECT_ROOT, encoding: 'utf-8', timeout: 10000 }).trim()
-  changedFiles = diff ? diff.split('\n').filter(Boolean) : []
-} catch (e) {
-  // lastHash 无效（如 rebase 后消失）或 diff 失败：记录并走兜底
-  if (lastHash && lastHash !== currentHash) errors.push(`git diff ${lastHash.slice(0, 8)}..${currentHash.slice(0, 8)} 失败，回退 HEAD~1..HEAD`)
-}
-// 兜底：diff 为空或失败时，退回最近一次提交的变更
-if (changedFiles.length === 0) {
+function collectUpdate (root, { refresh = true, storyId = null } = {}) {
+  const meta = readMeta(root)
+  const profile = readProfile(root)
+  const errors = []
+  const currentHash = git(root, ['rev-parse', 'HEAD']).trim()
+  const lastHash = meta.git.hash
+  let changedFiles
   try {
-    const d = execSync('git diff --name-only HEAD~1..HEAD', { cwd: PROJECT_ROOT, encoding: 'utf-8', timeout: 10000 }).trim()
-    changedFiles = d ? d.split('\n').filter(Boolean) : []
-  } catch (e) { /* 单提交仓库等场景，无 diff 可用 */ }
-}
-
-// 加载 meta.yaml（始终加载，后面的原型文档匹配也需要）
-let meta = { domains: [] }
-if (fs.existsSync(META_PATH)) {
-  meta = parseMetaYaml(fs.readFileSync(META_PATH, 'utf-8'))
-}
-
-// 匹配受影响域
-let affectedDomains = []
-if (changedFiles.length > 0) {
-  for (const domain of meta.domains) {
-    const matched = changedFiles.filter(f => matchFileToDomain(f, domain))
-    if (matched.length > 0) affectedDomains.push({ id: domain.id, path: domain.path, matchedFiles: matched })
+    changedFiles = lastHash ? changesSince(root, lastHash)
+      : git(root, ['ls-files', '-co', '--exclude-standard', '-z']).split('\0').filter(f => f && !f.startsWith(KB_DIR + '/') && !f.startsWith('.codebuddy/'))
+  } catch (e) {
+    errors.push('Cannot verify document baseline; fallback is incomplete: ' + e.message)
+    try { changedFiles = changesSince(root, git(root, ['rev-parse', 'HEAD~1']).trim()) } catch (_) { changedFiles = [] }
   }
+  changedFiles = [...new Set(changedFiles)]
+  let affectedDomains = meta.domains.map(d => ({ id: d.id, path: d.path,
+    matchedFiles: changedFiles.filter(f => d.files.some(p => matchesSource(f, p, profile.source_root || 'src')))
+  })).filter(d => d.matchedFiles.length)
+  let backend = null, frontend = null
+  const backendFile = path.join(root, KB_DIR, 'backend-index.json')
+  if (profile.project_type === 'backend' && fs.existsSync(backendFile)) {
+    try {
+      const { readBackendIndex, refreshBackendIndex, buildBackendIndex, backendImpact } = require('../kb-init/backend-index.cjs')
+      const previous = readBackendIndex(root)
+      const current = refresh ? refreshBackendIndex(root)
+        : buildBackendIndex(root, previous.source_roots, previous.resource_roots, previous.modules, { previous })
+      backend = backendImpact(previous, current, changedFiles)
+      // Keep deleted files discoverable on retries after refreshing the scan index.
+      for (const d of affectedDomains) {
+        const existing = backend.affectedDomains.find(n => n.id === d.id)
+        if (existing) existing.matchedFiles = [...new Set([...existing.matchedFiles, ...d.matchedFiles])]
+        else backend.affectedDomains.push(d)
+      }
+      backend.retiredDomains = [...new Set([...backend.retiredDomains, ...meta.domains.filter(d => !current.domains.some(n => n.id === d.id)).map(d => d.id)])]
+      backend.scanStats = current.scan_stats
+      changedFiles = backend.changedFiles
+      affectedDomains = backend.affectedDomains
+    } catch (e) { errors.push('backend index refresh failed: ' + e.message) }
+  } else if (profile.project_type === 'frontend') {
+    try {
+      frontend = require('../../scripts/lib/frontend-index.cjs').frontendImpact(root, meta, profile, changedFiles, { persist: refresh })
+      affectedDomains = frontend.affectedDomains
+    } catch (e) { errors.push('frontend index refresh failed: ' + e.message) }
+  }
+  const commonFiles = [...new Set([...(backend?.commonFiles || []), ...changedFiles.filter(f =>
+    /(?:^|\/)(?:package\.json|(?:pnpm-lock|yarn\.lock|package-lock)[^/]*|pom\.xml|(?:build|settings)\.gradle(?:\.kts)?|(?:vite|webpack|tsconfig|eslint|prettier)[^/]*|\.editorconfig|\.eslintrc[^/]*|\.prettierrc[^/]*)$/.test(f))])]
+  const assigned = new Set([...affectedDomains.flatMap(d => d.matchedFiles), ...commonFiles])
+  const unclassifiedFiles = changedFiles.filter(f => !assigned.has(f))
+  const designDocs = collectDesignDocs(root, meta, affectedDomains, storyId)
+  const reviewFiles = backend?.reviewFiles || frontend?.reviewFiles || []
+  return { lastHash, currentHash, projectType: profile.project_type || 'frontend', changedFiles, affectedDomains,
+    commonFiles, unclassifiedFiles, reviewFiles, designDocs,
+    ...(backend ? { backend } : {}), ...(frontend ? { frontend } : {}), errors,
+    canAdvanceHash: errors.length === 0 && unclassifiedFiles.length === 0 && reviewFiles.length === 0 && !designDocs.some(d => !d.targetDomain) }
 }
 
-let backend = null
-const profileText = fs.existsSync(path.join(KB_ROOT, '.profile.yaml')) ? fs.readFileSync(path.join(KB_ROOT, '.profile.yaml'), 'utf8') : ''
-if (/project_type:\s*["']?backend\b/.test(profileText) && fs.existsSync(path.join(KB_ROOT, 'backend-index.json'))) {
-  try {
-    const { readBackendIndex, refreshBackendIndex, changesSinceDocument, backendImpact } = require('../kb-init/backend-index.cjs')
-    const previous = readBackendIndex(PROJECT_ROOT)
-    const pending = changesSinceDocument(PROJECT_ROOT, meta.git?.hash || currentHash)
-    const current = refreshBackendIndex(PROJECT_ROOT)
-    if (!meta.git?.hash) pending.push(...current.files.map(f => f.path))
-    backend = backendImpact(previous, current, pending)
-    // Deleted files may already be absent from both scan snapshots on a retry.
-    for (const domain of meta.domains || []) {
-      const matched = pending.filter(file => matchFileToDomain(file, domain))
-      if (!matched.length) continue
-      const existing = backend.affectedDomains.find(d => d.id === domain.id)
-      if (existing) existing.matchedFiles = [...new Set([...existing.matchedFiles, ...matched])]
-      else backend.affectedDomains.push({ id: domain.id, path: domain.path, matchedFiles: matched, reason: 'document-source-map' })
-    }
-    const retired = (meta.domains || []).filter(d => !current.domains.some(n => n.id === d.id))
-    backend.retiredDomains = [...new Set([...backend.retiredDomains, ...retired.map(d => d.id)])]
-    changedFiles = backend.changedFiles
-    affectedDomains = backend.affectedDomains
-  } catch (e) { errors.push('backend index refresh failed: ' + e.message) }
-}
-
-// ─── 原型文档扫描 ──────────────────────────────────────────
-// 扫描 plans 目录下的 prototype-analysis.md，匹配到受影响域
-const PLANS_DIR = path.join(PROJECT_ROOT, '.codebuddy', 'plans')
-const DESIGN_DOCS_DIR = path.join(KB_ROOT, 'business')
-const designDocs = []
-
-if (fs.existsSync(PLANS_DIR)) {
-  const storyDirs = fs.readdirSync(PLANS_DIR).filter(d => {
-    const stat = fs.statSync(path.join(PLANS_DIR, d))
-    return stat.isDirectory()
-  })
-
-  for (const storyId of storyDirs) {
-    const protoPath = path.join(PLANS_DIR, storyId, 'prototype-analysis.md')
-    if (!fs.existsSync(protoPath)) continue
-
-    // 读取原型文档，提取标题和 prototype_url
-    const content = fs.readFileSync(protoPath, 'utf-8')
-    const titleMatch = content.match(/#\s*(.+)/)
-    const urlMatch = content.match(/prototype_url:\s*(.+)/) || content.match(/原型链接.*?(https?:\/\/[^\s)]+)/)
-    const title = titleMatch ? titleMatch[1].trim() : storyId
-    const prototypeUrl = urlMatch ? urlMatch[1].trim() : ''
-
-    // 匹配域：通过 story e2e-state.json 的 domain 字段，或通过变更文件匹配
-    const statePath = path.join(PLANS_DIR, storyId, 'e2e-state.json')
-    let targetDomain = null
-    if (fs.existsSync(statePath)) {
+function collectDesignDocs (root, meta, affectedDomains, currentStory) {
+  const dir = path.join(root, '.codebuddy/plans')
+  if (!fs.existsSync(dir)) return []
+  const docs = []
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    const storyId = entry.name
+    const sourcePath = path.join(dir, storyId, 'prototype-analysis.md')
+    if (!fs.existsSync(sourcePath)) continue
+    const content = fs.readFileSync(sourcePath, 'utf8')
+    const sourceHash = crypto.createHash('sha256').update(content).digest('hex')
+    const existingDomain = meta.domains.find(d => d.design_docs?.some(doc => doc.story_id === storyId))
+    const existing = existingDomain?.design_docs.find(doc => doc.story_id === storyId)
+    let targetDomain = existingDomain?.id || null
+    if (!targetDomain) {
       try {
-        const state = JSON.parse(fs.readFileSync(statePath, 'utf-8'))
-        if (state.domain && meta.domains?.some(d => d.id === state.domain)) {
-          targetDomain = state.domain
-        }
-      } catch (e) {}
+        const state = JSON.parse(fs.readFileSync(path.join(dir, storyId, 'e2e-state.json'), 'utf8'))
+        if (meta.domains.some(d => d.id === state.domain)) targetDomain = state.domain
+      } catch (_) {}
     }
-
-    // 无显式 domain 时，取匹配变更文件数最多的受影响域（数据驱动，不硬编码域 id）
-    if (!targetDomain && affectedDomains.length > 0) {
-      const best = affectedDomains.reduce((a, b) => b.matchedFiles.length > a.matchedFiles.length ? b : a)
-      targetDomain = best.id
-    }
-
-    const docFileName = (title || storyId).replace(/[^\w\u4e00-\u9fff-]/g, '-').replace(/-+/g, '-').toLowerCase() + '.md'
-
-    designDocs.push({
-      storyId,
-      title: title || storyId,
-      prototypeUrl,
-      sourcePath: protoPath,
-      targetDomain,
-      targetPath: targetDomain ? `business/${targetDomain}/design/${docFileName}` : null,
-      targetDir: targetDomain ? path.join(DESIGN_DOCS_DIR, targetDomain, 'design') : null,
-      fileName: docFileName
-    })
+    // Only the explicitly selected Story may use this update's impact as a hint.
+    if (!targetDomain && storyId === currentStory && affectedDomains.length === 1) targetDomain = affectedDomains[0].id
+    const title = content.match(/^#\s+(.+)/m)?.[1]?.trim() || storyId
+    const prototypeUrl = content.match(/prototype_url:\s*(.+)/)?.[1]?.trim() || ''
+    const slug = title.replace(/[^\w\u4e00-\u9fff-]/g, '-').replace(/-+/g, '-').toLowerCase()
+    const fileName = `${storyId}-${slug}.md`
+    const targetPath = existing?.doc_path ? relativePath(existing.doc_path) : targetDomain ? `business/${targetDomain}/design/${fileName}` : null
+    const target = targetPath && path.join(root, KB_DIR, targetPath)
+    const exists = target && fs.existsSync(target)
+    // Acknowledged source hash preserves manual edits in the destination.
+    if (exists && existing?.source_hash === sourceHash) continue
+    const sameContent = exists && fs.readFileSync(target, 'utf8') === content
+    if (sameContent && existing) continue
+    docs.push({ storyId, title, prototypeUrl, sourcePath, sourceHash, targetDomain, targetPath,
+      targetDir: target && path.dirname(target), fileName: target ? path.basename(target) : fileName,
+      action: sameContent ? 'index_only' : 'merge' })
   }
+  return docs
 }
 
-console.log(JSON.stringify({ lastHash, currentHash, changedFiles, affectedDomains, designDocs, ...(backend ? { backend } : {}), errors }, null, 2))
+if (require.main === module) {
+  try {
+    const args = process.argv.slice(2)
+    if (args.length && (args[0] !== '--story' || !args[1] || args.length !== 2)) throw new Error('Usage: kb-update.cjs [--story STORY-ID]')
+    console.log(JSON.stringify(collectUpdate(process.cwd(), { storyId: args[1] }), null, 2))
+  } catch (e) {
+    console.log(JSON.stringify({ errors: [e.message], canAdvanceHash: false }))
+    process.exitCode = 1
+  }
+}
+module.exports = { collectUpdate }

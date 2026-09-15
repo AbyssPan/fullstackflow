@@ -240,8 +240,8 @@ AI 修改源码受 dev-pass 通行证约束：仅在开发阶段由脚本自动�
 | 需求分析师 | `deepseek-v4.1-flash` |
 | 任务规划师 | `deepseek-v4-pro` |
 | 全栈开发工程师 | `GLM-5.3` |
-| 代码审查师 | `hy4-preview` |
-| 测试工程师 | `hy4-preview` |
+| 代码审查师 | `deepseek-v4.1-flash` |
+| 测试工程师 | `deepseek-v4.1-flash` |
 | 发布助手 | `hy3` |
 
 ## 12 个 Skill

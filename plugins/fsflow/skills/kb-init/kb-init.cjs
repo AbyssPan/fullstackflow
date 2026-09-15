@@ -27,6 +27,7 @@ const PROJECT_ROOT = process.cwd()
 // v2：去掉 frontend 硬编码层，知识库根为 .docs/llm-knowledge/
 const KB_ROOT = path.join(PROJECT_ROOT, '.docs', 'llm-knowledge')
 const PROFILE_PATH = path.join(KB_ROOT, '.profile.yaml')
+const log = (...args) => console.error(...args)
 
 // ─── 项目画像 ──────────────────────────────────────────────────
 
@@ -436,11 +437,11 @@ const conventionSources = discoverConventionSources()
 let created = 0, skipped = 0
 const errors = []
 
-console.log('kb-init v2 — 知识库目录骨架初始化（项目画像 + 动态域扫描）')
-console.log(`项目: ${PROJECT_ROOT}`)
-console.log(`画像: project_type=${projectType}, source_root=${sourceRoot}, domain_axis=${domainAxis}`)
-console.log(`识别到 ${domains.length} 个域: ${domains.join(', ') || '(空)'}`)
-console.log(`识别到 ${conventionSources.length} 个编码规范来源: ${conventionSources.map(s => s.path).join(', ') || '(无)'}\n`)
+log('kb-init v2 — 知识库目录骨架初始化（项目画像 + 动态域扫描）')
+log(`项目: ${PROJECT_ROOT}`)
+log(`画像: project_type=${projectType}, source_root=${sourceRoot}, domain_axis=${domainAxis}`)
+log(`识别到 ${domains.length} 个域: ${domains.join(', ') || '(空)'}`)
+log(`识别到 ${conventionSources.length} 个编码规范来源: ${conventionSources.map(s => s.path).join(', ') || '(无)'}\n`)
 
 // dry-run 模式：只输出候选域清单，不落盘（供 AI/用户确认后正式初始化）
 if (dryRun) {
@@ -461,7 +462,7 @@ if (dryRun) {
     templates: selectTemplates(projectType),
     kbRoot: '.docs/llm-knowledge'
   }, null, 2))
-  console.log('\n[DRY-RUN] 未落盘。确认域清单后去掉 --dry-run 正式初始化。')
+  log('\n[DRY-RUN] 未落盘。确认域清单后去掉 --dry-run 正式初始化。')
   process.exit(0)
 }
 
@@ -475,7 +476,7 @@ const DIRS = [
 
 for (const dir of DIRS) {
   if (fs.existsSync(dir)) { skipped++; continue }
-  try { fs.mkdirSync(dir, { recursive: true }); created++; console.log(`  ✅ ${path.relative(PROJECT_ROOT, dir)}`) }
+  try { fs.mkdirSync(dir, { recursive: true }); created++; log(`  ✅ ${path.relative(PROJECT_ROOT, dir)}`) }
   catch (e) { errors.push(`创建失败: ${dir}`) }
 }
 
@@ -513,7 +514,7 @@ if (!fs.existsSync(PROFILE_PATH) || force) {
     ...(profile.test_roots ? [`test_roots: [${profile.test_roots.map(v => `"${v}"`).join(', ')}]`] : []),
     ''
   ].join('\n')
-  try { fs.writeFileSync(PROFILE_PATH, profileYaml, 'utf-8'); created++; console.log(`  ✅ .profile.yaml`) }
+  try { fs.writeFileSync(PROFILE_PATH, profileYaml, 'utf-8'); created++; log(`  ✅ .profile.yaml`) }
   catch (e) { errors.push(`写入失败: ${PROFILE_PATH}`) }
 }
 
@@ -523,7 +524,7 @@ const CUSTOM_README = (d) =>
 for (const d of domains) {
   const f = path.join(KB_ROOT, 'business', d, 'custom', 'README.md')
   if (fs.existsSync(f) && (!force || backendIndex)) { skipped++; continue }
-  try { fs.writeFileSync(f, CUSTOM_README(d), 'utf-8'); created++; console.log(`  ✅ business/${d}/custom/README.md`) }
+  try { fs.writeFileSync(f, CUSTOM_README(d), 'utf-8'); created++; log(`  ✅ business/${d}/custom/README.md`) }
   catch (e) { errors.push(`写入失败: ${f}`) }
 }
 
@@ -531,7 +532,7 @@ for (const d of domains) {
 const COMMON_README = `# 通用知识\n\n<!-- CUSTOM:START -->\n跨域共享的开发规范、常用库指南、技术专题。\n<!-- CUSTOM:END -->\n`
 const commonReadme = path.join(KB_ROOT, 'common', 'README.md')
 if (!fs.existsSync(commonReadme) || (force && !backendIndex)) {
-  try { fs.writeFileSync(commonReadme, COMMON_README, 'utf-8'); created++; console.log(`  ✅ common/README.md`) }
+  try { fs.writeFileSync(commonReadme, COMMON_README, 'utf-8'); created++; log(`  ✅ common/README.md`) }
   catch (e) { errors.push(`写入失败: ${commonReadme}`) }
 }
 
@@ -573,7 +574,7 @@ if (!fs.existsSync(conventionsPath) || (force && !backendIndex)) {
     '<!-- CUSTOM:END -->',
     ''
   ].join('\n')
-  try { fs.writeFileSync(conventionsPath, conventionsDoc, 'utf-8'); created++; console.log(`  ✅ common/conventions.md`) }
+  try { fs.writeFileSync(conventionsPath, conventionsDoc, 'utf-8'); created++; log(`  ✅ common/conventions.md`) }
   catch (e) { errors.push(`写入失败: ${conventionsPath}`) }
 }
 
@@ -586,7 +587,7 @@ if (fs.existsSync(TMPL_COMMON)) {
     const dst = path.join(KB_ROOT, 'templates', f)
     if (fs.existsSync(dst) && !force) { skipped++; continue }
     fs.copyFileSync(path.join(TMPL_COMMON, f), dst)
-    created++; console.log(`  ✅ templates/${f}`)
+    created++; log(`  ✅ templates/${f}`)
   }
 }
 // 再复制本项目类型的特有模板
@@ -599,15 +600,15 @@ if (fs.existsSync(typeTplDir)) {
     const overridesCommon = commonTemplates.includes(base)
     if (fs.existsSync(dst) && !force && !overridesCommon) { skipped++; continue }
     fs.copyFileSync(path.join(typeTplDir, f), dst)
-    created++; console.log(`  ✅ templates/${f}`)
+    created++; log(`  ✅ templates/${f}`)
   }
 }
 
-console.log(`\n完成: 创建 ${created}, 跳过 ${skipped}, 错误 ${errors.length}`)
+log(`\n完成: 创建 ${created}, 跳过 ${skipped}, 错误 ${errors.length}`)
 if (errors.length) errors.forEach(e => console.error(`  ❌ ${e}`))
 
 // 8. 输出 JSON 供 kb-init SKILL (AI) 消费
-console.log('\n' + JSON.stringify({
+console.log(JSON.stringify({
   projectType,
   sourceRoot,
   domainAxis,

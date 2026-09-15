@@ -36,15 +36,19 @@ function ok (name, cond, detail) {
 }
 function section (t) { console.log(`\n-- ${t} --`) }
 
-/** 跑脚本：cwd 指向沙箱，返回 stdout 中最后一个完整 JSON 对象。
- *  env 做净化：清掉宿主 IDE 注入的 *_PROJECT_DIR / *_PLUGIN_ROOT，
- *  确保 kb 脚本（以 process.cwd() 为项目根）定位到沙箱而非宿主项目。 */
-function runScript (script, args, cwd) {
+function runRawScript (script, args, cwd) {
   const env = {}
   for (const [k, v] of Object.entries(process.env)) {
     if (!/PROJECT_DIR|PLUGIN_ROOT/.test(k)) env[k] = v
   }
-  const r = spawnSync(process.execPath, [script, ...(args || [])], { cwd, encoding: 'utf-8', timeout: 30000, env })
+  return spawnSync(process.execPath, [script, ...(args || [])], { cwd, encoding: 'utf-8', timeout: 30000, env })
+}
+
+/** 跑脚本：cwd 指向沙箱，返回 stdout 中最后一个完整 JSON 对象。
+ *  env 做净化：清掉宿主 IDE 注入的 *_PROJECT_DIR / *_PLUGIN_ROOT，
+ *  确保 kb 脚本（以 process.cwd() 为项目根）定位到沙箱而非宿主项目。 */
+function runScript (script, args, cwd) {
+  const r = runRawScript(script, args, cwd)
   if (r.status !== 0) return { __error: (r.stderr || r.stdout || '').slice(0, 300) }
   // 从 stdout 提取最后一个可解析的顶层 JSON（兼容多行嵌套 / 单行 / 尾随文本三种情况）：
   // 先截到最后一个 '}'，再从后往前扫每个 '{' 尝试 JSON.parse。
@@ -99,11 +103,19 @@ section('1. kb-init: 嵌套插件市场仓识别（修复回归）')
   const dry = runScript(KB_INIT, ['--dry-run'], sb)
   ok('dry-run 识别 projectType=plugin', dry.projectType === 'plugin', JSON.stringify(dry).slice(0, 120))
   ok('dry-run sourceRoot 指向 plugins/demo', dry.sourceRoot === 'plugins/demo', dry.sourceRoot)
+  const rawDry = runRawScript(KB_INIT, ['--dry-run'], sb)
+  let rawDryJson = null
+  try { rawDryJson = JSON.parse(rawDry.stdout) } catch (e) {}
+  ok('dry-run stdout 可直接 JSON.parse', rawDryJson && rawDryJson.projectType === 'plugin', rawDry.stdout.slice(0, 80))
   ok('dry-run 不落盘（.docs/llm-knowledge 下无新文件）',
     fs.readdirSync(path.join(sb, '.docs', 'llm-knowledge')).length === 0)
 
   const init = runScript(KB_INIT, [], sb)
   ok('正式初始化识别 plugin', init.projectType === 'plugin')
+  const rawInit = runRawScript(KB_INIT, [], sb)
+  let rawInitJson = null
+  try { rawInitJson = JSON.parse(rawInit.stdout) } catch (e) {}
+  ok('正式初始化 stdout 可直接 JSON.parse', rawInitJson && rawInitJson.kbRoot === '.docs/llm-knowledge', rawInit.stdout.slice(0, 80))
   ok('域包含 agents/skills', init.domains.includes('agents') && init.domains.includes('skills'))
   ok('知识库根为 .docs/llm-knowledge', init.kbRoot === '.docs/llm-knowledge')
   ok('.profile.yaml 落盘', fs.existsSync(path.join(sb, '.docs', 'llm-knowledge', '.profile.yaml')))

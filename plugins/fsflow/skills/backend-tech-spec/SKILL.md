@@ -14,7 +14,7 @@ description: 后端开发规范解析与执行。用于新增或修改后端代�
 1. 用户本次明确要求、验收标准和已确认的技术决策。
 2. 当前项目知识库中与本模块、语言或框架匹配的编码规范，以及知识库中的人工批注。
 3. 仓库级指令、格式化/静态检查配置、架构决策记录和项目文档。
-4. `fsflow:harness-conductor` 的内置 OpenCodeReview 抽取规则：
+4. `harness-conductor` 的内置 OpenCodeReview 抽取规则：
    [Java](../harness-conductor/references/review-rules/java.md)、
    [Mapper/DAO XML](../harness-conductor/references/review-rules/mapper_dao_xml.md) 和
    [其他后端文件](../harness-conductor/references/review-rules/default.md)。
@@ -27,7 +27,7 @@ description: 后端开发规范解析与执行。用于新增或修改后端代�
 
 ## 编码前解析
 
-1. 通过 `fsflow:kb-query` 查询当前业务域的 `overview.md`、`architecture.md`、`api.md`、`pitfalls.md` 和 `custom/` 中的规范。知识库若未初始化，直接使用仓库事实与下级规则；不在本 skill 中再次询问或初始化。
+1. 通过 `kb-query` 查询当前业务域的 `overview.md`、`architecture.md`、`api.md`、`pitfalls.md` 和 `custom/` 中的规范。知识库若未初始化，直接使用仓库事实与下级规则；不在本 skill 中再次询问或初始化。
 2. 读取任务涉及模块的构建文件、框架配置、格式化/检查配置及 2–3 个相邻实现，确认语言、框架、版本、目录、API、持久化、时间类型、注入方式和测试方式。
 3. 按变更文件类型读取上述内置审查规则：Java 读 `java.md`，Mapper/DAO XML 读 `mapper_dao_xml.md`，其他后端文件读 `default.md`。这些规则高于本 skill 的默认规范；规则未覆盖的事项才由本 skill 补位。
 4. 形成一份简短的“本次适用规范”：

@@ -31,12 +31,12 @@ ok('项目知识库位于内置审查规则之前',
 ok('内置审查规则位于 Skill 默认规范之前',
   spec.indexOf('OpenCodeReview 抽取规则') < spec.indexOf('本 skill 的默认规范'))
 ok('只有需求分析 Agent 执行知识库初始化确认',
-  /唯一的知识库初始化确认点/.test(analyst) && /fsflow:kb-init/.test(analyst) &&
-  /fsflow:gen-project-docs/.test(analyst) && /phase-outcome <storyId> 0 skipped_by_user/.test(analyst) &&
-  !/知识库前置确认/.test(developer) && !/fsflow:kb-init/.test(developer))
-ok('开发 Agent 调用 backend-tech-spec', /use_skill\("fsflow:backend-tech-spec"\)/.test(developer))
+  /唯一的知识库初始化确认点/.test(analyst) && /use_skill\("kb-init"\)/.test(analyst) &&
+  /use_skill\("gen-project-docs"\)/.test(analyst) && /phase-outcome <storyId> 0 skipped_by_user/.test(analyst) &&
+  !/知识库前置确认/.test(developer) && !/use_skill\("kb-init"\)/.test(developer))
+ok('开发 Agent 调用 backend-tech-spec', /use_skill\("backend-tech-spec"\)/.test(developer))
 ok('开发 Agent 预读 OpenCodeReview 规则', /预读内置 OpenCodeReview 规则/.test(developer))
-ok('审查 Agent 调用 backend-tech-spec', /use_skill\("fsflow:backend-tech-spec"\)/.test(reviewer))
+ok('审查 Agent 调用 backend-tech-spec', /use_skill\("backend-tech-spec"\)/.test(reviewer))
 ok('审查 Agent 明确审查规则优先于开发默认规范',
   /优先级固定为：[\s\S]*内置 OpenCodeReview 抽取规则[\s\S]*backend-tech-spec` 默认规范/.test(reviewer))
 ok('已移除 ServiceImpl 禁止调用 Mapper 的错误规则', !/ServiceImpl 仅调 Service 不跨层直调 Mapper/.test(reviewer))

@@ -321,7 +321,7 @@ ok('Phase 0 prompt 注入唯一知识库前置确认', /知识库前置确认/.t
 ok('Phase 0 缺库时先询问，再支持 kb-init + gen-project-docs 全量生成',
   /是否现在初始化/.test(p0Kb.agentPrompt) && /kb-init/.test(p0Kb.agentPrompt) && /gen-project-docs/.test(p0Kb.agentPrompt) && /全量模式/.test(p0Kb.agentPrompt))
 ok('Phase 0 用户拒绝后留痕并继续需求分析', /phase-outcome <storyId> 0 skipped_by_user/.test(p0Kb.agentPrompt) && /继续需求分析/.test(p0Kb.agentPrompt))
-ok('Phase 2 不再注入初始化确认逻辑', !/知识库前置确认/.test(p2Kb.agentPrompt) && !/fsflow:kb-init/.test(p2Kb.agentPrompt) && !/gen-project-docs/.test(p2Kb.agentPrompt))
+ok('Phase 2 不再注入初始化确认逻辑', !/知识库前置确认/.test(p2Kb.agentPrompt) && !/use_skill\("kb-init"\)/.test(p2Kb.agentPrompt) && !/gen-project-docs/.test(p2Kb.agentPrompt))
 
 // ═══════════════════════════════════════════════════════════
 section('6. Phase 6 经用户确认后增量更新，或拒绝 / 缺库留痕')

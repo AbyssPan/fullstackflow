@@ -42,7 +42,7 @@ description: >
 ```
 Phase 0（需求分析师，单一上下文内完成两件事）
        │
-       ├─ ① use_skill("fsflow:tapd-bug-analyzer")
+       ├─ ① use_skill("tapd-bug-analyzer")
        │     └→ {STORY_DIR}/{storyTitle}_bug分析报告.md   ← 事实
        │
        └─ ② 基于 ① 的分析结论产出

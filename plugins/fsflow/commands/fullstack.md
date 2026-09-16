@@ -15,7 +15,7 @@ allowed-tools: Bash, Read, Write, Glob, Grep
 
 > **核心原则：AI 不操作工作流状态，所有 Phase 推进必须通过脚本完成。**
 >
-> **操作手册：入口动作先调用 `use_skill("fsflow:harness-start")`（判模式 → 写输入 → 建流），
+> **操作手册：入口动作先调用 `use_skill("harness-start")`（判模式 → 写输入 → 建流），
 > 编排细节由 `harness-conductor` skill 承载——本命令只做路由，不复述协议。**
 
 ---
@@ -24,12 +24,12 @@ allowed-tools: Bash, Read, Write, Glob, Grep
 
 | 用法 | 说明 | 实际执行 |
 |---|---|---|
-| `/fsflow:fullstack run [storyId] "<需求描述>"` | 新功能 / 页面级改造（有原型 / Figma 门控） | `use_skill("fsflow:harness-start")` → mode=run |
-| `/fsflow:fullstack fixbugs [storyId] "<缺陷描述>"` | 缺陷修复（免原型文档，Phase 0 自动拉 TAPD 缺陷） | `use_skill("fsflow:harness-start")` → mode=fixbugs |
+| `/fsflow:fullstack run [storyId] "<需求描述>"` | 新功能 / 页面级改造（有原型 / Figma 门控） | `use_skill("harness-start")` → mode=run |
+| `/fsflow:fullstack fixbugs [storyId] "<缺陷描述>"` | 缺陷修复（免原型文档，Phase 0 自动拉 TAPD 缺陷） | `use_skill("harness-start")` → mode=fixbugs |
 | `/fsflow:fullstack status` | 查看工作流状态 | `node ${CLAUDE_PLUGIN_ROOT}/scripts/commands/harness-workflow.js status` |
 | `/fsflow:fullstack end` | 结束当前激活会话、解除编辑门控 | `node ${CLAUDE_PLUGIN_ROOT}/scripts/commands/harness-workflow.js end` |
-| `/fsflow:fullstack evolve [storyId\|all]` | 自进化体检（audit → 度量 → 诊断 → 治疗 → 验证） | `use_skill("fsflow:harness-evolve")` |
-| `/fsflow:fullstack archive <storyId> <archive\|restore\|list\|status>` | 归档 / 复档 / 归档历史 | `use_skill("fsflow:harness-archive")` |
+| `/fsflow:fullstack evolve [storyId\|all]` | 自进化体检（audit → 度量 → 诊断 → 治疗 → 验证） | `use_skill("harness-evolve")` |
+| `/fsflow:fullstack archive <storyId> <archive\|restore\|list\|status>` | 归档 / 复档 / 归档历史 | `use_skill("harness-archive")` |
 
 无参数直接执行 `/fsflow:fullstack` 时：视为 `run` 入口，按 harness-start 的
 意图识别规则判模式（run / fixbugs），信号不足用 `AskUserQuestion` 问一次，不要猜。
@@ -49,9 +49,9 @@ allowed-tools: Bash, Read, Write, Glob, Grep
 按上文「子命令一览」匹配用户意图，加载对应 skill 并完全遵循其协议：
 
 ```
-run / fixbugs / (无参数)  → use_skill("fsflow:harness-start")
-evolve                    → use_skill("fsflow:harness-evolve")
-archive                   → use_skill("fsflow:harness-archive")
+run / fixbugs / (无参数)  → use_skill("harness-start")
+evolve                    → use_skill("harness-evolve")
+archive                   → use_skill("harness-archive")
 status                    → 直接执行 harness-workflow.js status，转述结果
 end                       → 直接执行 harness-workflow.js end，转述结果
 ```
@@ -59,7 +59,7 @@ end                       → 直接执行 harness-workflow.js end，转述结�
 ### Step 2：建流之后交棒编排器
 
 `harness-start` 完成「判模式 → 写 story-input.json → create-workflow 建流 → --refresh-input
-回填判定」后，立即调用 `use_skill("fsflow:harness-conductor")` 进入主控循环：
+回填判定」后，立即调用 `use_skill("harness-conductor")` 进入主控循环：
 
 ```
 Step 1: 执行 node ${CLAUDE_PLUGIN_ROOT}/scripts/commands/dispatch.js <storyId>
@@ -100,7 +100,7 @@ HARNESS=${CLAUDE_PLUGIN_ROOT}/scripts/commands
 
 | 用户意图 | 路由 |
 |---|---|
-| 初始化项目知识库 | `use_skill("fsflow:kb-init")` |
-| 检索业务域 / 接口 / 踩坑记录 | `use_skill("fsflow:kb-query")` |
-| 提交后增量更新知识库 | `use_skill("fsflow:kb-update")` |
-| 按 Swagger 生成接口定义 | `use_skill("fsflow:api-generator")` |
+| 初始化项目知识库 | `use_skill("kb-init")` |
+| 检索业务域 / 接口 / 踩坑记录 | `use_skill("kb-query")` |
+| 提交后增量更新知识库 | `use_skill("kb-update")` |
+| 按 Swagger 生成接口定义 | `use_skill("api-generator")` |

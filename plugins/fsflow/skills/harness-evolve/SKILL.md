@@ -20,7 +20,7 @@ description: Harness 自进化分析 — 体检(audit) → 度量(metrics) → �
 
 当用户执行 `/fsflow:evolve` 时:
 
-1. 命令入口加载 `fsflow:harness-evolve` 后，确认用户给定的 Story 范围与选项
+1. 命令入口加载 `harness-evolve` 后，确认用户给定的 Story 范围与选项
 
 2. 执行五步闭环:
 

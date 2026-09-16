@@ -29,7 +29,7 @@ description: >
 ## 3. 交棒
 
 ```text
-use_skill("fsflow:harness-conductor")
+use_skill("harness-conductor")
 ```
 
 此后不在本 skill 判断 Phase、拼 prompt 或直接调 `advance-phase.js`。

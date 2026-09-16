@@ -11,7 +11,7 @@ PRD / Swagger 契约 / bug 分析报告 / 用户补充说明），先走 **Grill
 （目标对齐 → 架构决策 → 边界与风险 → 实现细节）澄清需求，再产出需求分析文档、
 内嵌 OpenSpec 语义的验收契约（Capability + Change Type + 规范性 Requirement +
 Given/When/Then Scenario）和待确认问题。不生成独立 `openspec/` 目录。
-Agent 内部需调用 `use_skill("fsflow:kb-query")` 检索项目知识库。
+Agent 内部需调用 `use_skill("kb-query")` 检索项目知识库。
 
 ## 知识库前置确认
 
@@ -35,7 +35,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/trace.js" phase-outcome <storyId> 0 skip
 初始化/全量生成失败时报告失败，询问用户是否在无知识库情况下继续，不得自行决定。
 后续 Phase 不再询问、初始化或全量生成。
 
-`mode=fixbugs` 时该 Agent 自行 `use_skill("fsflow:tapd-bug-analyzer")` 拉取并分析 TAPD 缺陷 ——
+`mode=fixbugs` 时该 Agent 自行 `use_skill("tapd-bug-analyzer")` 拉取并分析 TAPD 缺陷 ——
 主 Agent 不做这件事，也不调任何 TAPD MCP 工具。
 
 ## 产出物

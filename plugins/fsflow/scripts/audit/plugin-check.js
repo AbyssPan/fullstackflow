@@ -189,10 +189,10 @@ function checkSkillsAndAgents(identity) {
     const text = readText(file)
     let match
     while ((match = invocationPattern.exec(text))) {
-      if (skillNames.has(match[1])) {
-        fail(`插件内 Skill 调用缺少命名空间: ${match[1]}（${path.relative(REPO_ROOT, file)}）`)
-      } else if (match[1].includes(':') && match[1].split(':')[0] !== identity.name) {
-        fail(`插件内 Skill 命名空间应为 ${identity.name}:，实际为 ${match[1]}（${path.relative(REPO_ROOT, file)}）`)
+      if (match[1].startsWith(`${identity.name}:`)) {
+        fail(`插件内 use_skill 调用不应带命名空间: ${match[1]}（${path.relative(REPO_ROOT, file)}）`)
+      } else if (match[1].includes(':')) {
+        fail(`插件内 use_skill 调用包含未知命名空间: ${match[1]}（${path.relative(REPO_ROOT, file)}）`)
       }
     }
   }

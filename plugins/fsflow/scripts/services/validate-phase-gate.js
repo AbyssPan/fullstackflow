@@ -420,7 +420,7 @@ function validateGate (storyId, targetPhase) {
     if (!bugCheck.exists) {
       blockers.push(
         'fixbugs 模式缺少 Bug 分析报告: 未在 Story 目录找到 *bug分析报告.md。\n' +
-        '  需求分析师应在 Phase 0 自行 use_skill("fsflow:tapd-bug-analyzer") 产出该报告（记录问题复述/复现步骤/代码定位/根因）'
+        '  需求分析师应在 Phase 0 自行 use_skill("tapd-bug-analyzer") 产出该报告（记录问题复述/复现步骤/代码定位/根因）'
       )
     } else if (bugCheck.solutionHints.length > 0) {
       // 仅警告: 关键词匹配是启发式的，正常的根因描述也可能命中

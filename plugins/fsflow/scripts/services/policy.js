@@ -545,11 +545,6 @@ function runGateCheck (storyId, phaseNum, state) {
     checkPhase6Gate(storyId, result)
   }
 
-  // 2.5. 🆕 资源完整性检查（声明了外部依赖但未有效消费）
-  // 检查时机：Phase 2 开发完成后（进入 Phase 3 审查前），验证开发阶段是否真的消费了
-  // 声明的 Figma 设计稿 / 知识库等资源。这是「声明-消费一致性」在门控层的落地。
-  checkResourceIntegrity(storyId, phaseNum, state, result)
-
   // 3. 为未匹配恢复建议的 blocker 补充兜底 recoveries
   for (const blocker of result.blockers) {
     const existingRecovery = result.recoveries.find(r =>
@@ -568,56 +563,6 @@ function runGateCheck (storyId, phaseNum, state) {
   }
 
   return result
-}
-
-/**
- * 资源完整性检查 —— 声明了外部依赖但未有效消费
- *
- * 这是「声明-消费一致性」在门控层的落地。
- *
- * 注意：Figma MCP 消费检查已移除 —— 由于 Figma 由子 Agent 调用，
- * 其 tool_call 不会写入主流程的 trace.jsonl，无法据此判定是否真实消费，
- * 因此不再拦截（Figma 设计还原仍由 Phase 0/1 的 frame inventory 与
- * figmaNodeId 契约门控兜底）。
- *
- * 判定依据（v2 证据链）：
- *   - kb-query / graphify 调用为 0 → WARNING（放行但记 debt，Evo Score 扣分）
- *
- * 检查时机：仅在 phaseNum === 3（即 Phase 3→4 门控，代码审查完成、准备进入功能测试前）时执行。
- * 此时 Phase 2 开发阶段已全部结束，trace.jsonl 的开发 tool_call 记录最完整，判定最可靠。
- * 早期阶段（phaseNum < 3）开发尚未完成，trace 不完整；后期阶段（phaseNum > 3）已过功能测试，无需重复。
- *
- * @param {string} storyId - Story ID
- * @param {number} phaseNum - 要推进到的 Phase 编号（来源 phase）
- * @param {Object} state - e2e-state.json 状态对象
- * @param {Object} result - 门控结果对象（会原地写入 blockers / warnings）
- * @returns {void}
- */
-function checkResourceIntegrity (storyId, phaseNum, state, result) {
-  // 仅在 Phase 3→4 门控时检查（此时 Phase 2 开发 trace 完整；phaseNum 是来源 phase）
-  if (phaseNum !== 3) return
-
-  // 读 trace.jsonl 里的 tool_call 事件
-  const traceFile = path.join(getStoryDir(storyId), 'trace.jsonl')
-  let toolCalls = []
-  if (fs.existsSync(traceFile)) {
-    try {
-      const lines = fs.readFileSync(traceFile, 'utf-8').split('\n')
-      for (const line of lines) {
-        if (!line.trim()) continue
-        try {
-          const e = JSON.parse(line)
-          if (e.type === 'tool_call') toolCalls.push(e)
-        } catch (_) { /* 单行损坏，跳过 */ }
-      }
-    } catch (_) { /* 读取失败按无记录处理 */ }
-  }
-
-  // 知识库消费检查（软性资源 → WARNING，放行但记 debt）
-  const kbCalls = toolCalls.filter(e => e.skill === 'kb-query' || e.skill === 'graphify')
-  if (kbCalls.length === 0) {
-    result.warnings.push('本 Story 开发阶段未调用 kb-query / graphify 做知识库检索，注入的历史教训可能未被查证（记 debt，Evo Score 扣分）')
-  }
 }
 
 /**

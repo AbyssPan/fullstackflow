@@ -61,7 +61,7 @@
 ## trace-command.js — 命令留痕
 
 命令 / Agent / Skill / MCP 调用后自动写 `trace.jsonl`。
-`policy.js:checkResourceIntegrity` 读它判断开发阶段是否真的调用过 kb-query / graphify。
+工具调用记录仅用于使用统计，不能据此判定缺少源码验证；影响面证据由 Phase 3 审查。
 
 ⚠️ 子 Agent 的 tool_call 不会写进主流程的 `trace.jsonl` —— 这是 Figma MCP 消费检查
 被移除的原因，也是 kb-query 检查只给 WARNING 不给 BLOCKER 的原因。

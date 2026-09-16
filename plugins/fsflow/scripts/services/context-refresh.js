@@ -23,7 +23,7 @@
  *   - 实现 Claude Code Level 4 Autocompact 的简化版: 只保存关键决策 + 契约路径 + 待办，不保存完整对话
  *   - 设计原则 (来自 Harness Engineering 指南): 对话历史占 60-80% context，是压缩核心；
  *     渐进式压缩（先轻量摘要，必要时升级）；预算跟踪需跨压缩边界
- *   - 无落盘产出物的 Phase（2/5/6/7）改从运行时真相源取证（getRuntimeEvidence），否则产出物段落为空
+ *   - 无固定必需文件的 Phase（2/5/6/7）从运行时取证；开发说明另按当前任务枚举交接
  *   - mustCheck 注入是「声明-消费一致性」在教训维度的落地：教训结构化写入，检查层确定性验证
  *
  * @module context-refresh
@@ -66,7 +66,7 @@ function generatePhaseSummary (storyId, phase) {
     summaryLines.push(`- **${a.name}**: \`${a.path}\``)
     if (a.summary) summaryLines.push(`  - ${a.summary}`)
   }
-  // 无落盘文件的 Phase（2/5/6/7）改从运行时真相源取证，否则本段落是空的
+  // 无固定产出物的 Phase（2/5/6/7）从运行时取证；开发说明入口在下方交接清单。
   if (artifacts.length === 0) {
     summaryLines.push(...getRuntimeEvidence(storyId, phase))
   }
@@ -215,7 +215,7 @@ function getPhaseArtifacts (storyId, phase) {
   return artifacts
 }
 
-// ─── 运行时取证（Phase 2/5/6/7 无落盘文件，从真相源提取产出物）────
+// ─── 运行时取证（Phase 2/5/6/7 无固定必需文件，从真相源提取产出物）────
 
 /** 改动文件列表封顶条数 */
 const CAP_LIMIT = 15
@@ -452,11 +452,25 @@ function getRuntimeEvidence (storyId, phase) {
 }
 
 /**
- * 获取应加载的契约文件清单
+ * 获取当前任务已经落盘的开发交付说明；只枚举路径，不内联正文。
  * @param {string} storyId
- * @param {number} phase
  * @returns {string[]}
  */
+function getDevelopmentNoteFiles (storyId) {
+  const dag = readJsonArtifact(storyId, 'task-dag.json')
+  const tasks = dag && Array.isArray(dag.tasks) ? dag.tasks : []
+  // Per-task files avoid parallel developers overwriting a shared handoff document.
+  // Only hand off notes for current tasks, not orphaned files from an earlier plan.
+  return [...new Set(tasks.map(t => t?.id).filter(id => typeof id === 'string' && /^task-\d+$/.test(id)))].flatMap(id => {
+    const file = `development-notes/${id}.md`
+    try {
+      return fs.statSync(path.join(getStoryDir(storyId), file)).isFile()
+        ? [`.codebuddy/plans/${storyId}/${file}`] : []
+    } catch (_) { return [] }
+  })
+}
+
+/** 获取下一阶段应读取的契约和已有交付说明路径。 */
 function getContractFiles (storyId, phase) {
   // 下个 Phase 需要的契约文件
   const nextPhase = phase + 1
@@ -464,19 +478,20 @@ function getContractFiles (storyId, phase) {
   // 等待选择时不让恢复 Hook 提前引导执行测试；跳过后只交接审查结论。
   if (nextPhase === 4 && ['ask', 'review-only'].includes(verificationMode)) return []
   if (nextPhase === 5 && verificationMode === 'review-only') {
-    return ['.codebuddy/plans/' + storyId + '/code-review.json']
+    return ['.codebuddy/plans/' + storyId + '/code-review.json', ...getDevelopmentNoteFiles(storyId)]
   }
   const storyDir = getStoryDir(storyId)
   const baseContracts = {
     1: ['.codebuddy/plans/' + storyId + '/acceptance-criteria.json', '.codebuddy/plans/' + storyId + '/task-dag.json'],
     2: ['.codebuddy/plans/' + storyId + '/task-dag.json', '.codebuddy/plans/' + storyId + '/acceptance-criteria.json'],
-    3: ['.codebuddy/plans/' + storyId + '/acceptance-criteria.json'],
-    4: ['.codebuddy/plans/' + storyId + '/acceptance-criteria.json', '.codebuddy/plans/' + storyId + '/acceptance-verification.json'],
+    3: ['.codebuddy/plans/' + storyId + '/acceptance-criteria.json', '.codebuddy/plans/' + storyId + '/task-dag.json'],
+    4: ['.codebuddy/plans/' + storyId + '/acceptance-criteria.json', '.codebuddy/plans/' + storyId + '/task-dag.json', '.codebuddy/plans/' + storyId + '/code-review.json'],
     5: ['.codebuddy/plans/' + storyId + '/acceptance-verification.json'],
     6: [],
     7: []
   }
   const contracts = [...(baseContracts[nextPhase] || [])]
+  if ([2, 3, 4, 5].includes(nextPhase)) contracts.push(...getDevelopmentNoteFiles(storyId))
 
   // 修复回路上下文：Phase 3 审查时，如果存在 fix-request.json，
   // 增加修复相关契约文件供审查师加载（增量审查锚点）

@@ -275,6 +275,63 @@ const repoSearchBuilt = promptBuilder.buildRepoSearchEntries('FG1-OK', 2).join('
 ok('已建图谱时注入客观状态', /图谱：已建/.test(repoSearchBuilt), repoSearchBuilt)
 ok('非检索 Phase 不注入 Graphify 入口', promptBuilder.buildRepoSearchEntries('FG1-OK', 4).length === 0)
 
+section('5b-2. 检索工具可选，实际审查问题仍阻断')
+
+createWorkflow('SOURCE-EVIDENCE', '源码证据审查', false, false, 'run')
+const evidenceDir = storyDir('SOURCE-EVIDENCE')
+const evidenceState = state.readStateFile('SOURCE-EVIDENCE')
+const review = { storyId: 'SOURCE-EVIDENCE', issues: [], summary: { blockerCount: 0, warningCount: 0, suggestionCount: 0 } }
+fs.writeFileSync(path.join(evidenceDir, 'code-review.json'), JSON.stringify(review))
+// Skill 事件不完整不能当作未查证；同样覆盖有其他 Skill 但无图谱/KB 调用的场景。
+for (const events of [[], [{ type: 'tool_call', skill: 'backend-tech-spec' }, { type: 'tool_call', tool: 'Grep' }]]) {
+  fs.writeFileSync(path.join(evidenceDir, 'trace.jsonl'), events.map(e => JSON.stringify(e)).join('\n'))
+  const gate = policy.runGateCheck('SOURCE-EVIDENCE', 3, evidenceState)
+  ok('无检索 Skill 记录不产生门控警告或阻断', gate.passed && gate.warnings.length === 0, JSON.stringify(gate))
+}
+const aggregate = spawnSync(process.execPath, [path.join(SCRIPTS_DIR, 'audit/metrics-aggregator.js'), '--json'], {
+  encoding: 'utf8', env: process.env
+})
+const metricsReport = aggregate.status === 0 ? JSON.parse(aggregate.stdout) : null
+ok('保留调用次数统计但不据此产生缺少检索洞察', metricsReport &&
+  metricsReport.metrics.resourceUsage.skillCalls > 0 && metricsReport.metrics.resourceUsage.kbCalls === 0 &&
+  !metricsReport.insights.some(i => i.type === 'kb_not_consumed'), aggregate.stderr)
+review.issues.push({ id: 'B1', severity: 'BLOCKER', file: 'src/order.js', title: '调用方仍使用已删除字段',
+  description: '源码确认调用方访问已删除字段，导致运行时失败', status: 'open', notes: '调用方 src/page.js:10' })
+review.summary.blockerCount = 1
+fs.writeFileSync(path.join(evidenceDir, 'code-review.json'), JSON.stringify(review))
+const evidenceGate = policy.runGateCheck('SOURCE-EVIDENCE', 3, evidenceState)
+ok('有真实依赖错误时仍阻断审查门控', !evidenceGate.passed && evidenceGate.blockers.length > 0)
+
+section('5b-3. 开发证据跨阶段持久化交接')
+
+fs.writeFileSync(path.join(evidenceDir, 'task-dag.json'), JSON.stringify({ tasks: [
+  { id: 'task-1', title: '订单字段', files: ['src/order.js'], acceptanceCriteria: ['AC-1'], parallelizable: false },
+  { id: 'task-2', title: '订单页面', files: ['src/page.js'], acceptanceCriteria: ['AC-1'], parallelizable: false }
+] }))
+fs.mkdirSync(path.join(evidenceDir, 'development-notes'))
+fs.writeFileSync(path.join(evidenceDir, 'development-notes/task-1.md'), '# 独立证据正文\n版本：abc + 工作区 diff；调用方 src/page.js:10；回归项 AC-1')
+fs.writeFileSync(path.join(evidenceDir, 'development-notes/task-99.md'), '# 上轮已移除任务，不能交接')
+fs.mkdirSync(path.join(evidenceDir, 'development-notes/task-2.md')) // 同名目录不是交付文件
+const devPrompt = promptBuilder.buildAgentPrompt({ storyId: 'SOURCE-EVIDENCE', targetPhase: 2 })
+ok('开发提示明确交付说明落盘和并行任务隔离', /development-notes\/<taskId>\.md/.test(devPrompt.agentPrompt) && /只更新自己负责/.test(devPrompt.agentPrompt))
+for (const targetPhase of [2, 3, 4, 5]) {
+  // 测试阶段显式选择 full，避免新 Story 的 ask 分支屏蔽测试输入。
+  state.writeStateFile('SOURCE-EVIDENCE', { ...evidenceState, verificationMode: 'full' })
+  const handoff = promptBuilder.buildAgentPrompt({ storyId: 'SOURCE-EVIDENCE', targetPhase })
+  ok(`Phase ${targetPhase} 能定位当前任务证据但不内联正文`,
+    handoff.contractFilesToLoad.some(f => f.endsWith('development-notes/task-1.md')) &&
+    handoff.agentPrompt.includes('development-notes/task-1.md') && !handoff.agentPrompt.includes('独立证据正文'))
+  ok(`Phase ${targetPhase} 不交接上轮任务或同名目录`, !handoff.contractFilesToLoad.some(f => /task-(2|99)\.md$/.test(f)))
+  if (targetPhase === 3 || targetPhase === 4) {
+    ok(`Phase ${targetPhase} 保留 task-dag 输入`, handoff.contractFilesToLoad.some(f => f.endsWith('task-dag.json')))
+  }
+  if (targetPhase === 4) ok('测试读取审查结论，而非尚未产出的验收报告',
+    handoff.contractFilesToLoad.some(f => f.endsWith('code-review.json')) &&
+    !handoff.contractFilesToLoad.some(f => f.endsWith('acceptance-verification.json')))
+}
+contextRefresh.generatePhaseSummary('SOURCE-EVIDENCE', 2)
+ok('开发阶段摘要保留证据入口，重启后可恢复', fs.readFileSync(path.join(evidenceDir, 'phase-2-summary.md'), 'utf8').includes('development-notes/task-1.md'))
+
 section('5c. review-only 显式跳过独立功能测试')
 
 const quickInput = path.join(SANDBOX, 'review-only-input.json')

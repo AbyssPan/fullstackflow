@@ -227,7 +227,7 @@ function aggregateMetrics () {
         if (evt.skill) {
           totalSkillCalls++
           skillCounts[evt.skill] = (skillCounts[evt.skill] || 0) + 1
-          // 知识库检索（kb-query / graphify 双源）
+          // 检索工具使用统计（不作为质量判据）
           if (evt.skill === 'kb-query' || evt.skill === 'graphify') {
             totalKbCalls++
           }
@@ -389,20 +389,7 @@ function generateInsights (metrics) {
     })
   }
 
-  // 规则 7: 知识库检索空转（S3 资源利用）
-  const ru = metrics.resourceUsage || {}
-  if (metrics.storyCount >= 1 && ru.kbCalls === 0 && ru.skillCalls > 0) {
-    insights.push({
-      id: `INSIGHT-${String(insights.length + 1).padStart(3, '0')}`,
-      targetPhase: 0,
-      type: 'kb_not_consumed',
-      severity: 'warning',
-      title: '知识库检索（kb-query/graphify）调用为 0 次',
-      description: '有 skill 调用但从未做知识库检索，注入的历史教训可能未被查证',
-      recommendation: '需求分析/任务规划/代码审查阶段必须调用 kb-query ∥ graphify 双源检索',
-      evidence: `skill 调用 ${ru.skillCalls} 次，kb 检索 0 次`
-    })
-  }
+  // 工具调用次数仅用于使用统计；源码查证和证据复用不一定产生 Skill 事件，不能据此判定缺少验证。
 
   return insights
 }

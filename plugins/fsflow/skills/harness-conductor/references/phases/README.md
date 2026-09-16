@@ -9,7 +9,7 @@
 |---|------|-------------|--------|------------|
 | 0 | 知识库前置确认 + 需求分析 | `requirement-analyst` | 同意时全量知识库，拒绝时留痕；`requirement-analysis.md` `acceptance-criteria.json` `open-questions.json` （+`prototype-analysis.md` 条件性） | `checkPhase0Gate` |
 | 1 | 任务规划 | `task-planner` | `task-dag.md` `task-dag.json` （+`figma-frame-inventory.json` 条件性） | `checkPhase1Gate` |
-| 2 | 代码开发 | `fullstack-developer` | 代码变更（git diff） | `checkPhase2Gate` |
+| 2 | 代码开发 | `fullstack-developer` | 代码变更（git diff）+ `development-notes/<taskId>.md` 交付说明 | `checkPhase2Gate` |
 | 3 | 代码审查 | `code-reviewer` | `code-review.json` | `checkPhase3Gate` |
 | 4 | 功能测试 | `test-engineer` | `test-report.md` `acceptance-verification.json` | `checkPhase4Gate` |
 | 5 | Git 提交 | `release-assistant` | commit + push + MR | 仅产出物存在性 |
@@ -17,7 +17,7 @@
 | 7 | 发布收尾 | `release-assistant` | 前端：部署 URL + 构建号；后端：合并分支 + 变更清单（跳过云端部署） | 仅产出物存在性 |
 | 8 | —（终态） | — | 流程结束 | — |
 
-产出物清单唯一信源：`lib/state.js` 的 `PHASE_ARTIFACTS`。
+门控产出物清单唯一信源：`lib/state.js` 的 `PHASE_ARTIFACTS`。按任务命名的开发说明由上下文枚举交接，不增加旧任务的文件存在性门控。
 Phase→Agent 唯一信源：`lib/state.js` 的 `PHASE_AGENTS`，由 `dispatch.js` 以 `nextAgent` 输出。
 **Spawn 必须用注册名**（表中反引号内的英文），传中文 label 无法解析到 Agent。
 
@@ -29,8 +29,7 @@ Phase→Agent 唯一信源：`lib/state.js` 的 `PHASE_AGENTS`，由 `dispatch.j
    `optional: true` 的产出物不因缺失失败；`requiredWhen: 'hasFigmaDesign'` 的按状态位转必需。
 2. **JSON Schema 校验** — 按 `schema-validator.js:getPhaseArtifacts(phaseNum)` 逐项校验，
    不符即 BLOCKER（`schema_validation_failed`, level 2）。fail-closed，不降级放行。
-3. **资源完整性** `checkResourceIntegrity` — 只在 phaseNum=3 时执行：
-   开发阶段 kb-query / graphify 调用为 0 → WARNING（记 debt，不阻断）。
+3. **影响面证据** — Phase 3 审查调用方、源码版本（含相关工作区变更）与回归项；实际缺口按影响写入审查问题。工具调用次数仅作统计，不因未调用 kb-query / graphify 告警或扣分。
 
 ## Story 目录结构
 

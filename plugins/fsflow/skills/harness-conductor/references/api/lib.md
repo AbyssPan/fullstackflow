@@ -88,5 +88,5 @@
 持久化顺序约定：`writeStateFile` **先于** trace 写入，确保 trace 不会领先于 state。
 trace 写入失败不阻塞任何流程。
 
-`checkResourceIntegrity`（policy.js）就是读 trace 判断开发阶段是否调用过 kb-query / graphify。
+trace 的工具调用次数仅作统计；源码搜索和同版本证据复用均有效，Phase 3 根据实际影响面证据审查。
 注意子 Agent 的 tool_call 不会写进主流程的 trace.jsonl —— 这是 Figma MCP 消费检查被移除的原因。

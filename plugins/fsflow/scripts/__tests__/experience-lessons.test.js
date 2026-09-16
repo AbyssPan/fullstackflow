@@ -152,6 +152,32 @@ ok('不再注入 agent_prompt_missing_context', !/agent_prompt_missing_context/.
 ok('不再出现已删除的输出字段名',
   !/phaseSummaryContent|promptInjectionTemplate/.test(allInjected))
 
+section('6. 旧版检索调用洞察不再挤占有效建议')
+
+// 只替换本进程的单个读入口，不修改共享经验库。
+const fs = require('fs')
+const originalRead = fs.readFileSync
+try {
+  fs.readFileSync = function (file, ...args) {
+    if (String(file) === path.join(experience.EXPERIENCE_DIR, 'metrics-insights.json')) {
+      return JSON.stringify({ totalProjects: 1, totalStories: 1, insights: [
+        { targetPhase: 0, type: 'kb_not_consumed', title: '旧双源要求', occurrences: 100 },
+        { targetPhase: 0, type: 'phase_duration', title: '有效耗时建议', occurrences: 1 }
+      ] })
+    }
+    return originalRead.call(this, file, ...args)
+  }
+  // 兼容尚无 metrics 文件的安装，不在磁盘创建夹具。
+  const originalExists = fs.existsSync
+  try {
+    fs.existsSync = function (file) {
+      return String(file) === path.join(experience.EXPERIENCE_DIR, 'metrics-insights.json') || originalExists.call(this, file)
+    }
+    const injected = experience.getMetricsInsights(0, 1)
+    ok('失效双源要求被过滤且不占 Top N', !injected.includes('旧双源要求') && injected.includes('有效耗时建议'))
+  } finally { fs.existsSync = originalExists }
+} finally { fs.readFileSync = originalRead }
+
 // ════════════════════════════════════════════════════════════
 console.log(`\n${'─'.repeat(48)}`)
 if (failures.length === 0) {

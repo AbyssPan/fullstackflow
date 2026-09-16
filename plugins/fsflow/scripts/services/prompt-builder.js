@@ -83,8 +83,8 @@ const AGENT_CONSTRAINTS = [
 ]
 
 const SEARCH_CONSTRAINTS = [
-  '查找/定位代码时先用 kb-query 精确定位或复用同版本证据；调用关系不明、跨域影响或证据冲突时补充 graphify，禁止猜测文件路径',
-  'graphify / Bash 在已标注图谱可用时仍检索失败，必须停下上报主 Agent，禁止静默降级后猜测实现'
+  '先用 kb-query 定位，再以源码验证；共享代码变更和上游 Bug 必须查证调用方与回归项，可复用同版本同范围证据（含相关工作区变更），禁止猜测路径和调用关系',
+  'graphify 仅为可选增强；缺失或失败时记录原因并改用源码搜索和按需 LSP，未确认的影响范围上报主 Agent，不因工具未调用记 debt'
 ]
 
 /**
@@ -134,13 +134,13 @@ function buildRepoSearchEntries (storyId, targetPhase) {
       `- ${entry.name}${entry.primary ? '（主仓，即当前工作目录）' : ''} → \`${toPosix(entry.root)}\`（${entry.graph.label}）`
     ),
     '',
-    '精确路径、组件或类名先用 kb-query 定位；跨域影响、调用关系不明或证据冲突时补充 `graphify query "<模块/关键词>"`，已有同版本证据复用。',
+    '默认用 kb-query 定位、源码搜索验证、按需 LSP 查引用；共享代码变更必须确认调用方和回归项。graphify 是可选增强，已有同版本同范围证据可复用（包括相关工作区变更）。',
     '',
     '> 图谱按 **cwd** 解析：检索非主仓前先 `cd` 到上述目录。',
     '',
     hasGraph
-      ? '> 标注「已建」的仓库直接检索，无需再探测图谱。'
-      : '> 所有仓库均未建图谱：不要反复探测，改用 kb-query + Grep 双源交叉验证。',
+      ? '> 标注「已建」只表示图谱文件存在，不保证有效或最新；按需查询前核实相关源码，缺失或失败时记录原因并用 kb-query + Grep 继续查证。'
+      : '> 所有仓库均未建图谱：直接用 kb-query + Grep，按需 LSP 查引用，不反复探测、不主动建图。',
     ''
   ]
   if (hasGraph && entries.some(entry => !entry.graph.built)) {
@@ -519,6 +519,9 @@ function buildAgentPrompt (opts) {
     .map(a => a.fileName ? `${a.fileName} — ${a.description}` : a.description)
 
   function buildArtifactCompletionInstruction (outputs) {
+    if (targetPhase === 2) {
+      return `完成前将本次负责的每个 task 交付说明写入 .codebuddy/plans/${storyId}/development-notes/<taskId>.md（如 task-1.md），只更新自己负责的任务文件，避免并行覆盖。记录实际源码版本（含工作区变更）、调用方证据、回归项、自测结果和未确认范围；修复后更新，已有内容不代表仍有效。重读确认后汇报文件路径，不要只在对话中说明，不要自行推进 Phase。`
+    }
     if (!outputs || outputs.length === 0) {
       return '汇报完成情况，不要自行推进 Phase。'
     }
@@ -566,7 +569,7 @@ function buildAgentPrompt (opts) {
       : '',
     '',
     (storyMode === 'fixbugs' && targetPhase === 2)
-      ? '## Bug 修复说明\nBug 事实（问题复述 / 复现步骤 / 代码定位 / 根因）已在 Phase 0 分析完毕、并在 Phase 1 消化进 `task-dag.json` 与 `acceptance-criteria.json`。\n**以契约文件为准动手**: `task-dag.json` 的 `files[]` 就是改动范围，`acceptanceCriteria` 关联的 AC 描述里带 Bug 编号。\n修复怎么改由你设计: 先用 kb-query 定位；调用关系不明时补充 graphify，复用同版本证据确认真实改动点，再给出实现。\n'
+      ? '## Bug 修复说明\nBug 事实（问题复述 / 复现步骤 / 代码定位 / 根因）已在 Phase 0 分析完毕、并在 Phase 1 消化进 `task-dag.json` 与 `acceptance-criteria.json`。\n**以契约文件为准动手**: `task-dag.json` 的 `files[]` 就是改动范围，`acceptanceCriteria` 关联的 AC 描述里带 Bug 编号。\n修复怎么改由你设计: 先用 kb-query 定位；用源码搜索和按需 LSP 查调用方，graphify 可选；复用同版本同范围证据确认真实改动点，再给出实现。\n'
       : '',
     repoSearchEntries.length > 0 ? repoSearchEntries.join('\n') : '',
     '## 约束',

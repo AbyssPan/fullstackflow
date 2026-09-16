@@ -45,6 +45,43 @@ check('Exact files, segment-aware globs, directory and legacy bare file paths', 
 })
 
 sandbox(({ root, put, git, run, meta }) => {
+  put('src/OrderStore.ts', 'export const OrderStore = {}')
+  git('add', 'src'); git('commit', '-qm', 'base')
+  check('Missing KB falls back to Git paths without initializing metadata', () => {
+    const r = run('kb-query', ['OrderStore'])
+    assert.equal(r.status, 0); assert.equal(r.matches[0].path, 'src/OrderStore.ts')
+    assert.equal(fs.existsSync(path.join(root, '.docs')), false)
+    assert(r.warnings.length > 0)
+  })
+  meta('', [])
+  put('.docs/llm-knowledge/frontend-index.json', JSON.stringify({ files: [{ path: 'src/OrderStore.ts' }] }))
+  put('src/NewPage.ts', 'export const NewPage = {}')
+  check('Existing index does not hide newly added files, and lookup stays read-only', () => {
+    const index = path.join(root, '.docs/llm-knowledge/frontend-index.json')
+    const before = fs.readFileSync(index, 'utf8')
+    const r = run('kb-query', ['NewPage'])
+    assert.equal(r.status, 0); assert.equal(r.matches[0].path, 'src/NewPage.ts')
+    assert.equal(r.matches[0].sourceChangedSinceScan, null)
+    assert.equal(fs.readFileSync(index, 'utf8'), before)
+  })
+  put('.docs/llm-knowledge/frontend-index.json', '{broken')
+  put('.docs/llm-knowledge/meta.yaml', 'domains: [broken')
+  check('Corrupt optional metadata is reported while source paths remain searchable', () => {
+    const r = run('kb-query', ['OrderStore'])
+    assert.equal(r.status, 0); assert.equal(r.matches[0].path, 'src/OrderStore.ts')
+    assert(r.warnings.length >= 2)
+  })
+  meta('', [])
+  put('.docs/llm-knowledge/.profile.yaml', 'project_type: backend\n')
+  put('.docs/llm-knowledge/backend-index.json', JSON.stringify({ files: [{ path: 'src/OrderStore.ts',
+    symbols: [{ name: 'OrderStore', qualified_name: 'example.OrderStore', line: 1 }] }] }))
+  check('Qualified symbol lookup returns the symbol that matched', () => {
+    const r = run('kb-query', ['example.OrderStore'])
+    assert.equal(r.matches[0].symbols[0].qualified_name, 'example.OrderStore')
+  })
+})
+
+sandbox(({ root, put, git, run, meta }) => {
   put('src/views/order/Page.vue', '<script>import { get } from "../../api/shared"</script>')
   put('src/views/user/Page.vue', '<script>import { get } from "../../api/shared"</script>')
   put('src/api/shared.ts', 'export const get = () => 1')

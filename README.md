@@ -263,7 +263,7 @@ AI 修改源码受 dev-pass 通行证约束：仅在开发阶段由脚本自动�
 | Skill | 用途 |
 |---|---|
 | `kb-init` | 初始化知识库骨架：自动推断项目画像（project_type / source_root，支持前端 / 后端 / 插件仓），动态扫描真实业务域（不硬编码），生成 `.docs/llm-knowledge/` |
-| `kb-query` | 渐进式三层检索：L1 overview 关键词定位域 → L2 meta.yaml 精确筛选 → L3 按需加载文档；支持需求拆解 / 技术方案 / 接口搜索 / 知识问答 4 种模式；精确定位直达源码，跨域影响或证据冲突时补充 graphify |
+| `kb-query` | 渐进式三层检索：L1 overview 关键词定位域 → L2 meta.yaml 精确筛选 → L3 按需加载文档；支持需求拆解 / 技术方案 / 接口搜索 / 知识问答 4 种模式；精确定位直达源码，源码搜索 / 按需 LSP 查调用方与影响面，graphify 可选 |
 | `kb-update` | Git 提交后增量更新：git diff 定位变更文件，meta.yaml 数据驱动映射受影响业务域（通配符匹配，不硬编码路径），保留手工批注 |
 | `gen-project-docs` | 扫描源码生成结构化文档：通用 5 类 + 项目类型特有切面，支持全量 / 单域 / 增量模式与新鲜度检测 |
 
@@ -303,14 +303,16 @@ AI 修改源码受 dev-pass 通行证约束：仅在开发阶段由脚本自动�
 | OpenSpec 规格门控 | `policy.js` 在 Phase 0 强制校验 Why/Non-Goals/Decisions/Capabilities/Risks、规范性 Requirement 与 Given/When/Then；Phase 1 校验功能点→AC→Task 追踪链，无需独立 OpenSpec CLI 或文件目录 |
 | 后端代码审查 | 内置规则库 `skills/harness-conductor/references/review-rules/`（default 五维度 / Java / TS·JS / Mapper XML，均含「不报告」防误报护栏），由审查师模型逐文件执行 |
 | JSON Schema 校验 | 内置 `vendor/ajv.bundle.js`（免 npm install） |
-| 发布前验证 | `npm run verify`：插件结构一致性检查 + 8 组回归测试（当前 293 项断言） |
+| 发布前验证 | `npm run verify`：插件结构一致性检查 + 自动发现并运行全部回归测试 |
 
 可选增强（按需配置，不配置时各 agent 自动降级）：Figma MCP（设计稿拉取）、devops MCP（前端云端构建）、
 GitLab MCP（MR 管理）、TAPD（需求/缺陷导入）、Playwright MCP（前端实跑测试）。
 
-**graphify skill**（结构检索，与 kb-query 组成双源交叉验证）：不在本插件内，需单独安装到用户级
-skills 目录；未安装时各 agent 自动降级为 kb-query 单源 + `search_content` 文本检索（policy 会记
-debt 并在 Evo Score 扣分，不阻断流程）。
+**默认检索流程**：kb-query 定位业务、规范和历史经验 → 源码验证 → 按需 LSP 查引用。共享代码变更与上游 Bug 必须确认调用方和回归项；证据记录源码版本（含相关工作区变更），跨阶段复用，变化后重新核实。审查按实际证据和影响判断，不以工具调用次数记 debt 或扣分。
+
+kb-query 在缺少知识库或索引损坏时，报告原因并使用 Git 文件清单定位；已有索引也会补齐新增文件，不自动重建。开发交付说明写入 Story 的 `development-notes/<taskId>.md`，后续阶段通过文件路径读取；并行任务分开写，返修后更新。旧任务没有说明文件时直接查证源码。
+
+**graphify skill** 是可选结构检索增强，不在本插件内，可按需单独安装。已有图谱仅作关联线索，引用前验证源码及新鲜度；未安装、缺图或查询失败时记录原因并继续源码检索，不自动建图、不反复探测。
 
 ## 故障排除与卸载
 

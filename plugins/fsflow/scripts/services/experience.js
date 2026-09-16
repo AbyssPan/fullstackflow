@@ -469,9 +469,9 @@ function getMetricsInsights (targetPhase, maxItems = 3) {
   const data = readMetricsInsights()
   if (!data.insights || data.insights.length === 0) return ''
 
-  // 过滤目标 Phase 的洞察，按出现次数取 Top N
+  // 旧版按工具调用次数判缺少检索的洞察已失效；保留历史记录，但不再注入执行建议。
   const relevant = data.insights
-    .filter(i => i.targetPhase === targetPhase)
+    .filter(i => i.targetPhase === targetPhase && i.type !== 'kb_not_consumed')
     .sort((a, b) => (b.occurrences || 1) - (a.occurrences || 1))
     .slice(0, maxItems)
   if (relevant.length === 0) return ''

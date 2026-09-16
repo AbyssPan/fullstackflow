@@ -169,12 +169,14 @@ for (const ph of [2, 3, 4, 5, 6, 7]) {
 
 const p2 = buildAgentPrompt({ storyId: 'FIX-1', targetPhase: 2 })
 ok('P2 含「Bug 修复说明」', p2.agentPrompt.includes('Bug 修复说明'))
-ok('P2 含 kb-query ∥ graphify 双源', /kb-query[\s\S]{0,80}graphify|graphify[\s\S]{0,80}kb-query/.test(p2.agentPrompt))
+ok('P2 以源码查证为默认、graphify 可选', /kb-query/.test(p2.agentPrompt) && /源码搜索/.test(p2.agentPrompt) && /graphify 可选/.test(p2.agentPrompt))
 ok('P2 修复说明指向契约文件而非原始报告', /task-dag\.json/.test(p2.agentPrompt))
 
-// v4：保留 2 条原有约束，新增 Graphify 检索失败显式上报，防止静默降级后猜测实现
-ok('约束段为 3 条（含 Graphify 失败上报）',
-  p2.agentConstraints.length === 3 && p2.agentConstraints.some(c => /graphify \/ Bash.*检索失败/.test(c)),
+// 可选图谱不可用时继续源码查证，不再因工具失败阻断任务。
+ok('约束要求查证调用方并允许 graphify 缺失',
+  p2.agentConstraints.length === 3 &&
+  p2.agentConstraints.some(c => /调用方与回归项/.test(c)) &&
+  p2.agentConstraints.some(c => /缺失或失败.*源码搜索/.test(c)),
   JSON.stringify(p2.agentConstraints))
 ok('不再重复 agent .md 已有的 advance-phase 约束', !/- 🚫 由主 Agent 调用 advance-phase/.test(p2.agentPrompt))
 

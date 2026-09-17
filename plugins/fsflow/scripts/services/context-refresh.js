@@ -353,7 +353,7 @@ function parseMetaHash (content) {
 }
 
 /**
- * Phase 6 取证：陈述式比对 meta.yaml 记录 hash vs 当前 HEAD
+ * Phase 6 取证：汇总显式合入核验结果，补充当前工作区回执状态；旧库兼容 hash 信息
  * 只陈述事实，不把 hash 不一致断言为失败（Phase 6 时序陷阱）。
  * @param {string} storyId - Story ID
  * @returns {string[]} summary 段落行
@@ -391,6 +391,12 @@ function evidenceKbRefresh (storyId) {
       const metaPath = fs.existsSync(newMetaPath) ? newMetaPath : (fs.existsSync(legacyMetaPath) ? legacyMetaPath : null)
       if (!metaPath) continue
       foundAny = true
+      if (fs.existsSync(path.join(root, '.docs/llm-knowledge/maintenance.json'))) {
+        const review = require('../lib/kb-maintenance.cjs').check(root)
+        lines.push(`- \`${repoName}\`: 当前工作区知识待核实 ${review.pending.length} 项；结构检查${review.passed ? '通过' : '失败'}（不是实际合入版本核验）`)
+        for (const warning of review.warnings) lines.push(`  - ${warning}`)
+        continue
+      }
       let recordedHash = ''
       try {
         recordedHash = parseMetaHash(fs.readFileSync(metaPath, 'utf-8'))

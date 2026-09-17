@@ -1,0 +1,17 @@
+# Include this file from the target project's .gitlab-ci.yml after installing
+# the portable runtime. The project must enable merged results / merge trains
+# and require this job to pass. This template does not configure GitLab settings.
+fsflow-kb-consistency:
+  stage: .pre
+  image: node:20-bookworm
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  script:
+    - |
+      case "$CI_MERGE_REQUEST_EVENT_TYPE" in
+        merged_result|merge_train) ;;
+        *) echo "KB checks require the candidate merged result; a source-only pipeline is insufficient."; exit 1 ;;
+      esac
+      test -n "$CI_MERGE_REQUEST_TARGET_BRANCH_SHA" || { echo "Missing target revision"; exit 1; }
+      git cat-file -e "$CI_MERGE_REQUEST_TARGET_BRANCH_SHA^{commit}" || { echo "Target revision unavailable; fetch sufficient history"; exit 1; }
+      node .docs/llm-knowledge/tools/fsflow-kb/commands/kb-maintenance.js check --ref "$CI_COMMIT_SHA" --base "$CI_MERGE_REQUEST_TARGET_BRANCH_SHA" --strict

@@ -228,7 +228,7 @@ function aggregateMetrics () {
           totalSkillCalls++
           skillCounts[evt.skill] = (skillCounts[evt.skill] || 0) + 1
           // 检索工具使用统计（不作为质量判据）
-          if (evt.skill === 'kb-query' || evt.skill === 'graphify') {
+          if (evt.skill === 'kb-query') {
             totalKbCalls++
           }
         }
@@ -467,7 +467,7 @@ console.log(`   Fix-loop 成功率: ${Math.round(metrics.fixLoopSuccessRate * 10
 console.log(`   dev-pass 限域精度: ${Math.round(metrics.devPassPrecision * 100)}%`)
 const ru = metrics.resourceUsage || {}
 console.log(`\n🔧 资源使用:`)
-console.log(`   Skill 调用: ${ru.skillCalls || 0} 次 (kb-query/graphify: ${ru.kbCalls || 0} 次)`)
+console.log(`   Skill 调用: ${ru.skillCalls || 0} 次 (kb-query: ${ru.kbCalls || 0} 次)`)
 console.log(`   MCP 调用: ${ru.mcpCalls || 0} 次`)
 if (ru.skillCounts && Object.keys(ru.skillCounts).length > 0) {
   for (const [s, c] of Object.entries(ru.skillCounts)) console.log(`     - ${s}: ${c} 次`)

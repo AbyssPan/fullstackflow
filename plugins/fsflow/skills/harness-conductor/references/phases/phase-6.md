@@ -1,50 +1,17 @@
-# Phase 6 — 知识库增量更新
+# Phase 6 — 合入版本知识核验
 
-> Phase 专属门控函数为 `checkPhase6Gate`；它检查 trace 中的显式结果记录。
-> `PHASE_ARTIFACTS[6].fileName` 为 `null`，因此不使用文件存在性作为完成信号。
+Agent：release-assistant。正文维护已前移到 Phase 5，规则见 [同仓知识维护](../../../kb-update/references/maintenance.md)。本阶段不再次询问同一更新、不调用 kb-update 写正文。
 
-## 职责
+1. 取得实际合入目标分支和提交。知识随代码同仓合入，各分支上的知识分别与自身版本一致，集成分支保留各自集成状态。
+2. 对实际提交运行 `kb-maintenance.js check --ref <提交> --strict`；不切换用户工作区。检查范围和未知信息如实报告，不能用本地旧 HEAD 代替服务器合入版本。
+3. 复用 Phase 5 更新/延期选择并记录 `trace.js phase-outcome <storyId> 6 <result>`：
 
-Agent 注册名 **`release-assistant`**（发布助手）。初始化确认已在 Phase 0 完成，
-本 Phase 只做收尾，已有知识库时先确认是否执行本次增量更新：
+| result | 含义 |
+|---|---|
+| updated | 提交前知识更新已通过实际合入版本核验，details 附分支/提交/检查结果 |
+| skipped_by_user | 先前明确延期或未初始化，附原因；不宣称知识同步完成 |
+| completed_with_errors | 检查失败、实际版本不可得或旧任务尚未维护；交回功能分支补充 MR |
 
-```text
-meta.yaml 存在   → 询问用户是否更新（说明 token / 时间成本）
-                  → 同意：kb-update 增量更新 → 完成 Phase 6
-                  → 拒绝：记录 skipped_by_user（knowledge_base_update_declined）→ 完成 Phase 6
-                  → 未答复：等待，不扫描、不更新、不推进 Phase 7
-meta.yaml 不存在 → 记录 Phase 6 skipped_by_user → 完成 Phase 6
-```
+`checkPhase6Gate` 要求上述显式结果，以保证恢复可追踪。此任务门控不代替 GitLab 必过检查；不允许延期的项目不能用 skipped_by_user 绕过服务端要求。
 
-本次增量更新已获用户明确授权时直接执行，不重复询问；Phase 0 同意初始化不代表授权本次更新。
-确认前只检查知识库是否存在，不运行 `kb-update.cjs`（后端分支会刷新索引）。
-无论新旧 Story，本 Phase 都不得询问初始化、执行 `kb-init` 或全量生成。
-
-## 产出物
-
-二选一：
-
-- 知识库文档已增量更新（`meta.yaml` hash 已刷新）；
-- 用户拒绝本次更新或项目未初始化知识库，已记录 `skipped_by_user`，保留原 `meta.yaml` hash。
-
-无独立文件型产出物。推进 Phase 7 前，trace 中必须有 Phase 6 的有效 `phase_outcome`：
-`updated` / `skipped_by_user` / `completed_with_errors` 之一。
-
-## 要点
-
-| 要点 | 说明 |
-|------|------|
-| 增量而非重写 | `kb-update` 是增量更新；必须保留手工批注——知识库里人写的内容比机器生成的更贵 |
-| 初始化时机 | 初始化确认只在 Phase 0 需求分析开始时执行 |
-| 更新确认 | 已有知识库时先询问本次是否更新；拒绝则留痕跳过，未答复则等待 |
-| 缺库处理 | 直接留痕 `skipped_by_user`，不询问、不初始化、不全量生成 |
-| 结果必须留痕 | 成功增量更新记 `updated`，拒绝更新或缺库记 `skipped_by_user` 并区分原因，失败记 `completed_with_errors` |
-| 调用成功才算完成 | `kb-update` 返回失败时不要把本 Phase 报成完成；记录失败详情，便于后续修复 |
-| 与 Phase 0 的呼应 | Phase 0 先准备知识库上下文；本 Phase 仅在已初始化时写回本次经验 |
-
-本 Phase 通过 `kb-update` 执行增量更新；需要文档生成辅助时只处理受影响域，不运行全量生成。`kb-init` 只属于 Phase 0。
-
-## 常见失败与对策
-
-- **`meta.yaml` 不存在**：记录 Phase 6 `skipped_by_user` 后继续，不再发起初始化确认。
-- **手工批注被覆盖**：说明用的是重写而非增量路径。回滚该文件后改用 `kb-update`。
+不初始化、不全量生成，不前移全局 git.hash，不直接修改主分支知识。旧库未启用维护校验时明确报告限制，不把旧 hash 相等当作核验通过。索引是本机缓存，可在需要时重建，不作为同步依据。

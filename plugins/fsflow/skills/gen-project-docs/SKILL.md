@@ -55,10 +55,10 @@ description: "自动生成项目结构化知识库文档。按项目画像（pro
 |------|------|------|
 | 全量 | `./gen-docs.cjs --all` | 首次 / 重建全量知识库 |
 | 单域 | `./gen-docs.cjs <domain_id>` | 只生成指定域 |
-| 增量 | `./gen-docs.cjs` | 只返回受影响源码、删除文件和文档章节；Phase 6 经用户同意后使用 |
+| 增量 | `./gen-docs.cjs` | 只返回受影响源码、删除文件和文档章节；Phase 5 提交前经授权使用 |
 | 新鲜度 | `./gen-docs.cjs --stale` | 只检测不生成，输出 `{ stale, changedCount }`；验证失败时 `stale: null`，不得视为已同步 |
 
-Phase 6 增量命令可加 `--story <storyId>`，与 kb-update 使用同一 Story 归属；不会扩大源码范围。
+提交前增量命令可加 `--story <storyId>`，与 kb-update 使用同一 Story 归属；不会扩大源码范围。
 
 ---
 
@@ -95,7 +95,7 @@ Phase 6 增量命令可加 `--story <storyId>`，与 kb-update 使用同一 Stor
 - 单域文件过多时，优先总结核心入口和契约，把完整文件列表作为索引，不把源码内容整段复制进知识库
 - 读取脚本输出的 `commonFiles` 和 `unclassifiedFiles`：公共内容聚合说明，待归类项核实源码后通过 `backend.config.json` 明确归属，不能自行把每个文件变成领域
 - `evidence` 中的注解与符号是定位线索，组合路由、动态 SQL 和实际调用关系仍以源码为准；文档记录来源文件和生成版本
-- 生成成功后同步 `meta.yaml` 的领域导航和文件列表，并推进文档的 `git.hash`；保留现有描述、设计索引和手工批注
+- 生成成功后按 kb-update 的同仓维护流程记录各受影响 scope；维护模式不前移全局 git.hash，只在域映射改变时更新 meta.yaml，保留人工描述和批注
 
 ---
 
@@ -116,10 +116,12 @@ Phase 6 增量命令可加 `--story <storyId>`，与 kb-update 使用同一 Stor
 | `kb-update` | 触发方—定位变更域后调用 |
 | `kb-query` | 消费方—开发时检索 |
 
-## log.md 格式
+## 旧库日志格式（仅兼容）
 
 ```markdown
 ## YYYY-MM-DD HH:MM
 - Git hash: abc123 | 模式: incremental
 - 域: settings | 文件: 更新 overview.md
 ```
+
+维护模式使用 [同仓知识维护](../kb-update/references/maintenance.md) 中的按域回执与独立 changelog 条目，提交前更新正文，Phase 6 只核验。首次全量生成后逐域及 common 记录审查结果；初始骨架不能标为 updated。

@@ -6,12 +6,12 @@
 
 安装 **FullstackFlow** 插件后，你的 AI 编程助手（Claude Code / CodeBuddy Code）获得一条
 门控式全流程研发流水线：需求分析 → 任务规划 → 全栈开发 → 代码审查 → 功能测试 →
-Git/MR → 知识库更新 → 发布收尾 → 归档。用 `/fsflow:run` 一条命令拉起全流程，
+提交前知识维护与 Git/MR → 合入版本知识核验 → 发布收尾 → 归档。用 `/fsflow:run` 一条命令拉起全流程，
 也可以直接对 AI 说自然语言触发词。
 
 > 兼容 Claude Code 与 CodeBuddy Code，安装步骤完全一致。
 > 市场清单分别位于 `.claude-plugin/marketplace.json` 与 `.codebuddy-plugin/marketplace.json`，内容一致。
-> 当前版本 **1.3.0**。
+> 当前版本 **1.4.0**。
 
 ## 目录
 
@@ -24,6 +24,7 @@ Git/MR → 知识库更新 → 发布收尾 → 归档。用 `/fsflow:run` 一�
 - [6 个角色 Agent](#6-个角色-agent)
 - [12 个 Skill](#12-个-skill)
 - [Hook 安全护栏](#hook-安全护栏)
+- [同仓知识维护快速使用](#同仓知识维护快速使用)
 - [零外部依赖设计](#零外部依赖设计)
 - [故障排除与卸载](#故障排除与卸载)
 - [仓库结构](#仓库结构)
@@ -41,8 +42,8 @@ Git/MR → 知识库更新 → 发布收尾 → 归档。用 `/fsflow:run` 一�
 | 2 | 代码开发 | 全栈开发工程师 | 代码变更（dev-pass 限域保护） |
 | 3 | 代码审查 | 代码审查师 | code-review.json（前端人工 + 后端内置规则库） |
 | 4 | 功能测试 | 测试工程师 | test-report.md、acceptance-verification.json |
-| 5 | Git 提交 + MR | 发布助手 | 提交开发分支 + 创建 MR（→ dev）+ 确认已合并（三点用户确认） |
-| 6 | 知识库增量更新 | 发布助手 | 已有知识库时先咨询用户，同意后增量更新；拒绝或缺库时留痕跳过，不再确认初始化 |
+| 5 | 知识维护 + Git/MR | 发布助手 | 提交前更新知识并记录回执，代码与知识一起进入指定目标分支 MR；外部动作沿用已有授权 |
+| 6 | 合入版本知识核验 | 发布助手 | 核验实际合入版本的知识与代码，复用提交前更新/延期结果；缺库或失败留痕 |
 | 7 | 发布收尾 | 发布助手 | 前端：devops MCP 云端构建 + 部署 URL；后端：确认合并即收尾 |
 
 #### 8 Phase 横向流转
@@ -53,9 +54,9 @@ flowchart LR
     P1 -->|"门控通过<br/>签发 dev-pass（限域）"| P2["Phase 2<br/>代码开发"]
     P2 -->|"eslint / mvn compile 编译门控<br/>撤销 dev-pass"| P3["Phase 3<br/>代码审查"]
     P3 -->|"无 BLOCKER"| P4["Phase 4<br/>功能测试"]
-    P4 -->|"AC 全通过"| P5["Phase 5<br/>提交 + MR → dev"]
-    P5 -->|"确认 MR 已合并"| P6["Phase 6<br/>知识库更新"]
-    P6 -->|"增量更新 / 已记录拒绝"| P7["Phase 7<br/>发布收尾（前端部署 / 后端跳过）"]
+    P4 -->|"AC 全通过"| P5["Phase 5<br/>知识维护 + 提交 MR"]
+    P5 -->|"确认 MR 已合并"| P6["Phase 6<br/>知识核验"]
+    P6 -->|"版本核验 / 明确未验证结果"| P7["Phase 7<br/>发布收尾（前端部署 / 后端跳过）"]
     P7 -->|"terminal"| ARC["归档<br/>archive/round-N"]
 
     P3 -.->|"有 BLOCKER → fix-loop 回退"| P2
@@ -107,17 +108,19 @@ AI 修改源码受 dev-pass 通行证约束：仅在开发阶段由脚本自动�
 
 ### 4. 知识库（KB）管理
 
-- `kb-init` 初始化项目知识库（自动推断项目画像与业务域，支持前端 / 后端 / 插件仓）
-- `kb-query` 分层检索（L1 域定位 → L2 精确筛选 → L3 按需加载；需求分析 / 改代码前自动注入）
-- `kb-update` 增量更新（git diff 数据驱动定位受影响域，保留手工批注）
-- 前后端使用统一 YAML 解析、准确通配符和 Git 变更清单；未归属文件与不确定依赖显式列为待处理，新鲜度验证失败返回未知。
-- 前端轻量 import 索引关联页面、组件、API、Store；后端缓存源码解析，按实际使用的同包类型分析依赖。索引保留在磁盘，检索只返回有限条匹配。
-- `gen-docs.cjs` 默认输出受影响文件与文档章节；`--all` / `<domain>` 才扩大范围。历史原型按来源 hash 去重并保留手工内容。
-- 所有知识库文档统一收纳到项目 `.docs/llm-knowledge/`，禁止散落到项目根 / `docs/`
+- 知识与代码同仓，固定 `.docs/llm-knowledge/`；由 Git 分支自然隔离，不建立按分支命名的知识目录；每个分支的知识与自身代码一致。
+- kb-init 初始化业务域，gen-project-docs 生成正文；kb-query 按域和章节检索，再用源码搜索和按需 LSP 验证影响面。
+- Phase 5 提交前用 kb-update 沉淀变更、经验和已确认规格，记录按域来源摘要；代码与知识一起进入 MR。Phase 6 只核验实际合入版本。
+- 独立的 kb-maintenance 工具支持工作区、暂存区和提交快照检查。普通 Git hook 提前发现结构问题；GitLab 候选合并检查要求处理来源变化或明确延期。
+- 规格偏差由人决定修实现、批准改规格或延期，脚本不自动证明语义正确。共享依赖由源码验证后登记，未确认范围明确交接。
+- 本机源码索引与知识同步回执分离；维护模式不再反复改全局同步 hash、计数和单一 log.md。
+
+接入命令、现有 hook 兼容、GitLab 模板与迁移限制见 [安装指南](INSTALL.md#同仓知识维护与-git-hook)，详细职责见 [同仓知识维护](plugins/fsflow/skills/kb-update/references/maintenance.md)。
 
 ### 5. 发布安全
 
-铁律——Git 提交 / push / 创建 MR 三点均强制用户确认（AskUserQuestion）；
+Git 提交 / push / 创建 MR 等外部动作沿用当前会话已有授权；尚未获得授权时，在动作执行前确认。
+知识维护结果与代码变更一起进入同一 MR，并由 GitLab 候选合并检查守住目标分支一致性；
 后端项目跳过云端部署，确认合并即收尾。
 
 ## 环境要求
@@ -126,7 +129,7 @@ AI 修改源码受 dev-pass 通行证约束：仅在开发阶段由脚本自动�
 |---|---|---|
 | 宿主 | Claude Code 或 CodeBuddy Code | 两者安装步骤完全一致 |
 | Node.js | ≥ 16（推荐 18+） | 唯一运行时，所有门控 / 归档 / 校验脚本用 node 执行 |
-| Git | ≥ 2.20 | Phase 5 提交流程与 kb-update 增量检测依赖 |
+| Git | ≥ 2.20 | 分支隔离、暂存区检查、提交快照检查与 Phase 5 提交流程依赖 |
 
 > 无需安装 openspec CLI、无需 npm install、无需配置额外 LLM Key——见[零外部依赖设计](#零外部依赖设计)。
 
@@ -167,7 +170,7 @@ AI 修改源码受 dev-pass 通行证约束：仅在开发阶段由脚本自动�
 | 开发一个新功能 | 「做个需求 / 开发 xx 功能 / 实现 xx 页面」 |
 | 修 Bug / 处理 TAPD 缺陷 | 「修个 bug / 处理 TAPD 缺陷 / xx 功能报错」 |
 | 初始化项目知识库 | 「初始化知识库 / kb-init」 |
-| 生成 / 更新知识库文档 | 「生成知识库文档 / 增量更新知识库」 |
+| 提交前维护知识库 | 「生成知识库文档 / 增量更新知识库 / 检查知识库回执」 |
 | 生成 API 请求层代码 | 提供 Swagger JSON / api doc，「按模块生成接口定义」 |
 | 归档已完成的 Story | 「归档本次需求」 |
 
@@ -219,7 +222,9 @@ AI 修改源码受 dev-pass 通行证约束：仅在开发阶段由脚本自动�
 ### 6. 知识库（KB）
 - 新项目在 Phase 0 需求分析开始时确认：用户同意后由 `kb-init` + `gen-project-docs` 完成初始化与全量生成。
 - 需求分析 / 改代码前用 `kb-query` 分层检索，历史教训自动注入各 Phase 的 prompt。
-- 任务完成后先确认是否执行 `kb-update`（会消耗 token 和时间）；同意后增量同步并保留手工批注，拒绝则留痕跳过且不推进同步 hash。
+- Phase 5 在提交前执行 `kb-update`：更新受影响业务域，或把延期原因、责任人与范围写入回执；随后对暂存区执行严格检查。
+- 代码和知识必须在同一分支、同一 MR 中评审。Phase 6 不重新生成知识，只核验 GitLab 实际合入版本与 Phase 5 回执。
+- 各分支维护与本分支代码匹配的知识快照；集成分支与功能分支通过 Git 合并继承，不在知识库内复制分支目录。
 
 ### 7. 多项目协作
 - 涉及多仓库时，需求分析师在 Phase 0 写入 story 级 `repos.json`（`primary` + `repos` 映射）。
@@ -234,7 +239,7 @@ AI 修改源码受 dev-pass 通行证约束：仅在开发阶段由脚本自动�
 | 全栈开发工程师 | `fullstack-developer` | 前端 / 后端 / DB 贯通实现——分层架构、类型化 VO、DTO 校验、事务并发、SQL 规范 |
 | 代码审查师 | `code-reviewer` | 前端人工审查 + 后端内置规则库审查（零外部依赖）+ 项目规范复核（分层 / 事务 / SQL / 前后端契约一致性） |
 | 测试工程师 | `test-engineer` | 前端 Playwright 实跑 + 后端三层验证（接口契约真实请求 / mvn test 业务逻辑 / 只读 SELECT 数据落库） |
-| 发布助手 | `release-assistant` | Git 提交 / push / 创建 MR 三点强制用户确认；KB 增量更新；前端走 devops MCP 云端构建，后端跳过云端部署确认合并即收尾 |
+| 发布助手 | `release-assistant` | 提交前维护知识并执行暂存区检查；沿用已有 Git/MR 授权；合入后核验实际版本；前端走 devops MCP 云端构建，后端确认合并即收尾 |
 
 各 Agent 在 frontmatter 中声明推荐模型，便于宿主按角色能力与成本路由：
 
@@ -263,8 +268,8 @@ AI 修改源码受 dev-pass 通行证约束：仅在开发阶段由脚本自动�
 | Skill | 用途 |
 |---|---|
 | `kb-init` | 初始化知识库骨架：自动推断项目画像（project_type / source_root，支持前端 / 后端 / 插件仓），动态扫描真实业务域（不硬编码），生成 `.docs/llm-knowledge/` |
-| `kb-query` | 渐进式三层检索：L1 overview 关键词定位域 → L2 meta.yaml 精确筛选 → L3 按需加载文档；支持需求拆解 / 技术方案 / 接口搜索 / 知识问答 4 种模式；精确定位直达源码，源码搜索 / 按需 LSP 查调用方与影响面，graphify 可选 |
-| `kb-update` | Git 提交后增量更新：git diff 定位变更文件，meta.yaml 数据驱动映射受影响业务域（通配符匹配，不硬编码路径），保留手工批注 |
+| `kb-query` | 渐进式三层检索：L1 overview 关键词定位域 → L2 meta.yaml 精确筛选 → L3 按需加载文档；支持需求拆解 / 技术方案 / 接口搜索 / 知识问答 4 种模式；精确定位直达源码，源码搜索 / 按需 LSP 查调用方与影响面 |
+| `kb-update` | 提交前增量维护：按域定位源码/知识变化，沉淀规格与经验，记录来源回执；保留手工批注，正文与代码同 MR |
 | `gen-project-docs` | 扫描源码生成结构化文档：通用 5 类 + 项目类型特有切面，支持全量 / 单域 / 增量模式与新鲜度检测 |
 
 **开发规范（1 个）**
@@ -293,6 +298,43 @@ AI 修改源码受 dev-pass 通行证约束：仅在开发阶段由脚本自动�
 
 另有：`kb-query` 的 skill 描述直接声明自动触发场景（涉及业务模块、改代码、查实现等场景先查知识库）；`output-styles/harness.md` 提供表格化汇报、结构化 blocker 列表并禁止泄露内部状态文件路径。
 
+这里的宿主 Hook 与知识维护用的 Git hook 是两套机制：`hooks/hooks.json` 保护 Agent 的编辑行为；
+仓库内的 `pre-commit` hook 检查 Git 暂存区。安装插件不会替每个项目或每个 clone 自动修改
+`.git/hooks/`，需要在目标仓库显式安装一次。
+
+## 同仓知识维护快速使用
+
+知识库固定放在代码仓库的 `.docs/llm-knowledge/`，当前 Git 分支就是它的版本边界。
+首次初始化知识库后，把维护运行时安装到项目，并为当前 clone 安装 `pre-commit` hook：
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/commands/kb-maintenance.js" install
+node .docs/llm-knowledge/tools/fsflow-kb/commands/kb-maintenance.js install --hooks
+```
+
+日常开发按以下顺序执行：
+
+1. 修改代码后、提交前运行 `kb-update`，更新受影响业务域；暂不更新时记录延期回执。
+2. 将代码、知识正文和 `.docs/llm-knowledge/.sync/receipts/` 一起加入暂存区。
+3. `pre-commit` 自动做快速结构检查；也可手动运行严格检查：
+
+   ```bash
+   node .docs/llm-knowledge/tools/fsflow-kb/commands/kb-maintenance.js check --staged --strict
+   ```
+
+4. 在 GitLab 候选合并流水线中检查目标分支与源分支合并后的提交，避免并行 MR 各自通过、合并后却遗漏知识更新。
+
+项目的 `.gitlab-ci.yml` 可直接引用安装时生成的模板：
+
+```yaml
+include:
+  - local: .docs/llm-knowledge/tools/fsflow-kb/templates/kb-gitlab-ci.yml
+```
+
+本地 hook 可被跳过，也无法看到其他 MR 随后产生的合并结果，因此最终一致性由 GitLab 的
+merged results pipeline 或 merge train 上的严格检查保证。完整命令、Husky 接入和 GitLab 设置见
+[安装指南](INSTALL.md#同仓知识维护与-git-hook)。
+
 ## 零外部依赖设计
 
 插件**无需安装任何 CLI、无需配置额外 LLM Key**，安装即用（node 即唯一运行时，
@@ -303,7 +345,8 @@ AI 修改源码受 dev-pass 通行证约束：仅在开发阶段由脚本自动�
 | OpenSpec 规格门控 | `policy.js` 在 Phase 0 强制校验 Why/Non-Goals/Decisions/Capabilities/Risks、规范性 Requirement 与 Given/When/Then；Phase 1 校验功能点→AC→Task 追踪链，无需独立 OpenSpec CLI 或文件目录 |
 | 后端代码审查 | 内置规则库 `skills/harness-conductor/references/review-rules/`（default 五维度 / Java / TS·JS / Mapper XML，均含「不报告」防误报护栏），由审查师模型逐文件执行 |
 | JSON Schema 校验 | 内置 `vendor/ajv.bundle.js`（免 npm install） |
-| 发布前验证 | `npm run verify`：插件结构一致性检查 + 自动发现并运行全部回归测试 |
+| 知识维护 | 项目内置 Node.js 运行时脚本 + Git hook + GitLab CI 模板；无需 graphify 或外部索引服务 |
+| 发布前验证 | `cd plugins/fsflow && npm run verify`：插件结构一致性检查 + 自动发现并运行全部回归测试 |
 
 可选增强（按需配置，不配置时各 agent 自动降级）：Figma MCP（设计稿拉取）、devops MCP（前端云端构建）、
 GitLab MCP（MR 管理）、TAPD（需求/缺陷导入）、Playwright MCP（前端实跑测试）。
@@ -312,7 +355,6 @@ GitLab MCP（MR 管理）、TAPD（需求/缺陷导入）、Playwright MCP（前
 
 kb-query 在缺少知识库或索引损坏时，报告原因并使用 Git 文件清单定位；已有索引也会补齐新增文件，不自动重建。开发交付说明写入 Story 的 `development-notes/<taskId>.md`，后续阶段通过文件路径读取；并行任务分开写，返修后更新。旧任务没有说明文件时直接查证源码。
 
-**graphify skill** 是可选结构检索增强，不在本插件内，可按需单独安装。已有图谱仅作关联线索，引用前验证源码及新鲜度；未安装、缺图或查询失败时记录原因并继续源码检索，不自动建图、不反复探测。
 
 ## 故障排除与卸载
 
@@ -327,6 +369,10 @@ kb-query 在缺少知识库或索引损坏时，报告原因并使用 Git 文件
 | 报 `Cannot find module 'ajv'` | 确认 `plugins/fsflow/vendor/ajv.bundle.js` 存在，`git pull` 同步（**不要** `npm install`） |
 | 报 `e2e-state.json 不存在` | 冷启动场景：先说「做个需求」走 harness-start 建流，或按 terminal 恢复命令执行 restore 复档 |
 | dev-pass 拦截了源码编辑 | 正常行为——确认当前处于 Phase 2 且目标文件在 task-dag.json 的 `files[]` 限域内；开发未完成但 pass 过期用 `--renew-pass` 续签 |
+| 新 clone 提交时知识 hook 没有触发 | Git hook 不随 Git 仓库同步；在该 clone 执行 `node .docs/llm-knowledge/tools/fsflow-kb/commands/kb-maintenance.js install --hooks` |
+| 项目已使用 Husky / 自定义 `core.hooksPath` | 不覆盖现有 hook；按安装指南把 `check --staged` 命令接入现有 `pre-commit` |
+| GitLab 知识检查提示只运行了源分支流水线 | 为目标分支启用 merged results pipeline 或 merge train，使检查针对候选合并提交执行 |
+| 严格检查提示业务域缺少处理结果 | 运行 `kb-update` 后为受影响域执行 `record`，记录已更新或明确延期，再重新暂存回执 |
 | Story 目录被清空了 | 已归档：root 文件在 `archive/round-{N}/`，执行 restore 命令可完全复原 |
 
 > 更多排障细节见 [INSTALL.md](./INSTALL.md)。
@@ -338,7 +384,15 @@ kb-query 在缺少知识库或索引损坏时，报告原因并使用 Git 文件
 /plugin marketplace remove fullstackflow-marketplace
 ```
 
-项目侧残留（按需清理）：`.codebuddy/plans/`（Story 状态与归档）、`.docs/llm-knowledge/`（知识库文档）。
+卸载插件不会删除项目内已提交的知识库运行时，也不会自动修改仓库 hook。需要停用当前 clone 的
+知识检查时，先在目标仓库执行：
+
+```bash
+node .docs/llm-knowledge/tools/fsflow-kb/commands/kb-maintenance.js uninstall-hooks
+```
+
+项目侧仍会保留 `.codebuddy/plans/`（Story 状态与归档）和 `.docs/llm-knowledge/`（知识正文、回执与运行时）；
+如需移除，应通过正常代码评审提交处理。
 
 ## 仓库结构
 
@@ -358,8 +412,11 @@ fullstackflow/
         ├── hooks/hooks.json             # 5 类安全护栏钩子
         ├── output-styles/harness.md     # 汇报输出风格
         ├── scripts/                     # dispatch / advance-phase / archive / policy 门控等
+        ├── scripts/commands/kb-maintenance.js # 知识维护安装与命令入口
+        ├── scripts/lib/kb-maintenance.cjs # 可复制到项目内的维护运行时
+        ├── scripts/templates/kb-gitlab-ci.yml # 候选合并一致性检查模板
         ├── scripts/audit/plugin-check.js # manifest / 命令 / Skill / Hook 一致性检查
-        ├── scripts/__tests__/           # 8 组回归测试（当前 293 项断言）
+        ├── scripts/__tests__/           # 11 个自动发现的回归测试文件
         └── vendor/ajv.bundle.js         # 内置 ajv（免 npm install）
 ```
 

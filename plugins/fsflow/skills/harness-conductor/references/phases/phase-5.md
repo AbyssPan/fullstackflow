@@ -6,15 +6,15 @@
 
 ## 职责
 
-Agent 注册名 **`release-assistant`**（发布助手）。执行 `git add` + `commit` + `push`，并创建 MR。
+Agent 注册名 **`release-assistant`**（发布助手）。先按 [同仓知识维护](../../../kb-update/references/maintenance.md) 完成已授权的 kb-update 和域回执，再将代码与知识一起提交 MR。暂存后运行 `kb-maintenance.js check --staged --strict`。缺库不初始化；延期必须明确且符合项目 allow_deferred 策略。目标分支使用用户指定，不硬编码 dev。
 
-🔴 **铁律：Git 提交与 MR 创建必须先取得用户确认**（`AskUserQuestion`，列出待提交文件清单、
+🔴 **Git 提交与 MR 创建遵循当前会话授权，尚未授权时先确认**（`AskUserQuestion`，列出待提交文件清单、
 Commit Message、目标分支 / MR 信息），未确认不得执行任何 git 写操作与 MR 创建；
 MR 创建后必须等用户回复「已合并 / 审核通过」才能进入 Phase 6/7。
 
 ## 产出物
 
-commit + push + MR（无文件型产出物）。
+知识正文、域回执、本次 changelog + commit/push/MR。提交前知识由开发者/发布助手维护，合并者处理组合后差异。
 
 ## 硬性约束
 

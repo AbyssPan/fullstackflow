@@ -97,9 +97,11 @@ AI 需**读取这些来源文件，总结编码规范**，填充 `common/convent
 写入 **`.docs/llm-knowledge/meta.yaml`**。基于扫描到的域，填充 `meta.yaml` 的 `domains[]`（每个域含 `id/path/entry_files/description`）和 `git.hash`。
 
 后端项目必须按**业务域聚合**写入 `entry_files`，禁止按 Java/Kotlin 类生成独立知识库文档。标准 Maven/Spring Boot 项目中，`kb-init.cjs` 会输出 `domainFileHints`，AI 应优先使用这些线索把同一业务域的 Controller/Service/Mapper/Entity/DTO/XML 聚合到同一个 domain。
-后端的完整代码归属以 `backend-index.json` 为准，`meta.yaml` 保存文档导航、业务描述和已完成文档同步的版本。初始化骨架不代表文档已生成，完成源码阅读和文档生成后才推进 `git.hash`。
+后端的完整代码归属以 `backend-index.json` 为准，`meta.yaml` 保存文档导航、业务描述和已完成文档同步的版本。初始化骨架不代表文档已生成，旧库仅在完成源码阅读和文档生成后才推进 `git.hash`；新维护模式记录域级回执。
 
-### Step 6: 输出报告
+### Step 6: 接入同仓维护并输出报告
+
+meta.yaml 有效后运行 `node "<plugin_root>/scripts/commands/kb-maintenance.js" install`，将可独立执行的检查工具和配置放入项目。它不安装 Git hook、不更改 GitLab 配置；接入步骤见 [同仓知识维护](../kb-update/references/maintenance.md)。知识库各分支均使用同一个路径；索引作为忽略的本地缓存。保留 git.hash 兼容字段，维护模式通过后续 gen-project-docs 全量生成和逐域审查回执确定新鲜度，不以初始化骨架或 HEAD 标记同步完成。
 
 ```
 知识库初始化完成 ✅
@@ -107,7 +109,7 @@ AI 需**读取这些来源文件，总结编码规范**，填充 `common/convent
 - 项目画像: project_type=<type>
 - 业务域: N 个 | 模板: common + <type> 特有
 - 编码规范: 已从 M 个来源总结 (common/conventions.md)
-- meta.yaml: 后端骨架 git.hash 留空，具体文档生成成功后写入 current HEAD
+- meta.yaml: 后端骨架 git.hash 留空，维护模式由正文生成后的域级回执记录审查结果
 - 下一步: gen-project-docs 填充内容
 ```
 

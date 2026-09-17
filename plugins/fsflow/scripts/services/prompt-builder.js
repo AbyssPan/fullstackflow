@@ -84,30 +84,11 @@ const AGENT_CONSTRAINTS = [
 
 const SEARCH_CONSTRAINTS = [
   '先用 kb-query 定位，再以源码验证；共享代码变更和上游 Bug 必须查证调用方与回归项，可复用同版本同范围证据（含相关工作区变更），禁止猜测路径和调用关系',
-  'graphify 仅为可选增强；缺失或失败时记录原因并改用源码搜索和按需 LSP，未确认的影响范围上报主 Agent，不因工具未调用记 debt'
+  '用源码搜索和按需 LSP 查证依赖，未确认的影响范围上报主 Agent，不因工具未调用记 debt'
 ]
 
 /**
- * 实测某仓库的 graphify 图谱状态，避免每个子 Agent 重复探测。
- * @param {string} repoRoot
- * @returns {{ built: boolean, label: string }}
- */
-function probeGraphStatus (repoRoot) {
-  const graphPath = path.join(repoRoot, 'graphify-out', 'graph.json')
-  try {
-    const stat = fs.statSync(graphPath)
-    if (!stat.isFile()) return { built: false, label: '图谱：未建' }
-    const mb = stat.size / (1024 * 1024)
-    const size = mb >= 1 ? `${mb.toFixed(1)}MB` : `${Math.max(1, Math.round(mb * 1024))}KB`
-    return { built: true, label: `图谱：已建 ${size}` }
-  } catch (_) {
-    return { built: false, label: '图谱：未建' }
-  }
-}
-
-/**
- * 只向需要代码检索的 Phase 注入「仓库路径 + 图谱客观状态 + cwd 规则」。
- * Graphify 的完整用法由其 skill 按需披露，这里不重复说明。
+ * 只向需要代码检索的 Phase 注入仓库路径、源码检索方式与 cwd 规则。
  * @param {string} storyId
  * @param {number} targetPhase
  * @returns {string[]}
@@ -122,30 +103,21 @@ function buildRepoSearchEntries (storyId, targetPhase) {
   const entries = names.map(name => ({
     name,
     root: repos.repos[name],
-    primary: name === repos.primary,
-    graph: probeGraphStatus(repos.repos[name])
+    primary: name === repos.primary
   }))
-  const hasGraph = entries.some(entry => entry.graph.built)
 
   const lines = [
     '## 🔎 代码检索入口',
     '',
     ...entries.map(entry =>
-      `- ${entry.name}${entry.primary ? '（主仓，即当前工作目录）' : ''} → \`${toPosix(entry.root)}\`（${entry.graph.label}）`
+      `- ${entry.name}${entry.primary ? '（主仓，即当前工作目录）' : ''} → \`${toPosix(entry.root)}\``
     ),
     '',
-    '默认用 kb-query 定位、源码搜索验证、按需 LSP 查引用；共享代码变更必须确认调用方和回归项。graphify 是可选增强，已有同版本同范围证据可复用（包括相关工作区变更）。',
+    '默认用 kb-query 定位、源码搜索验证、按需 LSP 查引用；共享代码变更必须确认调用方和回归项。已有同版本同范围证据可复用（包括相关工作区变更）。',
     '',
-    '> 图谱按 **cwd** 解析：检索非主仓前先 `cd` 到上述目录。',
-    '',
-    hasGraph
-      ? '> 标注「已建」只表示图谱文件存在，不保证有效或最新；按需查询前核实相关源码，缺失或失败时记录原因并用 kb-query + Grep 继续查证。'
-      : '> 所有仓库均未建图谱：直接用 kb-query + Grep，按需 LSP 查引用，不反复探测、不主动建图。',
+    '> 知识库与源码按 **cwd** 解析：检索非主仓前先 `cd` 到上述目录；以当前分支和工作区内容为准。',
     ''
   ]
-  if (hasGraph && entries.some(entry => !entry.graph.built)) {
-    lines.push('> 标注「未建」的仓库改用 kb-query + Grep，不要耗时探测。', '')
-  }
   return lines
 }
 
@@ -569,7 +541,7 @@ function buildAgentPrompt (opts) {
       : '',
     '',
     (storyMode === 'fixbugs' && targetPhase === 2)
-      ? '## Bug 修复说明\nBug 事实（问题复述 / 复现步骤 / 代码定位 / 根因）已在 Phase 0 分析完毕、并在 Phase 1 消化进 `task-dag.json` 与 `acceptance-criteria.json`。\n**以契约文件为准动手**: `task-dag.json` 的 `files[]` 就是改动范围，`acceptanceCriteria` 关联的 AC 描述里带 Bug 编号。\n修复怎么改由你设计: 先用 kb-query 定位；用源码搜索和按需 LSP 查调用方，graphify 可选；复用同版本同范围证据确认真实改动点，再给出实现。\n'
+      ? '## Bug 修复说明\nBug 事实（问题复述 / 复现步骤 / 代码定位 / 根因）已在 Phase 0 分析完毕、并在 Phase 1 消化进 `task-dag.json` 与 `acceptance-criteria.json`。\n**以契约文件为准动手**: `task-dag.json` 的 `files[]` 就是改动范围，`acceptanceCriteria` 关联的 AC 描述里带 Bug 编号。\n修复怎么改由你设计: 先用 kb-query 定位；用源码搜索和按需 LSP 查调用方；复用同版本同范围证据确认真实改动点，再给出实现。\n'
       : '',
     repoSearchEntries.length > 0 ? repoSearchEntries.join('\n') : '',
     '## 约束',
@@ -607,7 +579,6 @@ module.exports = {
   buildFigmaAlignInstruction,
   buildTaskPlannerFigmaInstruction,
   buildRepoSearchEntries,
-  probeGraphStatus,
   AGENT_CONSTRAINTS,
   SEARCH_CONSTRAINTS
 }

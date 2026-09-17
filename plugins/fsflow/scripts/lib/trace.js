@@ -110,8 +110,8 @@ function traceAgentResult (storyId, agentName, status, details = {}) {
  *
  * @param {string} storyId - Story ID
  * @param {Object} opts - 调用参数
- * @param {string} opts.tool - 工具名（use_skill / mcp_call_tool / graphify 等）
- * @param {string} [opts.skill] - Skill 名（kb-query / graphify / figma-to-component-map）
+ * @param {string} opts.tool - 工具名（use_skill / mcp_call_tool 等）
+ * @param {string} [opts.skill] - Skill 名（kb-query / figma-to-component-map）
  * @param {string} [opts.mcp] - MCP 名（figma / playwright / tapd）
  * @param {string} [opts.mcpTool] - MCP 工具名（get_design_context / get_screenshot）
  * @param {number} [opts.phase] - Phase 编号

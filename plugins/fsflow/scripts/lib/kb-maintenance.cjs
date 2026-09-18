@@ -19,7 +19,8 @@ function safePath (file) {
 }
 const sourceFile = f => !f.startsWith(KB_DIR + '/') && !f.startsWith('.codebuddy/')
 const documentFile = f => f.startsWith(KB_DIR + '/') && /\.md$/.test(f) && !/\/(?:tools|templates|vendor)\//.test(f)
-const statePath = scope => STATES + encodeURIComponent(scope) + '.json'
+// Receipt files stay human-readable; scope ids are controlled slugs.
+const statePath = scope => STATES + scope.replace(/:/g, '-') + '.json'
 
 // Git blob identities work across commits, rebases and machines. No timestamps
 // or branch names enter the tracked knowledge receipts.

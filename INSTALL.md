@@ -100,7 +100,7 @@ Skill / Agent frontmatter、Hook 脚本引用、全部 JSON 与 JavaScript 语�
 cd plugins/fsflow && npm run verify
 ```
 
-预期：插件一致性检查通过，且 `✅ 8 个测试文件全部通过`（当前 293 项断言）。
+预期：插件一致性检查通过，且 `✅ 11 个测试文件全部通过`（按当前自动发现的测试集合执行）。
 
 ## 更新插件
 
@@ -186,3 +186,44 @@ rm -rf ~/.claude/plugins/cache      # Claude Code
 ```
 
 重启宿主生效。
+
+
+## 同仓知识维护与 Git hook
+
+在已初始化知识库的目标项目根执行：
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/commands/kb-maintenance.js" install
+```
+
+这会将独立运行时安装到 `.docs/llm-knowledge/tools/fsflow-kb/`，后续不依赖插件宿主或个人缓存路径。运行时、配置、文档、域回执与源码一起提交。
+
+每个 clone 启用本地 hook：
+
+```bash
+node .docs/llm-knowledge/tools/fsflow-kb/commands/kb-maintenance.js install --hooks
+```
+
+普通已有 pre-commit 会保留并先执行；Husky 等 hook 管理器已有入口时，安装器明确提示手工组合，不覆盖其脚本。撤销本工具包装可执行 `uninstall-hooks`。只安装插件不会自动改变项目 Git 配置。
+
+日常先更新相关知识和规格，再记录审查结果（示例 scope 必须替换为实际域）：
+
+```bash
+KB=.docs/llm-knowledge/tools/fsflow-kb/commands/kb-maintenance.js
+node "$KB" check
+node "$KB" record --scope domain:order --status updated --reason "已核实订单规则与接口契约" --spec-review aligned
+node "$KB" check --staged --strict
+```
+
+`record` 保存审查声明，不调用 AI，也不生成正文。shared 来源用重复 `--source <文件>` 加入消费者回执。未改变知识使用 unchanged 并解释原因；延期使用 deferred，只有 maintenance.json 的 allow_deferred 为 true 才允许严格检查放行。来源变化、删除、新增、部分暂存均会重新要求核实。未登记的语义依赖不由摘要自动发现。
+
+GitLab 配置引用：
+
+```yaml
+include:
+  - local: .docs/llm-knowledge/tools/fsflow-kb/templates/kb-gitlab-ci.yml
+```
+
+维护者需启用 merged results pipelines / merge trains、必过检查及保护配置文件的审查规则。模板在未使用候选合并流水线时失败，不把单分支检查当成合并保证。实例能力不足时需由团队配置串行候选合并入口，固定并核对目标 SHA 后调用同一严格检查；仅添加模板不等于服务端已生效。
+
+旧库迁移保留正文和人工批注，先安装维护工具，逐域核实并生成回执。旧 git.hash 留作兼容，不再用作维护模式的全局同步状态。索引加入忽略规则；已经被跟踪的索引需人工审查后取消跟踪，安装器不会自动删除它们。源码查询发现索引扫描版本与当前 HEAD 不符时改用 Git 路径和源码验证。

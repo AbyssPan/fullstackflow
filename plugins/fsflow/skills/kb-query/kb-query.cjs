@@ -21,6 +21,9 @@ try {
     try {
       const index = JSON.parse(fs.readFileSync(indexPath, 'utf8'))
       if (!Array.isArray(index.files) || index.files.some(f => !f || typeof f.path !== 'string')) throw new Error('Expected files[] with paths')
+      if (fs.existsSync(path.join(root, KB_DIR, 'maintenance.json')) && index.git_hash !== git(root, ['rev-parse', 'HEAD']).trim()) {
+        throw new Error('Index belongs to an unverified revision; use current Git paths and source search')
+      }
       files = index.files
       hasIndex = true
     } catch (e) { warnings.push('KB index unavailable: ' + e.message) }
@@ -52,6 +55,11 @@ try {
       const stat = exists ? fs.statSync(abs) : null
       const changed = f.stamp ? !stat || JSON.stringify(f.stamp) !== JSON.stringify([stat.size, stat.mtimeMs, stat.ctimeMs, stat.ino]) : null
       return { path: f.path, domains, exists, sourceChangedSinceScan: changed,
+        knowledgeStatus: domains.map(id => {
+          const receipt = path.join(root, KB_DIR, 'maintenance', encodeURIComponent('domain:' + id) + '.json')
+          try { const s = JSON.parse(fs.readFileSync(receipt, 'utf8')); return { domain: id, status: s.status, reason: s.reason, freshness: 'verify-sources-before-use' } }
+          catch (_) { return { domain: id, status: 'unverified' } }
+        }),
         documents: domains.map(id => path.posix.join(meta.domains.find(d => d.id === id)?.path || `business/${id}/`, 'overview.md')),
         entries: entries(f).filter(e => matches(e?.declaration)).slice(0, 5),
         symbols: symbols(f).filter(symbolMatches).slice(0, 5) }

@@ -6,7 +6,7 @@
  *   3. 目录级 glob 限域（需求2：files 支持目录 glob）
  *   4. Phase 1→2 门控：figma-frame-inventory 存在性与完整性
  *   5. dispatch 是 prompt 唯一出口；advance-phase.js 只返回推进结果
- *   5b. Graphify 仓库状态与 cwd 入口注入
+ *   5b. 仓库路径与 cwd 检索入口注入
  *   5c. review-only 显式跳过独立功能测试，full 保留测试门控
  *   6. Phase 0 唯一知识库前置确认 + Phase 6 仅增量收尾
  *
@@ -264,16 +264,12 @@ if (out && out.success === true) {
   ok('摘要正文落盘为 phase-1-summary.md', fs.existsSync(path.join(dir4c, 'phase-1-summary.md')))
 }
 
-section('5b. Graphify 仓库状态注入')
+section('5b. 仓库检索入口')
 
 const repoSearchMissing = promptBuilder.buildRepoSearchEntries('FG1-OK', 2).join('\n')
 ok('检索入口含主仓绝对路径', repoSearchMissing.includes(SANDBOX), repoSearchMissing)
-ok('未建图谱时直接给出降级方案', /图谱：未建/.test(repoSearchMissing) && /kb-query \+ Grep/.test(repoSearchMissing))
-fs.mkdirSync(path.join(SANDBOX, 'graphify-out'), { recursive: true })
-fs.writeFileSync(path.join(SANDBOX, 'graphify-out', 'graph.json'), '{}')
-const repoSearchBuilt = promptBuilder.buildRepoSearchEntries('FG1-OK', 2).join('\n')
-ok('已建图谱时注入客观状态', /图谱：已建/.test(repoSearchBuilt), repoSearchBuilt)
-ok('非检索 Phase 不注入 Graphify 入口', promptBuilder.buildRepoSearchEntries('FG1-OK', 4).length === 0)
+ok('检索入口给出源码验证和当前工作区规则', /源码搜索验证/.test(repoSearchMissing) && /当前分支和工作区/.test(repoSearchMissing))
+ok('非检索 Phase 不注入代码检索入口', promptBuilder.buildRepoSearchEntries('FG1-OK', 4).length === 0)
 
 section('5b-2. 检索工具可选，实际审查问题仍阻断')
 
@@ -282,7 +278,7 @@ const evidenceDir = storyDir('SOURCE-EVIDENCE')
 const evidenceState = state.readStateFile('SOURCE-EVIDENCE')
 const review = { storyId: 'SOURCE-EVIDENCE', issues: [], summary: { blockerCount: 0, warningCount: 0, suggestionCount: 0 } }
 fs.writeFileSync(path.join(evidenceDir, 'code-review.json'), JSON.stringify(review))
-// Skill 事件不完整不能当作未查证；同样覆盖有其他 Skill 但无图谱/KB 调用的场景。
+// Skill 事件不完整不能当作未查证；同样覆盖有其他 Skill 但无 KB 调用的场景。
 for (const events of [[], [{ type: 'tool_call', skill: 'backend-tech-spec' }, { type: 'tool_call', tool: 'Grep' }]]) {
   fs.writeFileSync(path.join(evidenceDir, 'trace.jsonl'), events.map(e => JSON.stringify(e)).join('\n'))
   const gate = policy.runGateCheck('SOURCE-EVIDENCE', 3, evidenceState)
@@ -381,7 +377,7 @@ ok('Phase 0 用户拒绝后留痕并继续需求分析', /phase-outcome <storyId
 ok('Phase 2 不再注入初始化确认逻辑', !/知识库前置确认/.test(p2Kb.agentPrompt) && !/use_skill\("kb-init"\)/.test(p2Kb.agentPrompt) && !/gen-project-docs/.test(p2Kb.agentPrompt))
 
 // ═══════════════════════════════════════════════════════════
-section('6. Phase 6 经用户确认后增量更新，或拒绝 / 缺库留痕')
+section('6. Phase 5 提交前维护，Phase 6 核验合入版本')
 
 const dir6 = storyDir('KB6-SKIP')
 fs.mkdirSync(dir6, { recursive: true })
@@ -391,7 +387,8 @@ fs.writeFileSync(path.join(dir6, 'e2e-state.json'), JSON.stringify({
 
 const p6 = promptBuilder.buildAgentPrompt({ storyId: 'KB6-SKIP', targetPhase: 6, summaryPhase: 5 })
 ok('Phase 6 prompt 先检查 meta.yaml', /meta\.yaml/.test(p6.agentPrompt))
-ok('Phase 6 正常职责是 kb-update 增量更新', /kb-update/.test(p6.agentPrompt) && /增量更新/.test(p6.agentPrompt))
+ok('Phase 5 prompt 要求提交前维护知识', /提交前/.test(promptBuilder.buildAgentPrompt({ storyId: 'KB6-SKIP', targetPhase: 5 }).agentPrompt) && /kb-update/.test(promptBuilder.buildAgentPrompt({ storyId: 'KB6-SKIP', targetPhase: 5 }).agentPrompt))
+ok('Phase 6 核验实际合入版本且不重复生成正文', /实际合入提交/.test(p6.agentPrompt) && /不重复生成知识正文/.test(p6.agentPrompt))
 ok('Phase 6 缺库时直接留痕跳过', /meta\.yaml/.test(p6.agentPrompt) && /不存在时直接留痕跳过/.test(p6.agentPrompt))
 ok('Phase 6 不再询问或执行初始化', /不询问初始化/.test(p6.agentPrompt) && /不初始化、不全量生成/.test(p6.agentPrompt))
 

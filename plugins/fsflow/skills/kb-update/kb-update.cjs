@@ -12,9 +12,15 @@ function collectUpdate (root, { refresh = true, storyId = null } = {}) {
   const errors = []
   const currentHash = git(root, ['rev-parse', 'HEAD']).trim()
   const lastHash = meta.git.hash
+  let maintenance = null
   let changedFiles
   try {
-    changedFiles = lastHash ? changesSince(root, lastHash)
+    if (fs.existsSync(path.join(root, KB_DIR, 'maintenance.json'))) {
+      const kb = require('../../scripts/lib/kb-maintenance.cjs')
+      maintenance = kb.check(root)
+      if (!maintenance.passed) throw new Error(JSON.stringify(maintenance.errors))
+      changedFiles = [...new Set(maintenance.pending.flatMap(p => p.files || []).filter(kb.sourceFile))]
+    } else changedFiles = lastHash ? changesSince(root, lastHash)
       : git(root, ['ls-files', '-co', '--exclude-standard', '-z']).split('\0').filter(f => f && !f.startsWith(KB_DIR + '/') && !f.startsWith('.codebuddy/'))
   } catch (e) {
     errors.push('Cannot verify document baseline; fallback is incomplete: ' + e.message)
@@ -56,8 +62,20 @@ function collectUpdate (root, { refresh = true, storyId = null } = {}) {
   const unclassifiedFiles = changedFiles.filter(f => !assigned.has(f))
   const designDocs = collectDesignDocs(root, meta, affectedDomains, storyId)
   const reviewFiles = backend?.reviewFiles || frontend?.reviewFiles || []
+  if (maintenance) {
+    // Domain receipts include shared dependencies that a path-only mapping misses.
+    for (const pending of maintenance.pending) {
+      const domain = meta.domains.find(d => 'domain:' + d.id === pending.scope)
+      if (!domain) continue
+      const files = (pending.files || []).filter(f => !f.startsWith(KB_DIR + '/'))
+      const existing = affectedDomains.find(d => d.id === domain.id)
+      if (existing) existing.matchedFiles = [...new Set([...existing.matchedFiles, ...files])]
+      else affectedDomains.push({ id: domain.id, path: domain.path, matchedFiles: files })
+    }
+  }
   return { lastHash, currentHash, projectType: profile.project_type || 'frontend', changedFiles, affectedDomains,
     commonFiles, unclassifiedFiles, reviewFiles, designDocs,
+    ...(maintenance ? { maintenance } : {}),
     ...(backend ? { backend } : {}), ...(frontend ? { frontend } : {}), errors,
     canAdvanceHash: errors.length === 0 && unclassifiedFiles.length === 0 && reviewFiles.length === 0 && !designDocs.some(d => !d.targetDomain) }
 }

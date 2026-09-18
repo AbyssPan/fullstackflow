@@ -102,5 +102,5 @@ HARNESS=${CLAUDE_PLUGIN_ROOT}/scripts/commands
 |---|---|
 | 初始化项目知识库 | `use_skill("kb-init")` |
 | 检索业务域 / 接口 / 踩坑记录 | `use_skill("kb-query")` |
-| 提交后增量更新知识库 | `use_skill("kb-update")` |
+| 提交前增量维护知识库 | `use_skill("kb-update")` |
 | 按 Swagger 生成接口定义 | `use_skill("api-generator")` |

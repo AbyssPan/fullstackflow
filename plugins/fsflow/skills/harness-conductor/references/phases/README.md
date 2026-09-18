@@ -12,8 +12,8 @@
 | 2 | 代码开发 | `fullstack-developer` | 代码变更（git diff）+ `development-notes/<taskId>.md` 交付说明 | `checkPhase2Gate` |
 | 3 | 代码审查 | `code-reviewer` | `code-review.json` | `checkPhase3Gate` |
 | 4 | 功能测试 | `test-engineer` | `test-report.md` `acceptance-verification.json` | `checkPhase4Gate` |
-| 5 | Git 提交 | `release-assistant` | commit + push + MR | 仅产出物存在性 |
-| 6 | 知识库增量更新 | `release-assistant` | 用户同意后刷新 meta.yaml，拒绝更新或缺库留痕跳过（不做初始化确认） | `checkPhase6Gate` |
+| 5 | 知识维护与 Git 提交 | `release-assistant` | 知识正文/回执 + commit/push/MR | 暂存区检查、Git hook 与服务端候选合并检查；状态机保留通用门控 |
+| 6 | 合入版本知识核验 | `release-assistant` | 实际合入版本核验，复用提交前结果；缺库或失败留痕 | `checkPhase6Gate` |
 | 7 | 发布收尾 | `release-assistant` | 前端：部署 URL + 构建号；后端：合并分支 + 变更清单（跳过云端部署） | 仅产出物存在性 |
 | 8 | —（终态） | — | 流程结束 | — |
 
@@ -29,7 +29,7 @@ Phase→Agent 唯一信源：`lib/state.js` 的 `PHASE_AGENTS`，由 `dispatch.j
    `optional: true` 的产出物不因缺失失败；`requiredWhen: 'hasFigmaDesign'` 的按状态位转必需。
 2. **JSON Schema 校验** — 按 `schema-validator.js:getPhaseArtifacts(phaseNum)` 逐项校验，
    不符即 BLOCKER（`schema_validation_failed`, level 2）。fail-closed，不降级放行。
-3. **影响面证据** — Phase 3 审查调用方、源码版本（含相关工作区变更）与回归项；实际缺口按影响写入审查问题。工具调用次数仅作统计，不因未调用 kb-query / graphify 告警或扣分。
+3. **影响面证据** — Phase 3 审查调用方、源码版本（含相关工作区变更）与回归项；实际缺口按影响写入审查问题。工具调用次数仅作统计，不因未调用 kb-query 告警或扣分。
 
 ## Story 目录结构
 

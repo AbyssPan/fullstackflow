@@ -22,8 +22,8 @@ try {
     const plan = collectUpdate(PROJECT_ROOT, { refresh: false, storyId })
     if (plan.errors.length) throw new Error(plan.errors.join('; '))
     if (mode === 'stale') {
-      console.log(JSON.stringify({ mode, stale: !meta.git.hash || plan.changedFiles.length > 0 || plan.designDocs.length > 0 || (plan.backend?.retiredDomains.length || 0) > 0,
-        changedCount: plan.changedFiles.length, reason: !meta.git.hash ? 'documents-not-generated' : undefined }))
+      console.log(JSON.stringify({ mode, stale: (plan.maintenance ? plan.maintenance.pending.length > 0 : !meta.git.hash) || plan.changedFiles.length > 0 || plan.designDocs.length > 0 || (plan.backend?.retiredDomains.length || 0) > 0,
+        changedCount: plan.changedFiles.length, reason: !plan.maintenance && !meta.git.hash ? 'documents-not-generated' : undefined }))
     } else {
       const domains = plan.affectedDomains.map(d => {
         const all = d.matchedFiles.map(f => path.join(PROJECT_ROOT, f)).filter(f => fs.existsSync(f) && fs.statSync(f).isFile())
@@ -35,7 +35,8 @@ try {
         commonDocuments: plan.commonFiles.length ? ['common/conventions.md', 'common/config.md'] : [],
         unclassifiedFiles: plan.unclassifiedFiles, reviewFiles: plan.reviewFiles,
         retiredDomains: plan.backend?.retiredDomains || [], designDocs: plan.designDocs,
-        lastHash: plan.lastHash, currentHash: plan.currentHash, canAdvanceHash: plan.canAdvanceHash }, null, 2))
+        lastHash: plan.lastHash, currentHash: plan.currentHash, canAdvanceHash: plan.canAdvanceHash,
+        ...(plan.maintenance ? { maintenance: plan.maintenance } : {}) }, null, 2))
     }
   } else {
     const backendFile = path.join(KB_ROOT, 'backend-index.json')

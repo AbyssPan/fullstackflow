@@ -255,7 +255,7 @@ const PHASE_NAMES = [
   '代码审查',       // 3
   '功能测试',       // 4
   'Git提交',        // 5
-  '知识库更新',     // 6
+  '合入版本知识核验', // 6
   '云端部署',       // 7
   '工作流完成'      // 8 — 工作流终态
 ]
@@ -342,12 +342,12 @@ const PHASE_AGENTS = {
   5: {
     agent: 'release-assistant',
     label: '发布助手',
-    instruction: '执行 git add + commit + push，并创建 MR。禁止使用 --no-verify'
+    instruction: '提交前按已获授权执行 kb-update，核实规格并记录按域维护回执；把代码与知识一起暂存，通过 staged 严格检查后执行已授权的 git commit/push/MR，目标分支沿用用户指定。禁止使用 --no-verify'
   },
   6: {
     agent: 'release-assistant',
     label: '发布助手',
-    instruction: '仅执行知识库收尾：meta.yaml 存在时先询问用户是否更新，说明会消耗 token 和时间；本次更新已明确授权则不重复询问，用户同意后才调用 kb-update 增量更新，拒绝则记录 skipped_by_user（knowledge_base_update_declined），未答复则等待，不执行扫描或更新、不推进 Phase 7。meta.yaml 不存在时直接留痕跳过（knowledge_base_not_initialized），不询问初始化。本 Phase 不初始化、不全量生成；Phase 0 初始化同意不代表本次更新授权'
+    instruction: '核验 Phase 5 提交前更新的知识与实际合入版本：meta.yaml 不存在时直接留痕跳过；维护模式运行 kb-maintenance.js check --ref <实际合入提交> --strict，复用已确认的更新或延期结果。无法取得合入版本或检查失败则记录 completed_with_errors。旧任务尚未维护时回功能分支补充 MR，不直接覆盖主分支。不询问初始化，不初始化、不全量生成，不重复生成知识正文'
   },
   7: {
     agent: 'release-assistant',

@@ -75,7 +75,9 @@ function buildFrontendIndex (root, meta, profile, { persist = false } = {}) {
   }
   const documentFiles = previous?.document_hash === meta.git.hash
     ? previous.document_files || [] : files.map(f => ({ path: f.path, domains: f.domains }))
-  const index = { version: 1, cache_key: key, scan_stats: stats, document_hash: meta.git.hash, document_files: documentFiles, files }
+  let gitHash = ''
+  try { gitHash = git(root, ['rev-parse', 'HEAD']).trim() } catch (_) {}
+  const index = { version: 1, git_hash: gitHash, cache_key: key, scan_stats: stats, document_hash: meta.git.hash, document_files: documentFiles, files }
   if (persist) {
     fs.mkdirSync(path.join(root, KB_DIR), { recursive: true })
     fs.writeFileSync(path.join(root, INDEX_PATH), JSON.stringify(index, null, 2) + '\n')

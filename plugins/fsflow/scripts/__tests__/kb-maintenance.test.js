@@ -24,6 +24,7 @@ try {
     const r = cli.install(root, true)
     assert(r.hooksInstalled)
     assert(fs.existsSync(path.join(root, r.installed, 'lib/kb-maintenance.cjs')))
+    assert.equal(JSON.parse(fs.readFileSync(path.join(root, r.installed, 'package.json'), 'utf8')).type, 'commonjs')
     assert(!fs.existsSync(path.join(root, '.docs/llm-knowledge/master')))
   })
   test('Checks do not certify unreviewed scopes or write receipts', () => {
@@ -149,10 +150,12 @@ try {
     assert(!kb.check(root, { mode: 'staged', base: before, strict: true }).passed)
     git('restore', '--staged', '.docs'); git('restore', '.docs')
   })
-  test('Installed CLI runs without access to the plugin directory', () => {
+  test('Installed CLI runs in an ESM host project without the plugin directory', () => {
+    put('package.json', '{"type":"module"}\n')
     const command = path.join(root, '.docs/llm-knowledge/tools/fsflow-kb/commands/kb-maintenance.js')
     const r = spawnSync(process.execPath, [command, 'check', '--ref', 'HEAD', '--strict'], { cwd: root, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stdout + r.stderr)
+    fs.unlinkSync(path.join(root, 'package.json'))
   })
   test('Hook uninstall restores prior hook and install does not overwrite a manager', () => {
     cli.uninstallHook(root)

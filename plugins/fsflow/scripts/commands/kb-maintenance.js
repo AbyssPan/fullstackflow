@@ -22,6 +22,8 @@ function install (root, hooks) {
   const manifestPath = path.join(root, DEST, 'installed.json')
   const previous = fs.existsSync(manifestPath) ? JSON.parse(fs.readFileSync(manifestPath, 'utf8')) : {}
   const writes = bundle.map(f => ({ file: DEST + '/' + f, data: fs.readFileSync(path.join(origin, f), 'utf8') }))
+  // Target projects may set "type": "module"; scope the installed runtime to CommonJS.
+  writes.push({ file: DEST + '/package.json', data: '{"type":"commonjs"}\n' })
   // Preflight all collisions before modifying the package or hook.
   for (const { file, data } of writes) {
     const abs = path.join(root, file)

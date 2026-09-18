@@ -71,6 +71,37 @@ const PROJECT_ROOT = normalizeProjectRoot(
 /** plans 目录 */
 const PLANS_DIR = path.join(PROJECT_ROOT, '.codebuddy', 'plans')
 
+// ─── Story ID 校验 ─────────────────────────────────────────────
+// storyId 会直接拼进文件路径（getStoryDir）并作为 shell 参数传递，
+// 未校验时可经「.. / 绝对路径」路径穿越或 shell 元字符注入越权读写。
+// 统一收口：写入侧在 getStoryDir 断言，扫描侧在 listStoryDirs 过滤。
+
+/** 合法 storyId：字母/数字开头，仅含字母、数字、连字符、下划线，最长 64 字符 */
+const STORY_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
+
+/**
+ * 判断 storyId 是否合法
+ * @param {*} storyId
+ * @returns {boolean}
+ */
+function isValidStoryId (storyId) {
+  return typeof storyId === 'string' && STORY_ID_PATTERN.test(storyId)
+}
+
+/**
+ * 断言 storyId 合法，非法时抛出带明确原因的错误
+ * @param {*} storyId
+ * @returns {string} 原样返回合法的 storyId
+ */
+function assertValidStoryId (storyId) {
+  if (!isValidStoryId(storyId)) {
+    throw new Error(
+      `非法 storyId: ${JSON.stringify(storyId)} — 须以字母/数字开头，仅含字母、数字、-、_（最长 64 字符）`
+    )
+  }
+  return storyId
+}
+
 // ─── 仓库注册表（repos.json，story 级独立）──────────────────
 
 /**
@@ -206,6 +237,7 @@ function getRepoForFile (absPath, reposOrStoryId) {
  * @returns {string} Story 子目录的绝对路径
  */
 function getStoryDir (storyId) {
+  assertValidStoryId(storyId)
   return path.join(PLANS_DIR, storyId)
 }
 
@@ -227,6 +259,8 @@ function ensureStoryDir (storyId) {
 function listStoryDirs () {
   if (!fs.existsSync(PLANS_DIR)) return []
   return fs.readdirSync(PLANS_DIR).filter(d => {
+    // 过滤非法目录名：含路径穿越 / shell 元字符的目录绝不进入后续处理链路
+    if (!isValidStoryId(d)) return false
     const stat = fs.statSync(path.join(PLANS_DIR, d))
     return stat.isDirectory()
   })
@@ -1603,5 +1637,10 @@ module.exports = {
   errorToType,
 
   // 目录清理
-  cleanStoryDir
+  cleanStoryDir,
+
+  // Story ID 校验
+  STORY_ID_PATTERN,
+  isValidStoryId,
+  assertValidStoryId
 }

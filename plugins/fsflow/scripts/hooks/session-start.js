@@ -36,7 +36,7 @@
 
 const fs = require('fs')
 const path = require('path')
-const { execSync } = require('child_process')
+const { execFileSync } = require('child_process')
 
 // ─── 引入公共模块 ──────────────────────────────────────────────
 
@@ -62,8 +62,10 @@ function runGateValidation (storyId, targetPhase) {
     return null
   }
   try {
-    const result = execSync(
-      `node "${GATE_SCRIPT}" ${storyId} ${targetPhase}`,
+    // execFileSync 数组参数：storyId 不经 shell 解释，杜绝经 storyId 的命令注入
+    const result = execFileSync(
+      process.execPath,
+      [GATE_SCRIPT, String(storyId), String(targetPhase)],
       { encoding: 'utf-8', timeout: 30000, stdio: ['pipe', 'pipe', 'pipe'] }
     )
     return JSON.parse(result)

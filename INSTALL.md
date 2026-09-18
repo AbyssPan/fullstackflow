@@ -11,6 +11,7 @@
 - [更新插件](#更新插件)
 - [常见问题排查](#常见问题排查)
 - [卸载](#卸载)
+- [同仓知识维护与 Git hook](#同仓知识维护与-git-hook)
 
 ## 安装前检查
 
@@ -155,6 +156,13 @@ ls plugins/fsflow/vendor/ajv.bundle.js
 - 确认当前处于 Phase 2（其他 Phase 禁改源码）
 - 确认目标文件在 `task-dag.json` 的 `files[]` 限域清单内
 - 开发未完成但 pass 过期：让 AI 执行 `advance-phase.js --renew-pass` 续签
+- 文件工具与 shell 命令（重定向 / `sed -i` / `tee` 等写 `src/` 的行为）都会被同一套限域校验
+
+### 报 `非法 storyId`
+
+storyId 会拼入文件路径与命令参数，因此只允许：字母/数字开头，由字母、数字、`-`、
+`_` 组成，最长 64 字符。含 `/`、`..`、空格或 shell 元字符的 storyId 会在 schema 校验
+和状态脚本两层被拒绝。让 AI 按规则重新生成 storyId 即可（如 `ORDER-REFUND`、`1012345`）。
 
 ### hook 脚本静默失败
 

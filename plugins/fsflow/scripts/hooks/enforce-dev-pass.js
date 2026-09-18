@@ -35,7 +35,9 @@
  *         - invalid             → block + recordFailure
  *         - valid + src/**      → allow (fallback)
  *         - valid + precise     → check file against allowedPaths
- *   - 拦截工具: write_to_file / replace_in_file / apply_patch / Write / Edit；非 src/ 目标直接放行。
+ *   - 拦截工具: write_to_file / replace_in_file / apply_patch / Write / Edit / MultiEdit；
+ *     Bash / execute_command 通道提取命令中的 src/ 写入目标（重定向 / sed -i / tee / cp / node fs 等）一并校验；
+ *     非 src/ 目标直接放行。
  *   - allowedPaths 统一为 { repo, path } 对象数组，按 multi-repo 配置的仓库根解析为绝对路径后匹配；
  *     无通配符的目录型 pattern 按目录前缀匹配，含通配符的 pattern 转为 glob 正则匹配（statSync 失败则降级为正则）。
  *   - dev-pass 撤销双保险: Phase 2→3（主）+ Phase 4→5（兜底）；currentPhase > 2 时即便 dev-pass 文件有效也拒绝。
@@ -57,16 +59,54 @@ try { inputData = JSON.parse(stdinData) } catch { console.log(JSON.stringify({ c
 
 const toolName = inputData.tool_name || ''
 const toolInput = inputData.tool_input || {}
+
+// ─── Bash / execute_command 通道：从 shell 命令提取 src/ 写入目标 ─────
+// 文件工具之外，shell 也能改 src/（重定向 / sed -i / tee / cp / node fs 写入）。
+// 只拦文件工具的话，dev-pass 限域形同虚设——shell 是绕过的默认选择。
+const bashTools = ['Bash', 'execute_command']
+
+/** shell 命令中的写意图模式（命中任一即认为该命令可能写文件） */
+const SHELL_WRITE_PATTERNS = [
+  />+\s*[^|]/,                                  // 重定向: echo x > a / cat >> a
+  /\bsed\b[^|]*\s-i\b/i,                        // sed -i 原地编辑
+  /\btee\b/i,                                   // tee 写入
+  /\b(?:cp|mv|rsync|install|dd)\b/i,            // 复制/移动/覆盖
+  /writeFileSync|appendFileSync|createWriteStream|\.writeFile\s*\(/i, // node fs 写入
+  /Set-Content|Add-Content|Out-File/i,          // PowerShell 写入
+  /\bperl\b[^|]*\s-[a-zA-Z]*i/i                 // perl -i / -pi 原地编辑
+]
+
+/** 从命令文本提取 src/ 路径 token（相对或绝对路径） */
+function extractSrcPaths (command) {
+  const tokens = []
+  const re = /(?:^|[\s"'`(=>;])((?:[A-Za-z]:)?(?:[\w.~+-]*\/)*src\/[\w.~+\/=-]+)/g
+  let m
+  while ((m = re.exec(command)) !== null) {
+    tokens.push(m[1].replace(/["';]+$/, ''))
+  }
+  return [...new Set(tokens)]
+}
+
 const patchPaths = toolName === 'apply_patch'
   ? [...String(toolInput.command || '').matchAll(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm)].map(m => m[1].trim())
   : []
-const filePaths = patchPaths.length > 0
-  ? patchPaths
-  : [toolInput.filePath || toolInput.file_path || ''].filter(Boolean)
+let filePaths
+if (bashTools.includes(toolName)) {
+  const command = String(toolInput.command || '')
+  const hasWriteIntent = SHELL_WRITE_PATTERNS.some(p => p.test(command))
+  // 相对路径按 PROJECT_ROOT 解析（shell 命令的工作目录是项目根，而非 hook 进程 cwd）
+  filePaths = hasWriteIntent
+    ? extractSrcPaths(command).map(t => (path.isAbsolute(t) ? t : path.join(PROJECT_ROOT, t)))
+    : []
+} else {
+  filePaths = patchPaths.length > 0
+    ? patchPaths
+    : [toolInput.filePath || toolInput.file_path || ''].filter(Boolean)
+}
 const srcFilePaths = filePaths.filter(isSrcFile)
 const filePath = srcFilePaths[0] || ''
 
-const writeTools = ['write_to_file', 'replace_in_file', 'apply_patch', 'Write', 'Edit']
+const writeTools = ['write_to_file', 'replace_in_file', 'apply_patch', 'Write', 'Edit', 'MultiEdit', ...bashTools]
 if (!writeTools.includes(toolName)) { console.log(JSON.stringify({ continue: true })); process.exit(0) }
 if (srcFilePaths.length === 0) { console.log(JSON.stringify({ continue: true })); process.exit(0) }
 
@@ -161,6 +201,18 @@ if (currentPhase > 2) {
 
 // --- CCHF v6: multi-repo file-level scope check ---
 /**
+ * 格式化 allowedPaths（{ repo, path } 对象数组）为可读字符串
+ * @param {Array} allowedPaths
+ * @returns {string}
+ */
+function formatAllowedPaths(allowedPaths) {
+  return allowedPaths.map(p => {
+    if (typeof p === 'object' && p !== null) return (p.repo ? p.repo + ':' : '') + (p.path || '')
+    return String(p)
+  }).join(", ")
+}
+
+/**
  * 检查目标文件是否在 dev-pass 允许的路径范围内
  * 统一模式：allowedPatterns 为 { repo, path } 对象数组，按仓库根解析为绝对路径匹配
  * @param {string} targetFile - 目标文件路径（绝对或相对）
@@ -179,6 +231,17 @@ function isFileInAllowedPaths(targetFile, allowedPatterns, reposOrStoryId) {
     reposConfig = hookUtils.loadRepos()
   }
   var absTarget = path.resolve(targetFile).replace(/\\/g, "/")
+  // 符号链接解析：限域目录内的 symlink 可能指向域外文件，
+  // 仅 path.resolve 不解链接会造成越权写入。已存在文件解析自身，
+  // 新文件退化为解析父目录的真实路径再拼回文件名。
+  try {
+    absTarget = fs.realpathSync(absTarget).replace(/\\/g, "/")
+  } catch (_) {
+    try {
+      var parentReal = fs.realpathSync(path.dirname(absTarget)).replace(/\\/g, "/")
+      absTarget = parentReal + "/" + path.basename(absTarget)
+    } catch (_) { /* 父目录也不存在，按原路径匹配 */ }
+  }
 
   for (var i = 0; i < allowedPatterns.length; i++) {
     var p = allowedPatterns[i]
@@ -198,6 +261,9 @@ function isFileInAllowedPaths(targetFile, allowedPatterns, reposOrStoryId) {
 
     var repoRoot = reposConfig.repos[repoName]
     if (!repoRoot) continue
+    // 仓库根同样解析符号链接：目标侧已 realpath（如 macOS /var → /private/var），
+    // 两侧必须处于同一真实路径空间，否则限域内文件会被误判为越界
+    try { repoRoot = fs.realpathSync(repoRoot) } catch (_) { /* 根目录不可解析时按原值 */ }
 
     // src/** 通配：匹配该仓库 src/ 下任意文件
     if (pattern === 'src/**') {
@@ -258,7 +324,7 @@ if (passFile && Array.isArray(passFile.allowedPaths) && passFile.allowedPaths.le
 
     console.log(JSON.stringify({
       continue: false,
-      stopReason: "File " + deniedFile + " not in dev-pass scope. Allowed: " + passFile.allowedPaths.join(", "),
+      stopReason: "File " + deniedFile + " not in dev-pass scope. Allowed: " + formatAllowedPaths(passFile.allowedPaths),
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',
         permissionDecision: 'deny',

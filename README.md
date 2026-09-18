@@ -290,11 +290,14 @@ Git 提交 / push / 创建 MR 等外部动作沿用当前会话已有授权；�
 
 编辑类操作前置校验（PreToolUse），不合规的写入直接被拦截：
 
-- **enforce-state-file.js** — 状态文件守卫：工作流进行中保护 e2e-state.json 等内部状态不被误改
-- **enforce-dev-pass.js** — 开发门控：无有效 dev-pass 或写入超出限域文件清单时拦截源码编辑
+- **enforce-state-file.js** — 状态文件守卫：工作流进行中保护 e2e-state.json 等内部状态不被误改（文件工具与 shell 双通道）
+- **enforce-dev-pass.js** — 开发门控：无有效 dev-pass 或写入超出限域文件清单时拦截源码编辑（文件工具与 shell 双通道，shell 命令中的重定向 / sed -i / tee 等写 src/ 行为一并校验）
 - **enforce-artifact.js** — 产出物契约：按 Phase 检查必备产出物存在性
 - **session-start.js / session-stop.js** — 会话恢复与清理：新会话自动恢复工作流状态，Stop 时落盘
 - **trace-command.js** — 命令审计：记录命令 / Agent / Skill / MCP 调用轨迹，供 harness-evolve 度量分析
+
+另有两条输入侧安全约束：storyId 须以字母/数字开头、仅含字母数字与 `-_`（最长 64 字符），
+在 schema 与状态脚本双层强制；shell 命令一律走数组参数执行，不经 shell 字符串拼接。
 
 另有：`kb-query` 的 skill 描述直接声明自动触发场景（涉及业务模块、改代码、查实现等场景先查知识库）；`output-styles/harness.md` 提供表格化汇报、结构化 blocker 列表并禁止泄露内部状态文件路径。
 
@@ -369,6 +372,7 @@ kb-query 在缺少知识库或索引损坏时，报告原因并使用 Git 文件
 | 报 `Cannot find module 'ajv'` | 确认 `plugins/fsflow/vendor/ajv.bundle.js` 存在，`git pull` 同步（**不要** `npm install`） |
 | 报 `e2e-state.json 不存在` | 冷启动场景：先说「做个需求」走 harness-start 建流，或按 terminal 恢复命令执行 restore 复档 |
 | dev-pass 拦截了源码编辑 | 正常行为——确认当前处于 Phase 2 且目标文件在 task-dag.json 的 `files[]` 限域内；开发未完成但 pass 过期用 `--renew-pass` 续签 |
+| 报 `非法 storyId` | storyId 须以字母/数字开头，仅含字母、数字、`-`、`_`（最长 64 字符）；storyId 会拼入文件路径与命令参数，含路径分隔符或 shell 元字符会被拒绝 |
 | 新 clone 提交时知识 hook 没有触发 | Git hook 不随 Git 仓库同步；在该 clone 执行 `node .docs/llm-knowledge/tools/fsflow-kb/commands/kb-maintenance.js install --hooks` |
 | 项目已使用 Husky / 自定义 `core.hooksPath` | 不覆盖现有 hook；按安装指南把 `check --staged` 命令接入现有 `pre-commit` |
 | GitLab 知识检查提示只运行了源分支流水线 | 为目标分支启用 merged results pipeline 或 merge train，使检查针对候选合并提交执行 |

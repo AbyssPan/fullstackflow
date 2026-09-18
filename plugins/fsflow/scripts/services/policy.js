@@ -35,7 +35,7 @@
 
 const fs = require('fs')
 const path = require('path')
-const { execSync } = require('child_process')
+const { execSync, execFileSync } = require('child_process')
 const {
   PLANS_DIR,
   checkPhaseArtifact,
@@ -1366,10 +1366,13 @@ function runIncrementalLint (repoRoot, files) {
   if (!fs.existsSync(path.join(repoRoot, 'node_modules', 'eslint'))) {
     return { hasErrors: false, details: '', skipped: true }
   }
-  const args = files.map(f => `"${f}"`).join(' ')
   let output = ''
   try {
-    output = execSync(`npx eslint ${args} --format compact`, {
+    // 直接以 node 跑 eslint 的 JS 入口（数组参数不过 shell）：
+    // git 文件名可能含 $( ) 等 shell 元字符，拼进 execSync 命令串会被展开执行；
+    // 不走 npx 也顺带避开 Windows 下 npx.cmd 必须 shell:true 的转义回退问题。
+    const eslintBin = path.join(repoRoot, 'node_modules', 'eslint', 'bin', 'eslint.js')
+    output = execFileSync(process.execPath, [eslintBin, ...files, '--format', 'compact'], {
       cwd: repoRoot,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],

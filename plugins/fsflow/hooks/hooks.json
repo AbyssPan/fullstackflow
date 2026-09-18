@@ -20,7 +20,7 @@
         }]
       },
       {
-        "matcher": "write_to_file|replace_in_file|apply_patch|Write|Edit",
+        "matcher": "write_to_file|replace_in_file|apply_patch|Write|Edit|MultiEdit|execute_command|Bash",
         "hooks": [{
           "type": "command",
           "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/enforce-dev-pass.js",

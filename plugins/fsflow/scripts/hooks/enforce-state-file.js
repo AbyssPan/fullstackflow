@@ -28,9 +28,10 @@
  *   - 设计: fail-closed — 默认拒绝，只放行显式允许的操作。
  *   - 受保护文件: e2e-state.json、dev-pass.json（匹配规则: 路径位于 .codebuddy/plans/ 下且文件名精确命中）。
  *   - 唯一授权改写者（AUTHORIZED_SCRIPTS）: advance-phase.js / create-workflow.js / archive-story.js / harness-workflow.js。
- *     命令中命中上述脚本名即放行，这是推进 Phase 的正常路径。
+ *     仅当命令段以 node 实际调用上述脚本时放行该段（substring 匹配脚本名不算，防止注释/拼接绕过）；
+ *     剔除授权段后，剩余命令段仍命中写模式则拒绝。
  *   - shell 通道采用「写意图白名单的反面」判定: 命令未提及受保护文件放行；命中 WRITE_PATTERNS
- *     （重定向、writeFileSync/appendFileSync/createWriteStream、sed -i、rm/mv/cp/del/move/copy、tee、Set-Content/Add-Content/Out-File）则拒绝；
+ *     （重定向、writeFileSync/writeFile/appendFileSync/createWriteStream、sed -i、perl -i、rm/mv/cp/rsync/dd of=、tee、Set-Content 等）则拒绝；
  *     其余（cat、grep、jq 等只读查询）放行，避免误伤正常的状态查看。
  *   - 文件工具通道拦截工具: Write / Edit / write_to_file / replace_in_file；filePath 为空时放行。
  *   - recordFailure.failureType = 'state_file_violation'。
@@ -118,8 +119,24 @@ if (bashTools.includes(toolName)) {
     process.exit(0)
   }
 
-  // 命令是在调用授权脚本 → 放行（这是推进 Phase 的正常路径）
-  if (AUTHORIZED_SCRIPTS.some(s => command.includes(s))) {
+  // 授权判定：必须是「命令段以 node 调用授权脚本」，而非命令中任意位置出现脚本名。
+  // 旧实现用 substring includes，`echo x > e2e-state.json # advance-phase.js` 注释即可绕过。
+  const scriptAlt = AUTHORIZED_SCRIPTS.map(s => s.replace(/\./g, '\\.')).join('|')
+  const authorizedInvokeRe = new RegExp(
+    '(?:^|[;&|]\\s*)' +          // 命令段开头（; && || | 分隔）
+    '(?:\\S*?node(?:\\.exe)?)' + // node 可带路径
+    '\\s+' +
+    '[\'"]?\\S*(?:' + scriptAlt + ')[\'"]?' +
+    '(?=\\s|$)'
+  )
+  // 把授权调用段从命令中剔除后，再检查剩余段是否仍对受保护文件有写意图，
+  // 防止 `node advance-phase.js S 2; echo x > e2e-state.json` 这种拼接绕过。
+  const residual = command
+    .split(/;|&&|\|\||\|/)
+    .filter(seg => seg.trim() && !authorizedInvokeRe.test(seg.trim()))
+    .join(';')
+  const residualMentioned = PROTECTED_FILES.find(pf => residual.includes(pf))
+  if (!residualMentioned) {
     console.log(JSON.stringify({ continue: true }))
     process.exit(0)
   }
@@ -128,15 +145,18 @@ if (bashTools.includes(toolName)) {
   // 说明: 采用白名单判定写意图的反面——命中任一写模式即拒绝，
   //       其余（读取、grep、jq 查询）放行，避免误伤正常的状态查看。
   const WRITE_PATTERNS = [
-    />\s*[^|]*(?:e2e-state|dev-pass)/i,        // 重定向: echo x > e2e-state.json
-    /writeFileSync|appendFileSync|createWriteStream/i, // node fs 写入
-    /\bsed\b[^|]*-i/i,                          // sed -i 原地编辑
-    /\b(?:rm|mv|cp|del|move|copy)\b/i,          // 删除/移动/覆盖
+    />+\s*[^|]*(?:e2e-state|dev-pass)/i,        // 重定向: echo x > e2e-state.json / 2> / >>
+    /writeFileSync|appendFileSync|createWriteStream/i, // node fs 同步写入
+    /\.\s*writeFile\s*\(|promises\s*\.\s*(?:writeFile|appendFile)/i, // node fs 异步 / promises 写入
+    /\bsed\b[^|]*\s-i\b/i,                      // sed -i 原地编辑
+    /\bperl\b[^|]*\s-[a-zA-Z]*i/i,              // perl -i / -pi 原地编辑
+    /\b(?:rm|mv|cp|del|move|copy|rsync|install)\b/i, // 删除/移动/覆盖
+    /\bdd\b[^|]*\bof=/i,                        // dd of= 写文件
     /\btee\b/i,                                 // tee 写入
     /Set-Content|Add-Content|Out-File/i         // PowerShell 写入
   ]
 
-  const hitPattern = WRITE_PATTERNS.find(p => p.test(command))
+  const hitPattern = WRITE_PATTERNS.find(p => p.test(residual))
   if (!hitPattern) {
     console.log(JSON.stringify({ continue: true }))
     process.exit(0)

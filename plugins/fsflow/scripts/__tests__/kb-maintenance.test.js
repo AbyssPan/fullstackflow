@@ -33,6 +33,10 @@ try {
     assert(!fs.existsSync(path.join(root, '.docs/llm-knowledge/maintenance')))
   })
   record('domain:order'); record('domain:user'); record('common')
+  test('Receipt files use readable hyphenated scope names', () => {
+    assert(fs.existsSync(path.join(root, '.docs/llm-knowledge/maintenance/domain-order.json')))
+    assert(!fs.readdirSync(path.join(root, '.docs/llm-knowledge/maintenance')).some(f => f.includes('%')))
+  })
   test('Reviewed baseline passes in working tree and staged snapshot', () => {
     assert(kb.check(root, { strict: true }).passed)
     git('add', '.')

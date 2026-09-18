@@ -56,7 +56,7 @@ try {
       const changed = f.stamp ? !stat || JSON.stringify(f.stamp) !== JSON.stringify([stat.size, stat.mtimeMs, stat.ctimeMs, stat.ino]) : null
       return { path: f.path, domains, exists, sourceChangedSinceScan: changed,
         knowledgeStatus: domains.map(id => {
-          const receipt = path.join(root, KB_DIR, 'maintenance', encodeURIComponent('domain:' + id) + '.json')
+          const receipt = path.join(root, KB_DIR, 'maintenance', 'domain-' + id + '.json')
           try { const s = JSON.parse(fs.readFileSync(receipt, 'utf8')); return { domain: id, status: s.status, reason: s.reason, freshness: 'verify-sources-before-use' } }
           catch (_) { return { domain: id, status: 'unverified' } }
         }),

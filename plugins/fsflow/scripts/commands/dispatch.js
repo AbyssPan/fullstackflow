@@ -46,7 +46,7 @@
  *     门控已通过的推进分支不预构造下一 Phase prompt，推进后重新 dispatch。
  *   - 冷启动处理: 状态文件不存在时不再静默失败，而是返回 terminal + 创建工作流的 recovery 命令，
  *     避免 Phase 0 之前无法调度的死锁。
- *   - 三态互斥且穷尽（ready / blocked / fix_loop / terminal），主 Agent 按 status 分支，不做任何自行判断。
+ *   - 四态互斥且穷尽（ready / blocked / fix_loop / terminal），主 Agent 按 status 分支，不做任何自行判断。
  *   - module.exports = { dispatch }: 当前无其他脚本 require，主要作为 CLI 被 harness-conductor
  *     三步循环的 Step 1 调用；导出保留供后续编排层复用。
  *

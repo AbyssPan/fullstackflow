@@ -79,7 +79,7 @@ function basePackage (files, configured) {
   if (role >= 0) base = base.slice(0, role)
   // Retain the common application package when it has business-package children.
   const children = packages.map(p => p[base.length]).filter(Boolean)
-  if (base.length >= 3 && children.length && children.every(p => NOISE.has(p.toLowerCase())) && !['app', 'demo', 'application'].includes(base.at(-1))) base = base.slice(0, -1)
+  if (base.length >= 3 && children.length && children.every(p => NOISE.has(p.toLowerCase())) && !['app', 'demo', 'application'].includes(base[base.length - 1])) base = base.slice(0, -1)
   return base.join('.')
 }
 

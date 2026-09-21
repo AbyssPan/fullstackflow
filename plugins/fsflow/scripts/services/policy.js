@@ -1348,27 +1348,28 @@ function checkContractRegression (storyId) {
  */
 function getChangedFiles (repoRoot) {
   try {
-    const out = execSync('git status --porcelain', {
+    const out = execFileSync('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all'], {
       cwd: repoRoot,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
       timeout: 30000,
-      // maxBuffer 必须显式放大：Node 默认 1MB。正常仓库远达不到，但 .gitignore 一旦失效
-      // 就会被轻易打满（本项目实测发生过两次：构建产物未忽略、.eslintrc-auto-import.json 被跟踪）。
-      // 溢出抛 ENOBUFS → 旧实现静默 return [] → 门控认为「没有变更文件」从而完全跳过增量 lint，
-      // 这是比误报更危险的静默放行。
       maxBuffer: 64 * 1024 * 1024
     })
-    return out.split('\n')
-      .map(l => l.trim())
-      .filter(Boolean)
-      .map(l => {
-        const p = l.replace(/^\S+\s+/, '')
-        // 重命名 "old -> new" 取新路径
-        return p.includes(' -> ') ? p.split(' -> ')[1] : p
-      })
-      .map(p => p.replace(/^"|"$/g, ''))
-      .filter(p => !p.endsWith('/'))
+    // NUL 分隔保留空格、中文和换行；rename/copy 的第二个字段为旧路径。
+    const entries = out.split('\0')
+    const files = []
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i]
+      if (!entry) continue
+      const status = entry.slice(0, 2)
+      const file = entry.slice(3)
+      if (/[RC]/.test(status)) i++
+      // 删除文件和子模块目录无法 lint；新增目录中的文件已由 --untracked-files=all 展开。
+      try {
+        if (fs.statSync(path.join(repoRoot, file)).isFile()) files.push(file)
+      } catch {}
+    }
+    return files
   } catch (e) {
     // 「非 git 仓库」是预期情况，静默即可；其余异常必须可见 ——
     // 否则采集失败与「确实没有变更」不可区分，门控会静默退化为放行。
@@ -1390,41 +1391,28 @@ function runIncrementalLint (repoRoot, files) {
   if (!fs.existsSync(path.join(repoRoot, 'node_modules', 'eslint'))) {
     return { hasErrors: false, details: '', skipped: true }
   }
-  let output = ''
+  const eslintBin = path.join(repoRoot, 'node_modules', 'eslint', 'bin', 'eslint.js')
   try {
-    // 直接以 node 跑 eslint 的 JS 入口（数组参数不过 shell）：
-    // git 文件名可能含 $( ) 等 shell 元字符，拼进 execSync 命令串会被展开执行；
-    // 不走 npx 也顺带避开 Windows 下 npx.cmd 必须 shell:true 的转义回退问题。
-    const eslintBin = path.join(repoRoot, 'node_modules', 'eslint', 'bin', 'eslint.js')
-    output = execFileSync(process.execPath, [eslintBin, ...files, '--format', 'compact'], {
+    // 使用内置 stylish formatter，避免依赖已被移除的 compact；文件名不经 shell 解释。
+    execFileSync(process.execPath, [eslintBin, '--format', 'stylish', '--', ...files], {
       cwd: repoRoot,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
       timeout: 180000,
-      // maxBuffer 必须显式放大，且此处比 build 更隐蔽：eslint 有 error 时以非 0 退出，
-      // 所以下方 catch 是「正常路径」，1MB 溢出不会引起任何怀疑 —— e.stdout 只剩被截断的
-      // 前 1MB，超出部分的 Error 被静默丢弃，门控就会放行带 lint error 的代码。
-      // compact 格式约 80~150 B/行，1MB ≈ 7000~12000 条消息。
       maxBuffer: 64 * 1024 * 1024
     })
+    return { hasErrors: false, details: '', skipped: false }
   } catch (e) {
-    output = String(e.stdout || e.stderr || e.message || '')
-    // ENOBUFS 表示输出被截断，此时「没扫到 Error」的结论不成立（缺证据，而非有反证）。
-    // 与 runBuildCheck 相反，这里必须 fail-closed：build 的溢出有 exit 0 作为成功证据，
-    // lint 的溢出什么证据都没有，静默放行的代价远高于让人手动复核一次。
-    if (e && (e.code === 'ENOBUFS' || /maxBuffer/i.test(String(e.message || '')))) {
-      return {
-        hasErrors: true,
-        details: `eslint 输出超过 maxBuffer(64MB)，结果不完整，无法确认是否存在 error。\n仓库: ${repoRoot}\n请手动复核: npx eslint <变更文件> --format compact`,
-        skipped: false
-      }
+    // 非零退出、超时、输出超限都不是成功证据，不能靠匹配 formatter 文案决定放行。
+    const output = [e.stdout, e.stderr, e.message].filter(Boolean).join('\n')
+    const overflow = e.code === 'ENOBUFS' || /maxBuffer/i.test(String(e.message || ''))
+    return {
+      hasErrors: true,
+      details: overflow
+        ? `eslint 输出超过 maxBuffer(64MB)，结果不完整，请在 ${repoRoot} 手动复核变更文件`
+        : output.split('\n').filter(line => line.trim()).slice(-25).join('\n'),
+      skipped: false
     }
-  }
-  const errorLines = output.split('\n').filter(l => /:\s*line\s+\d+,\s*col\s+\d+,\s*Error\s+-/i.test(l))
-  return {
-    hasErrors: errorLines.length > 0,
-    details: errorLines.slice(0, 10).join('\n'),
-    skipped: false
   }
 }
 
@@ -1505,11 +1493,11 @@ function runBuildCheck (repoRoot) {
     })
     return { ok: true, details: '', command, skipped: false }
   } catch (e) {
-    // ENOBUFS 单独识别：它表示输出超限而非编译失败，不应判定为 build 失败
+    // 输出超限可能终止子进程，无法证明构建成功，必须阻止推进并要求复核。
     if (e && (e.code === 'ENOBUFS' || /maxBuffer/i.test(String(e.message || '')))) {
       return {
-        ok: true,
-        details: '',
+        ok: false,
+        details: '构建输出超过 maxBuffer(64MB)，无法确认构建成功；请减少构建日志后重新验证',
         command,
         skipped: false,
         bufferOverflow: true

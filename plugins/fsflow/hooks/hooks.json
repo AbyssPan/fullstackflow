@@ -5,17 +5,17 @@
       {
         "hooks": [{
           "type": "command",
-          "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-start.js",
+          "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-start.js\"",
           "timeout": 30
         }]
       }
     ],
     "PreToolUse": [
       {
-        "matcher": "write_to_file|replace_in_file|apply_patch|Write|Edit|execute_command|Bash",
+        "matcher": "write_to_file|replace_in_file|apply_patch|Write|Edit|MultiEdit|execute_command|Bash",
         "hooks": [{
           "type": "command",
-          "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/enforce-state-file.js",
+          "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/enforce-state-file.js\"",
           "timeout": 5
         }]
       },
@@ -23,15 +23,15 @@
         "matcher": "write_to_file|replace_in_file|apply_patch|Write|Edit|MultiEdit|execute_command|Bash",
         "hooks": [{
           "type": "command",
-          "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/enforce-dev-pass.js",
+          "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/enforce-dev-pass.js\"",
           "timeout": 10
         }]
       },
       {
-        "matcher": "write_to_file|replace_in_file|apply_patch|Write|Edit",
+        "matcher": "write_to_file|replace_in_file|apply_patch|Write|Edit|MultiEdit",
         "hooks": [{
           "type": "command",
-          "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/enforce-artifact.js",
+          "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/enforce-artifact.js\"",
           "timeout": 10
         }]
       }
@@ -41,7 +41,7 @@
         "matcher": "execute_command|Bash|Agent|Skill|use_skill|mcp__",
         "hooks": [{
           "type": "command",
-          "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/trace-command.js",
+          "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/trace-command.js\"",
           "timeout": 5
         }]
       }
@@ -50,7 +50,7 @@
       {
         "hooks": [{
           "type": "command",
-          "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-stop.js",
+          "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-stop.js\"",
           "timeout": 10
         }]
       }

@@ -72,7 +72,7 @@ const filePath = patchPaths.find(isStateFile) || toolInput.filePath || toolInput
 const fileContent = patchText || toolInput.content || toolInput.new_str || ''
 
 // 只处理文件写入/编辑工具
-const writeTools = ['write_to_file', 'replace_in_file', 'apply_patch', 'Write', 'Edit']
+const writeTools = ['write_to_file', 'replace_in_file', 'apply_patch', 'Write', 'Edit', 'MultiEdit']
 if (!writeTools.includes(toolName)) {
   console.log(JSON.stringify({ continue: true }))
   process.exit(0)

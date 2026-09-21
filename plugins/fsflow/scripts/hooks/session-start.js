@@ -4,7 +4,7 @@
  *
  * 职责:
  *   - 扫描 .codebuddy/plans/ 下所有 Story 的 e2e-state.json，找出活跃工作流
- *   - 执行门控验证、汇总未解决确认项，并注入上轮产出物摘要 / 经验教训 / 契约文件清单
+ *   - 汇总未解决确认项并指引通过 dispatch 重新验证门控，并注入上轮产出物摘要 / 经验教训 / 契约文件清单
  *   - 输出 additionalContext，让新会话无需回放完整对话历史即可接续工作
  *
  * 用法:
@@ -23,7 +23,7 @@
  * 说明:
  *   - 功能清单:
  *       1. 扫描 .codebuddy/plans/ 子目录下的 e2e-state.json（新版 Story 目录结构）
- *       2. 对每个活跃的工作流执行门控验证脚本（services/validate-phase-gate）
+ *       2. 指引恢复后调用 dispatch.js，以当前生效门控决定下一步
  *       3. 检查 open-questions.json 是否有未解决项
  *       4. 加载最新 Phase summary（上轮产出物摘要）替代完整对话历史
  *       5. 注入经验教训（历史失败模式提醒）
@@ -34,9 +34,7 @@
  *   - @module session-start-hook
  */
 
-const fs = require('fs')
 const path = require('path')
-const { execFileSync } = require('child_process')
 
 // ─── 引入公共模块 ──────────────────────────────────────────────
 
@@ -44,46 +42,10 @@ const hookUtils = require(path.join(__dirname, '..', 'lib', 'state'))
 const contextRefresh = require(path.join(__dirname, '..', 'services', 'context-refresh'))
 const experience = require(path.join(__dirname, '..', 'services', 'experience'))
 
-/** 项目根目录 / plans 目录 — 复用 lib/state.js 单一信源（已归一化 Git Bash 风格路径） */
-const PROJECT_ROOT = hookUtils.PROJECT_ROOT
-const PLANS_DIR = hookUtils.PLANS_DIR
-
-/** 验证脚本路径 — 服务层 services/ 目录 */
-const GATE_SCRIPT = path.join(__dirname, '..', 'services', 'validate-phase-gate')
-
-/**
- * 执行门控验证脚本
- * @param {string} storyId - Story ID
- * @param {number} targetPhase - 目标 Phase
- * @returns {Object|null} 验证结果，脚本不存在时返回 null
- */
-function runGateValidation (storyId, targetPhase) {
-  if (!fs.existsSync(GATE_SCRIPT)) {
-    return null
-  }
-  try {
-    // execFileSync 数组参数：storyId 不经 shell 解释，杜绝经 storyId 的命令注入
-    const result = execFileSync(
-      process.execPath,
-      [GATE_SCRIPT, String(storyId), String(targetPhase)],
-      { encoding: 'utf-8', timeout: 30000, stdio: ['pipe', 'pipe', 'pipe'] }
-    )
-    return JSON.parse(result)
-  } catch (e) {
-    // 验证脚本退出码非 0 表示验证失败
-    const output = e.stdout || ''
-    try {
-      return JSON.parse(output)
-    } catch {
-      return { pass: false, blockers: [e.stderr || e.message], warnings: [] }
-    }
-  }
-}
-
 /**
  * 构建注入到 Agent 上下文的 additionalContext 文本
  * 包含：工作流状态、上轮摘要、经验教训、契约文件清单
- * @param {Array<{storyId: string, state: Object, gateResult: Object|null, unresolved: Array}>} workflowResults
+ * @param {Array<{storyId: string, state: Object, unresolved: Array}>} workflowResults
  * @returns {string} 上下文文本
  */
 function buildAdditionalContext (workflowResults) {
@@ -94,7 +56,7 @@ function buildAdditionalContext (workflowResults) {
   const lines = []
 
   for (const wf of workflowResults) {
-    const { storyId, state, gateResult, unresolved } = wf
+    const { storyId, state, unresolved } = wf
 
     lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
     lines.push(`⚡ 工作流恢复: Story ${storyId}`)
@@ -142,24 +104,10 @@ function buildAdditionalContext (workflowResults) {
       lines.push(`   - apiSpecConfirmed: ${state.gateChecks.apiSpecConfirmed ? '✅ 已确认' : '❌ 未确认'}`)
     }
 
-    // ── 门控验证结果 ────────────────────────────────────────
-    if (gateResult) {
-      lines.push('')
-      if (gateResult.pass) {
-        lines.push(`✅ 门控验证通过: 可以从 Phase ${state.phase} 推进`)
-      } else {
-        lines.push(`❌ 门控验证失败 — 以下项目阻断推进:`)
-        for (const blocker of gateResult.blockers) {
-          lines.push(`   ⛔ ${blocker}`)
-        }
-        if (gateResult.warnings && gateResult.warnings.length > 0) {
-          lines.push(`⚠️ 警告:`)
-          for (const w of gateResult.warnings) {
-            lines.push(`   - ${w}`)
-          }
-        }
-      }
-    }
+    // 启动只恢复快照，避免调用废弃校验器，或在 Hook 超时窗口内重复运行 lint/build。
+    lines.push('')
+    lines.push('门控尚未重新验证；先执行以下调度命令，再按其结果继续：')
+    lines.push(`node "\${CLAUDE_PLUGIN_ROOT}/scripts/commands/dispatch.js" ${storyId}`)
 
     // ── Gap B: 经验教训注入 ────────────────────────────────
     const lessons = experience.getLessonsForPhase(state.phase)
@@ -197,31 +145,12 @@ function buildAdditionalContext (workflowResults) {
   lines.push('1. open-questions.json 中存在 resolved=false → 禁止推进到 Phase 1')
   lines.push('2. 主 Agent 不亲自编写代码 → 必须 spawn 专用 Agent 执行')
   lines.push('3. 禁止直接写/改 e2e-state.json 和 dev-pass.json → 状态机由 advance-phase.js 独占维护')
-  lines.push('4. 推进 Phase → 必须执行 node ${CLAUDE_PLUGIN_ROOT}/scripts/commands/advance-phase.js <storyId> <targetPhase>')
+  lines.push('4. 推进 Phase → 必须执行 node "${CLAUDE_PLUGIN_ROOT}/scripts/commands/advance-phase.js" <storyId> <targetPhase>')
   lines.push('5. 子 Agent 中断或未落盘产出物 → 重新 dispatch/重派对应 Agent 或转人工，禁止主 Agent 接管该 Phase 的实质工作、跑测试/编译或手写产出物')
   lines.push('')
-  lines.push('如果门控验证失败 → 向用户报告 blockers，等待用户解决，不可自行推进')
+  lines.push('恢复后先执行 dispatch.js，按 ready / fix_loop / blocked / terminal 四态处理，不依据恢复快照自行推进')
 
   return lines.join('\n')
-}
-
-/**
- * 读取 stdin 全部内容（Windows 兼容）
- * @returns {string} stdin 内容
- */
-function readStdin () {
-  try {
-    const buf = Buffer.alloc(65536)
-    const fd = fs.openSync(process.stdin.fd, 'r')
-    const bytesRead = fs.readSync(fd, buf, 0, 65536, null)
-    fs.closeSync(fd)
-    if (bytesRead > 0) {
-      return buf.toString('utf-8', 0, bytesRead)
-    }
-    return ''
-  } catch (e) {
-    return ''
-  }
 }
 
 // ─── Hook 入口 ──────────────────────────────────────────────────────
@@ -233,7 +162,7 @@ function readStdin () {
 function main () {
   let inputData = {}
   try {
-    const stdinData = readStdin()
+    const stdinData = hookUtils.readStdin()
     if (stdinData.trim()) {
       inputData = JSON.parse(stdinData)
     }
@@ -244,10 +173,8 @@ function main () {
   // 扫描活跃工作流（复用 hook-utils 的新版路径逻辑）
   const activeWorkflows = hookUtils.findActiveWorkflows()
 
-  // 对每个活跃工作流执行门控验证 + 提取未解决确认项
+  // 为每个活跃工作流提取未解决确认项
   const workflowResults = activeWorkflows.map(wf => {
-    const targetPhase = wf.state.phase + 1
-    const gateResult = runGateValidation(wf.storyId, targetPhase)
     // 从 open-questions.json 读取未解决确认项（单一数据源）
     const oqCheck = hookUtils.checkOpenQuestions(wf.storyId)
     const unresolved = (oqCheck.exists && !oqCheck.allResolved)
@@ -257,7 +184,6 @@ function main () {
     return {
       storyId: wf.storyId,
       state: wf.state,
-      gateResult,
       unresolved
     }
   })

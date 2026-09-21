@@ -1111,7 +1111,7 @@ if (targetPhase === 3) {
     for (const repoName of involvedRepos) {
       const repoRoot = getRepoRoot(repoName, repos)
       try {
-        execSync('npx eslint src/ --fix --format compact 2>&1', {
+        execSync('npx eslint src/ --fix --format stylish 2>&1', {
           cwd: repoRoot, timeout: 30000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe']
         })
         console.log(`  ✓ eslint --fix 完成 (${repoName})`)

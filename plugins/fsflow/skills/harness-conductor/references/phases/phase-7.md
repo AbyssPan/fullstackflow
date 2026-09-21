@@ -42,8 +42,8 @@ node $HARNESS/harness-workflow.js end
 ## 本 Phase 才暴露的一类错误
 
 Phase 2→3 的编译校验默认关闭，因此 **SCSS / 模板编译错误会一路漂到这里**才被云端构建拦住
-（该场景仅存在于前端项目——后端项目在本 Phase 不触发任何构建，Java 编译错误在
-Phase 2→3 门控的 `runBackendCompileCheck` 即被拦截）。遇到这种情况：
+（后端项目在本 Phase 不触发构建；只有显式设置 `HARNESS_RUN_BUILD=1`，Java 编译错误才会在
+Phase 2→3 被本地门控拦截，否则仍需由项目 CI/CD 验证）。遇到这种情况：
 
 1. 不要在本 Phase 修代码 —— `src/` 此时无 dev-pass，hook 会拒绝
 2. 走 `node $HARNESS/advance-phase.js <storyId> 2 --rollback` 回退到开发

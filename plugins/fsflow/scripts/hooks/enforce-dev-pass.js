@@ -40,7 +40,7 @@
  *     非 src/ 目标直接放行。
  *   - allowedPaths 统一为 { repo, path } 对象数组，按 multi-repo 配置的仓库根解析为绝对路径后匹配；
  *     无通配符的目录型 pattern 按目录前缀匹配，含通配符的 pattern 转为 glob 正则匹配（statSync 失败则降级为正则）。
- *   - dev-pass 撤销双保险: Phase 2→3（主）+ Phase 4→5（兜底）；currentPhase > 2 时即便 dev-pass 文件有效也拒绝。
+ *   - dev-pass 撤销双保险: Phase 2→3（主）+ Phase 4→5（兜底）；currentPhase !== 2 时即便 dev-pass 文件有效也拒绝。
  *   - 拒绝事件通过 hookSpecificOutput.recordFailure 携带结构化失败信息（failureType / rootCause / resolution），
  *     供 session-stop.js 从 trace.jsonl 读取并沉淀到经验库。
  *   - recordFailure.failureType 取值: dev_pass_missing / dev_pass_expired / dev_pass_scope_violation。
@@ -112,8 +112,13 @@ if (srcFilePaths.length === 0) { console.log(JSON.stringify({ continue: true }))
 
 const harnessFlag = path.join(PLANS_DIR, '.harness-active')
 let harnessActive = false
+let activeStoryId = null
 if (fs.existsSync(harnessFlag)) {
-  try { const flag = JSON.parse(fs.readFileSync(harnessFlag, 'utf-8')); harnessActive = flag.active === true } catch {}
+  try {
+    const flag = JSON.parse(fs.readFileSync(harnessFlag, 'utf-8'))
+    harnessActive = flag.active === true
+    activeStoryId = flag.storyId || null
+  } catch {}
 }
 
 if (!harnessActive) {
@@ -121,7 +126,7 @@ if (!harnessActive) {
   process.exit(0)
 }
 
-const devPass = checkDevPass()
+const devPass = checkDevPass(activeStoryId)
 
 if (!devPass.valid) {
   // 写入 trace 记录 Hook 拒绝事件
@@ -156,7 +161,7 @@ if (!devPass.valid) {
 
 // 🔴 CCHF v5: 即使 dev-pass 文件有效，也需校验当前 phase 是否仍是 Phase 2
 // dev-pass 撤销双保险：Phase 2→3（主） + Phase 4→5（兜底）
-// Phase 3+ 时 dev-pass 应已失效，但防止过期 dev-pass.json 残留导致非法编辑
+// 所有非 Phase 2 状态（含状态不可读）都拒绝，防止残留 dev-pass 越过开发窗口
 var currentPhase = -1
 if (devPass.valid && devPass.storyId) {
   try {
@@ -165,10 +170,10 @@ if (devPass.valid && devPass.storyId) {
       var state = JSON.parse(fs.readFileSync(statePath, 'utf-8'))
       currentPhase = (state.phase !== undefined && state.phase !== null) ? state.phase : -1
     }
-  } catch (e) { /* 无法读取 state，降级为仅检查 dev-pass 文件 */ }
+  } catch (e) { /* 无法读取 state 时保留 -1，拒绝编辑 */ }
 }
 
-if (currentPhase > 2) {
+if (currentPhase !== 2) {
   // 写入 trace 记录 Hook 拒绝事件
   trace.appendTrace(devPass.storyId || null, {
     type: 'hook_rejection',

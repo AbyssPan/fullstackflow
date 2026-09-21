@@ -11,7 +11,7 @@ allowed-tools: Bash
 执行：
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/commands/harness-workflow.js end
+node "${CLAUDE_PLUGIN_ROOT}/scripts/commands/harness-workflow.js" end
 ```
 
 转述脚本结果。此命令只清理当前激活标记，不替代 Story 归档。

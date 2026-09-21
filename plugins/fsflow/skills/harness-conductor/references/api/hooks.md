@@ -8,9 +8,9 @@
 | Hook | 事件 | matcher | 超时 |
 |------|------|---------|------|
 | `session-start.js` | SessionStart | — | 30s |
-| `enforce-state-file.js` | PreToolUse | `write_to_file\|replace_in_file\|apply_patch\|Write\|Edit\|execute_command\|Bash` | 5s |
-| `enforce-dev-pass.js` | PreToolUse | `write_to_file\|replace_in_file\|apply_patch\|Write\|Edit` | 10s |
-| `enforce-artifact.js` | PreToolUse | 同上 | 10s |
+| `enforce-state-file.js` | PreToolUse | `write_to_file\|replace_in_file\|apply_patch\|Write\|Edit\|MultiEdit\|execute_command\|Bash` | 5s |
+| `enforce-dev-pass.js` | PreToolUse | `write_to_file\|replace_in_file\|apply_patch\|Write\|Edit\|MultiEdit\|execute_command\|Bash` | 10s |
+| `enforce-artifact.js` | PreToolUse | `write_to_file\|replace_in_file\|apply_patch\|Write\|Edit\|MultiEdit` | 10s |
 | `trace-command.js` | PostToolUse | `execute_command\|Bash\|Agent\|Skill\|use_skill\|mcp__` | 5s |
 | `session-stop.js` | Stop | — | 10s |
 
@@ -51,7 +51,8 @@
 ## session-start.js — 断点恢复
 
 对话启动时：恢复断点 + 加载最近的 `phase-N-summary.md` + 注入历史教训 + 输出契约清单。
-这是新会话能接着上轮继续的原因，不需要主 Agent 主动读任何状态文件。
+只恢复快照，不调用旧版门控校验器，也不在启动 Hook 中运行构建；恢复后先执行 `dispatch.js` 重新判定门控。
+主 Agent 无需自行读取或修改状态文件。
 
 ## session-stop.js — 收尾清理
 
@@ -63,5 +64,5 @@
 命令 / Agent / Skill / MCP 调用后自动写 `trace.jsonl`。
 工具调用记录仅用于使用统计，不能据此判定缺少源码验证；影响面证据由 Phase 3 审查。
 
-⚠️ 子 Agent 的 tool_call 不会写进主流程的 `trace.jsonl` —— 这是 Figma MCP 消费检查
-被移除的原因，也是 kb-query 检查只给 WARNING 不给 BLOCKER 的原因。
+子 Agent 的调用轨迹可能不完整，因此不以 Figma MCP 或 kb-query 的调用次数判定交付质量；
+是否验证源码、覆盖影响面，由实际产出物和审查证据判断。

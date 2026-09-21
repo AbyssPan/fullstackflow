@@ -45,10 +45,11 @@ Phase 4→5: 脚本自动兜底撤销（防 fix-loop 残留，幂等）
 | 未检测到未提交变更 | WARNING | — |
 | 编译校验处于关闭状态 | WARNING（每次都提示一次） | — |
 
-**增量 lint**：只 lint `git status --porcelain` 列出的变更文件，用 `npx eslint --format compact`。
-只 lint 变更是为了不让仓库存量 lint 债永久卡住门控；用 `npx` 而非 `npm run lint` 是为了保证
-门控绝不会 `--fix` 改动代码。多仓库时按 `repos.json` 逐仓执行。
-**后端仓库**（Java 等）无 eslint 可跑，质量由后端编译校验 + Phase 3 的 ocr 工具审查兜底。
+**增量 lint**：从 `git status --porcelain=v1 -z --untracked-files=all` 获取变更，包含新增目录中的文件，
+正确处理重命名并排除已删除文件。通过 Node.js 直接调用项目本地 eslint，使用内置 stylish formatter，
+不经过 shell、不下载依赖、不带 `--fix`。非零退出、配置异常、超时或输出超限均阻止推进。
+多仓库时按 `repos.json` 逐仓执行。
+**后端仓库**（Java 等）无 eslint 可跑，编译校验也默认关闭；可显式启用编译，并由 Phase 3 内置规则库审查代码。
 
 自动修复通道：`node $HARNESS/advance-phase.js <storyId> 3 --lint-fix`
 会按 `task-dag.json` 涉及的仓库逐个执行 `eslint --fix`。
@@ -74,6 +75,6 @@ HARNESS_RUN_BUILD=1 node $HARNESS/advance-phase.js <storyId> 3
 - **编辑 `src/` 被 hook 拒绝**：检查三件事 —— 当前是否 Phase 2、dev-pass 是否存在且未过期（2h）、
   目标文件是否在 `files[]` 限域内。详见 `../api/hooks.md`。
 - **lint error 卡住但问题在存量代码**：门控只 lint 变更文件；若确实是变更文件的存量问题，
-  先 `--lint-fix`，剩余的手工修 —— 不要绕过门控。
+  在 Phase 2 按已授权文件修复，再重新推进；`--lint-fix` 只在推进门控已通过后执行，不是绕过 lint 失败的入口。
 - **fix-loop 反复回到本 Phase**：默认每个失败源各 2 轮预算（review / test 独立计数），
   用尽后 `dispatch.js` 输出 `status: blocked` 且 `recovery.command` 为 null → 转人工。

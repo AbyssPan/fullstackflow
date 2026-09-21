@@ -33,27 +33,13 @@
  *   - shell 通道采用「写意图白名单的反面」判定: 命令未提及受保护文件放行；命中 WRITE_PATTERNS
  *     （重定向、writeFileSync/writeFile/appendFileSync/createWriteStream、sed -i、perl -i、rm/mv/cp/rsync/dd of=、tee、Set-Content 等）则拒绝；
  *     其余（cat、grep、jq 等只读查询）放行，避免误伤正常的状态查看。
- *   - 文件工具通道拦截工具: Write / Edit / write_to_file / replace_in_file；filePath 为空时放行。
+ *   - 文件工具通道拦截工具: Write / Edit / MultiEdit / write_to_file / replace_in_file；filePath 为空时放行。
  *   - recordFailure.failureType = 'state_file_violation'。
  */
-const fs = require('fs')
-const path = require('path')
 
 // 读取 stdin 获取 hook 输入
-let stdinData = ''
-try {
-  const chunks = []
-  const fd = 0
-  const buf = Buffer.alloc(65536)
-  let bytesRead
-  while ((bytesRead = fs.readSync(fd, buf, 0, buf.length, null)) > 0) {
-    chunks.push(buf.slice(0, bytesRead).toString('utf-8'))
-    if (bytesRead < buf.length) break
-  }
-  stdinData = chunks.join('')
-} catch {
-  // 无 stdin 输入，放行
-}
+const { readStdin } = require('../lib/state')
+const stdinData = readStdin()
 
 if (!stdinData.trim()) {
   console.log(JSON.stringify({ continue: true }))
@@ -181,7 +167,7 @@ if (bashTools.includes(toolName)) {
 
 // ─── 文件工具通道 ────────────────────────────────────────────
 // 只拦截写入类工具
-const writeTools = ['Write', 'Edit', 'write_to_file', 'replace_in_file']
+const writeTools = ['Write', 'Edit', 'MultiEdit', 'write_to_file', 'replace_in_file']
 if (!writeTools.includes(toolName)) {
   console.log(JSON.stringify({ continue: true }))
   process.exit(0)

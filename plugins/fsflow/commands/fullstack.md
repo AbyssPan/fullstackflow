@@ -1,5 +1,5 @@
 ---
-description: FullstackFlow 全栈研发工作流统一入口 — run（新功能）/ fixbugs（缺陷修复）/ status（查状态）/ evolve（自进化）/ archive（归档）
+description: FullstackFlow 全栈研发工作流统一入口 — run（新功能）/ fixbugs（缺陷修复）/ status（查状态）/ end（结束会话）/ evolve（自进化）/ archive（归档）
 category: workflow
 argument-hint: '[run|fixbugs|status|end|evolve|archive] [参数]'
 allowed-tools: Bash, Read, Write, Glob, Grep
@@ -26,8 +26,8 @@ allowed-tools: Bash, Read, Write, Glob, Grep
 |---|---|---|
 | `/fsflow:fullstack run [storyId] "<需求描述>"` | 新功能 / 页面级改造（有原型 / Figma 门控） | `use_skill("harness-start")` → mode=run |
 | `/fsflow:fullstack fixbugs [storyId] "<缺陷描述>"` | 缺陷修复（免原型文档，Phase 0 自动拉 TAPD 缺陷） | `use_skill("harness-start")` → mode=fixbugs |
-| `/fsflow:fullstack status` | 查看工作流状态 | `node ${CLAUDE_PLUGIN_ROOT}/scripts/commands/harness-workflow.js status` |
-| `/fsflow:fullstack end` | 结束当前激活会话、解除编辑门控 | `node ${CLAUDE_PLUGIN_ROOT}/scripts/commands/harness-workflow.js end` |
+| `/fsflow:fullstack status` | 查看工作流状态 | `node "${CLAUDE_PLUGIN_ROOT}/scripts/commands/harness-workflow.js" status` |
+| `/fsflow:fullstack end` | 结束当前激活会话、解除编辑门控 | `node "${CLAUDE_PLUGIN_ROOT}/scripts/commands/harness-workflow.js" end` |
 | `/fsflow:fullstack evolve [storyId\|all]` | 自进化体检（audit → 度量 → 诊断 → 治疗 → 验证） | `use_skill("harness-evolve")` |
 | `/fsflow:fullstack archive <storyId> <archive\|restore\|list\|status>` | 归档 / 复档 / 归档历史 | `use_skill("harness-archive")` |
 
@@ -58,11 +58,10 @@ end                       → 直接执行 harness-workflow.js end，转述结�
 
 ### Step 2：建流之后交棒编排器
 
-`harness-start` 完成「判模式 → 写 story-input.json → create-workflow 建流 → --refresh-input
-回填判定」后，立即调用 `use_skill("harness-conductor")` 进入主控循环：
+`harness-start` 完成「判模式 → 写 story-input.json → harness-workflow start --input 一步建流」后，立即调用 `use_skill("harness-conductor")` 进入主控循环：
 
 ```
-Step 1: 执行 node ${CLAUDE_PLUGIN_ROOT}/scripts/commands/dispatch.js <storyId>
+Step 1: 执行 node "${CLAUDE_PLUGIN_ROOT}/scripts/commands/dispatch.js" <storyId>
 Step 2: 按 status 四态机械分支（ready / fix_loop / blocked / terminal）
 Step 3: 子 Agent 汇报产出物路径 → 回 Step 1
 ```
@@ -76,10 +75,10 @@ Step 3: 子 Agent 汇报产出物路径 → 回 Step 1
 ### 脚本路径约定
 
 ```bash
-HARNESS=${CLAUDE_PLUGIN_ROOT}/scripts/commands
+HARNESS="${CLAUDE_PLUGIN_ROOT}/scripts/commands"
 ```
 
-所有脚本用完整路径执行：`node ${CLAUDE_PLUGIN_ROOT}/scripts/commands/<脚本名>`。
+所有脚本用完整路径执行：`node "${CLAUDE_PLUGIN_ROOT}/scripts/commands/<脚本名>"`。
 
 ---
 

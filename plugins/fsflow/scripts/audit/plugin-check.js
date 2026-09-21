@@ -87,7 +87,14 @@ function checkManifests() {
     if (manifests[index].version !== expectedVersion) {
       fail(`${path.relative(REPO_ROOT, file)} version 与 ${expectedVersion} 不一致`)
     }
+    if (manifests[index].license !== manifests[0].license) {
+      fail(`${path.relative(REPO_ROOT, file)} license 与 ${manifests[0].license} 不一致`)
+    }
   })
+  const pkg = manifests[3]
+  if (pkg.main && !fs.existsSync(path.resolve(PLUGIN_ROOT, pkg.main))) {
+    fail(`package.json main 不存在: ${pkg.main}`)
+  }
 
   const hostFields = ['name', 'displayName', 'version', 'description', 'license', 'homepage', 'repository']
   for (const field of hostFields) {
@@ -96,7 +103,7 @@ function checkManifests() {
     }
   }
 
-  return { name: expectedName, version: expectedVersion }
+  return { name: expectedName, version: expectedVersion, license: manifests[0].license, description: manifests[0].description }
 }
 
 function checkMarketplaces(identity) {
@@ -117,6 +124,9 @@ function checkMarketplaces(identity) {
     return
   }
   if (entry.version !== identity.version) fail(`marketplace 插件版本与 ${identity.version} 不一致`)
+  for (const field of ['license', 'description']) {
+    if (entry[field] !== identity[field]) fail(`marketplace 插件 ${field} 与 manifest 不一致`)
+  }
   if (typeof entry.source !== 'string' || !entry.source.startsWith('./')) {
     fail('marketplace source 必须是 ./ 开头的仓库内相对路径')
   } else if (entry.source !== `./plugins/${identity.name}`) {
@@ -148,9 +158,11 @@ function checkCommands(identity) {
     if (/\/fullstack(?:\s|`|$)/m.test(text)) {
       fail(`仍包含未命名空间化的 /fullstack 命令: ${path.relative(REPO_ROOT, file)}`)
     }
-    for (const match of text.matchAll(/\/([A-Za-z0-9_-]+):[A-Za-z0-9_-]+/g)) {
+    for (const match of text.matchAll(/\/([A-Za-z0-9_-]+):([A-Za-z0-9_-]+)/g)) {
       if (match[1] !== identity.name) {
         fail(`Slash Command 命名空间应为 /${identity.name}:，实际为 /${match[1]}:（${path.relative(REPO_ROOT, file)}）`)
+      } else if (!fs.existsSync(path.join(dir, `${match[2]}.md`))) {
+        fail(`文档引用了不存在的命令 /${match[1]}:${match[2]}（${path.relative(REPO_ROOT, file)}）`)
       }
     }
   }
@@ -221,8 +233,65 @@ function checkHooks() {
       continue
     }
     if (!fs.existsSync(path.join(PLUGIN_ROOT, match[1]))) fail(`Hook 脚本不存在: ${match[1]}`)
+    if (!/node\s+"\$\{(?:CLAUDE|CODEBUDDY)_PLUGIN_ROOT\}\/[^"\n]+"/.test(command)) {
+      fail(`Hook 插件路径必须加引号以兼容空格: ${command}`)
+    }
+  }
+  const docs = readText(path.join(PLUGIN_ROOT, 'skills/harness-conductor/references/api/hooks.md'))
+  for (const [event, groups] of Object.entries(config.hooks)) {
+    for (const group of groups) {
+      for (const hook of group.hooks || []) {
+        const match = (hook.command || '').match(/\/([^/\s"]+\.js)"?$/)
+        if (!match) continue
+        const row = docs.split('\n').find(line => line.startsWith(`| \`${match[1]}\` |`))
+        const cells = row && row.split(/(?<!\\)\|/).slice(1, -1).map(cell => cell.trim().replace(/`/g, '').replace(/\\\|/g, '|'))
+        if (!cells || cells[1] !== event || cells[2] !== (group.matcher || '—') || cells[3] !== `${hook.timeout}s`) {
+          fail(`Hook 注册与文档不一致: ${match[1]}`)
+        }
+      }
+    }
   }
   checked.push(`${commands.length} hook commands`)
+}
+
+function checkDocumentation(identity) {
+  const readme = readText(path.join(REPO_ROOT, 'README.md'))
+  if (!readme.includes(`当前版本 **${identity.version}**`)) fail('README 当前版本与 manifest 不一致')
+  if (!readme.includes(`## License\n\n${identity.license}`)) fail('README License 与 manifest 不一致')
+  const skills = walk(path.join(PLUGIN_ROOT, 'skills'), file => path.basename(file) === 'SKILL.md')
+  const agents = walk(path.join(PLUGIN_ROOT, 'agents'), file => file.endsWith('.md'))
+  if (!readme.includes(`## ${skills.length} 个 Skill`)) fail('README Skill 数量与实际目录不一致')
+  if (!readme.includes(`## ${agents.length} 个角色 Agent`)) fail('README Agent 数量与实际目录不一致')
+  for (const file of skills) {
+    const name = path.basename(path.dirname(file))
+    if (!readme.includes(`| \`${name}\` |`)) fail(`README 未列出 Skill: ${name}`)
+  }
+  for (const file of agents) {
+    const { fields } = frontmatter(file)
+    const label = path.basename(file, '.md')
+    if (!readme.includes(`| ${label} | \`${fields.name}\` |`)) fail(`README Agent 注册名不一致: ${label}`)
+    if (!readme.includes(`| ${label} | \`${fields.model}\` |`)) fail(`README Agent 模型不一致: ${label}`)
+  }
+  const tests = walk(path.join(PLUGIN_ROOT, 'scripts/__tests__'), file => file.endsWith('.test.js'))
+  const files = [path.join(REPO_ROOT, 'README.md'), path.join(REPO_ROOT, 'INSTALL.md'),
+    ...walk(PLUGIN_ROOT, file => file.endsWith('.md'))]
+  for (const file of files) {
+    const source = readText(file)
+    for (const match of source.matchAll(/(\d+) 个测试文件全部通过/g)) {
+      if (Number(match[1]) !== tests.length) fail(`文档测试文件数量过期: ${path.relative(REPO_ROOT, file)}`)
+    }
+    // 检查正文中的相对文件链接；代码示例、URL、锚点和参数化占位符不作为本地文件。
+    const prose = source.replace(/```[\s\S]*?```/g, '')
+    for (const match of prose.matchAll(/\[[^\]\n]*\]\(([^)\s]+)(?:\s+[^)]*)?\)/g)) {
+      const link = match[1]
+      if (/^(?:[a-zA-Z]+:|#|\/)/.test(link) || /[<>*{}]/.test(link)) continue
+      const target = link.split('#')[0]
+      if (target && !fs.existsSync(path.resolve(path.dirname(file), target))) {
+        fail(`文档链接不存在: ${path.relative(REPO_ROOT, file)} -> ${target}`)
+      }
+    }
+  }
+  checked.push(`${files.length} documentation files`)
 }
 
 function checkJsonAndJavaScript() {
@@ -239,8 +308,11 @@ function checkJsonAndJavaScript() {
 
 const identity = checkManifests()
 checkMarketplaces(identity)
-checkCommands(identity)
-checkSkillsAndAgents(identity)
+if (identity) {
+  checkCommands(identity)
+  checkSkillsAndAgents(identity)
+  checkDocumentation(identity)
+}
 checkHooks()
 checkJsonAndJavaScript()
 

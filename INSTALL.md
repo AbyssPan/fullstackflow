@@ -60,7 +60,7 @@
 
 ## 冒烟测试
 
-安装后按顺序做四个检查，全部通过即可放心使用：
+安装后按顺序检查命令和技能可达性；仓库自检与测试另供开发者执行。真实外部服务仍需在目标宿主中验证：
 
 ### 1. Slash Command 可达性
 
@@ -80,11 +80,10 @@
 对 AI 说：
 
 ```
-初始化知识库
+请加载 kb-init，仅执行 --dry-run --summary 预览，不初始化、不生成文件。
 ```
 
-预期：AI 响应 kb-init 流程（先询问或直接 dry-run 扫描项目画像），**不会**报「找不到技能」。
-在空项目 / 不想真正初始化的项目里，看到 AI 开始走流程即可中止。
+预期：AI 加载 kb-init 并只返回项目画像和候选域，**不会**报「找不到技能」，也不会写入知识库。
 
 ### 3. 零依赖运行时自检（开发者向，可选）
 
@@ -93,7 +92,7 @@ cd plugins/fsflow && npm run check
 ```
 
 预期输出 `✅ 插件一致性检查通过`。该检查覆盖宿主 manifest、双市场清单、命令入口、
-Skill / Agent frontmatter、Hook 脚本引用、全部 JSON 与 JavaScript 语法。
+Skill / Agent frontmatter、文档版本/数量/模型/链接、Hook 注册与脚本引用、全部 JSON 与 JavaScript 语法。
 
 ### 4. 单元测试（仅插件开发者）
 
@@ -101,7 +100,7 @@ Skill / Agent frontmatter、Hook 脚本引用、全部 JSON 与 JavaScript 语�
 cd plugins/fsflow && npm run verify
 ```
 
-预期：插件一致性检查通过，且 `✅ 11 个测试文件全部通过`（按当前自动发现的测试集合执行）。
+预期：插件一致性检查通过，且显示 `✅ N 个测试文件全部通过`；N 为当前自动发现的 `*.test.js` 文件数量。
 
 ## 更新插件
 
@@ -166,7 +165,7 @@ storyId 会拼入文件路径与命令参数，因此只允许：字母/数字�
 
 ### hook 脚本静默失败
 
-hook 超时默认 5–10 秒。若机器过慢导致偶发拦截，重启会话重试；
+编辑与收尾 hook 的超时为 5–10 秒，SessionStart 为 30 秒。若机器过慢导致偶发拦截，重启会话重试；
 持续失败用 `node --check <脚本路径>` 逐个验证语法。
 
 ## 卸载
@@ -179,6 +178,14 @@ hook 超时默认 5–10 秒。若机器过慢导致偶发拦截，重启会话�
 ```
 
 ### 2. 清理项目侧残留（按需）
+
+卸载插件不会停用项目的知识维护 Git hook。删除知识库运行时前，先在每个已接入的 clone 执行：
+
+```bash
+node .docs/llm-knowledge/tools/fsflow-kb/commands/kb-maintenance.js uninstall-hooks
+```
+
+若手工接入 Husky 或 GitLab CI，还需移除对应调用/include，避免提交或流水线引用已删除的脚本。
 
 | 目录 | 内容 | 是否删 |
 |---|---|---|

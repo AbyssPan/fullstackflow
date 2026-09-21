@@ -435,7 +435,7 @@ function readStdin () {
     while (true) {
       const bytesRead = fs.readSync(fd, buf, 0, 4096, null)
       if (bytesRead === 0) break
-      chunks.push(buf.slice(0, bytesRead))
+      chunks.push(Buffer.from(buf.subarray(0, bytesRead)))
     }
     return Buffer.concat(chunks).toString('utf-8')
   } catch (e) {
@@ -1403,11 +1403,12 @@ function revokeDevPass (storyId) {
 
 /**
  * 检查是否存在有效的 dev-pass
- * 扫描所有 Story 子目录下的 dev-pass.json，返回第一个有效的。
+ * 指定 storyId 时仅检查该 Story；未指定时兼容扫描所有 Story，返回第一个有效的。
+ * @param {string|null} storyId - 当前激活 Story（可选）
  * @returns {{ valid: boolean, storyId: string|null, reason: string }}
  */
-function checkDevPass () {
-  const dirs = listStoryDirs()
+function checkDevPass (storyId = null) {
+  const dirs = listStoryDirs().filter(dir => !storyId || dir === storyId)
   const now = new Date()
 
   for (const dir of dirs) {

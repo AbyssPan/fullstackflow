@@ -1,7 +1,7 @@
-# commands/ — AI 直接调用的 5 个命令脚本
+# commands/ — 主要工作流命令脚本
 
 > 根路径：`HARNESS=${CLAUDE_PLUGIN_ROOT}/scripts/commands`
-> 所有脚本输出 JSON 到 stdout（失败时到 stderr），退出码 0=成功 / 1=失败。
+> 调度器输出 JSON；推进等命令可能先输出进度，再输出最终 JSON 结果。失败信息可能在 stdout 或 stderr，需同时检查退出码和结果。
 > `storyId` 可带 `plans/` 或 `.codebuddy/plans/` 前缀，脚本自动剥离。
 
 ## dispatch.js — 调度器（只读，零写权限）
@@ -52,13 +52,12 @@ HARNESS_RUN_BUILD=1 node $HARNESS/advance-phase.js <id> 3     # 启用本地编�
 - `true` → 回 Step 1 重新 dispatch
 - `false` → `recovery.command` 存在则原样执行后回 Step 1；为 null 则转人工
 
-输出契约只有两类字段：**推进结果**（`success` / `fromPhase` / `toPhase` / `gateChecks` /
-`devPass` / `recovery`）与**下一步怎么 Spawn**（`nextAgent` / `nextAgentLabel` /
-`expectedOutputs` / `agentPrompt`，修复回路时另有 `fixLoopContext`）。
-主 Agent 拿 `nextAgent` + `agentPrompt` 就够 Spawn，不需要自己拼装任何东西。
+推进脚本只返回**推进结果**（`success` / `fromPhase` / `toPhase` / `gateChecks` /
+`devPass` / `recovery` 等），修复回路另有 `fixLoopContext`。
+`nextAgent` / `agentPrompt` 的唯一来源是重新执行 `dispatch.js`，不可从推进结果自行拼装 Spawn。
 
-独立校验的入参约束：targetPhase 范围 0~7、步长必须 +1。越界会写出 `phase: 99` 这类污染状态；
-跨阶会跳过中间门控与 summary 生成；倒退是 `--rollback` 的职责。
+入参约束：targetPhase 范围 0~8（8 为完成终态），普通推进步长必须 +1；重复请求当前阶段为幂等操作。
+脚本拒绝越界和跨阶请求；倒退必须使用 `--rollback`。
 参数解析：第一个纯数字视为 storyId，最后一个纯数字视为 targetPhase。
 
 ## harness-workflow.js — 模式激活总开关

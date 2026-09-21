@@ -50,9 +50,9 @@
 flowchart LR
     P0["Phase 0<br/>知识库确认 + 需求分析"] -->|"规格语义门控通过"| P1["Phase 1<br/>任务规划"]
     P1 -->|"门控通过<br/>签发 dev-pass（限域）"| P2["Phase 2<br/>代码开发"]
-    P2 -->|"eslint / mvn compile 编译门控<br/>撤销 dev-pass"| P3["Phase 3<br/>代码审查"]
+    P2 -->|"增量 lint（编译可选）<br/>撤销 dev-pass"| P3["Phase 3<br/>代码审查"]
     P3 -->|"无 BLOCKER"| P4["Phase 4<br/>功能测试"]
-    P4 -->|"AC 全通过"| P5["Phase 5<br/>知识维护 + 提交 MR"]
+    P4 -->|"无失败 AC / 明确跳过测试"| P5["Phase 5<br/>知识维护 + 提交 MR"]
     P5 -->|"确认 MR 已合并"| P6["Phase 6<br/>知识核验"]
     P6 -->|"版本核验 / 明确未验证结果"| P7["Phase 7<br/>发布收尾（前端部署 / 后端跳过）"]
     P7 -->|"terminal"| ARC["归档<br/>archive/round-N"]
@@ -66,8 +66,8 @@ flowchart LR
 ```mermaid
 flowchart TD
     Start(["触发词：做个需求 / 修 bug"]) --> Entry["harness-start<br/>梳理 story-input.json"]
-    Entry --> Refresh["create-workflow --refresh-input<br/>回填原型/Figma 判定"]
-    Refresh --> Dispatch{"dispatch.js<br/>读状态 + 判门控"}
+    Entry --> Create["harness-workflow start --input<br/>校验输入并一次建流"]
+    Create --> Dispatch{"dispatch.js<br/>读状态 + 判门控"}
 
     Dispatch -->|"ready · readyToAdvance=true"| Advance["advance-phase.js<br/>推进到下一 Phase"]
     Advance --> Dispatch
@@ -79,7 +79,7 @@ flowchart TD
     Dispatch -->|"fix_loop"| FixLoop["执行 recovery.command<br/>--fix-loop 回退 Phase 2<br/>重签限域 dev-pass"]
     FixLoop --> Dispatch
 
-    Dispatch -->|"blocked"| Manual["转人工处理<br/>（无自动恢复命令）"]
+    Dispatch -->|"blocked"| Manual["等待测试选择<br/>或转人工处理"]
     Dispatch -->|"terminal"| End(["归档 / 流程结束"])
 ```
 
@@ -95,15 +95,16 @@ flowchart TD
 - 每个 Phase 推进前，产出物按 JSON Schema 程序化校验（内置 ajv，缺文件 / 格式错直接拦截）
 - 新工作流 Phase 3 核对审查仓库与文件覆盖、内容指纹及问题行号；范围或证据过期时留在审查阶段补齐，旧流程保持兼容
 - 验收标准（AC）与任务（Task）交叉引用校验，杜绝「AC 全绿但功能缺失」
-- Phase 2→3 按仓库类型自动跑**前端 eslint 或后端 mvn compile / gradle compileJava**，
-  编译错误不再漏到云端构建才暴露
+- Phase 2→3 默认只对变更的前端文件执行增量 eslint（项目未安装 eslint 时警告并跳过）。
+  前端 build 与后端 `mvn compile` / `gradle compileJava` **默认关闭**，设 `HARNESS_RUN_BUILD=1` 才启用。
+  lint 执行失败或已启用的构建无法确认成功时阻止推进。
 - OpenSpec 的 Capability、增量类型、规范性 Requirement、Given/When/Then Scenario 直接内嵌到 AC，并由 Phase 0 门控强制校验；不生成重复的 `openspec/` 文件树
 
 ### 3. 权限控制（dev-pass）
 
-AI 修改源码受 dev-pass 通行证约束：仅在开发阶段由脚本自动签发、限域到 `task-dag.json`
-的任务文件清单，阶段结束自动撤销；未授权文件的写入会被 PreToolUse hook 直接拦截——
-杜绝 AI 越权改动未授权文件。
+工作流激活时，已登记仓库 `src/` 内的编辑受 dev-pass 通行证约束：开发阶段由脚本自动签发、
+限域到 `task-dag.json` 的任务文件清单，阶段结束自动撤销。Hook 检查文件工具与常见 shell 写入命令；
+它不覆盖所有源码目录或任意脚本内部行为，不能替代宿主权限控制与代码审查。
 
 ### 4. 知识库（KB）管理
 
@@ -187,7 +188,7 @@ Git 提交 / push / 创建 MR 等外部动作沿用当前会话已有授权；�
 | `/fsflow:evolve [storyId\|all] [--check-only\|--propose-only]` | 运行自进化体检（audit → 度量 → 诊断 → 治疗 → 验证） |
 | `/fsflow:archive <storyId> <archive\|restore\|list\|status> [options]` | 归档、复档或查看归档历史；不会在缺少动作时默认归档 |
 
-> `<storyId>` 可省略，由 AI 根据描述生成。旧的统一形式可继续使用
+> `run` / `fixbugs` 的 `[storyId]` 可省略，由 AI 根据描述生成；`archive` 必须指定 Story 和动作。旧的统一形式可继续使用
 > `/fsflow:fullstack <run|fixbugs|status|end|evolve|archive> ...`。
 
 ## 最佳实践
@@ -216,7 +217,7 @@ Git 提交 / push / 创建 MR 等外部动作沿用当前会话已有授权；�
 
 ### 5. 修复回路（fix-loop）
 - 审查/测试发现 BLOCKER 或验收失败时，工作流自动回退到 Phase 2 修复，重新签发限域 dev-pass。
-- **默认最多 2 轮**，超出后转人工介入，不让 AI 无限重试空转。
+- **代码审查与功能测试各默认最多 2 轮，独立计数**；对应预算耗尽后转人工介入。
 
 ### 6. 知识库（KB）
 - 新项目在 Phase 0 需求分析开始时确认：用户同意后由 `kb-init` + `gen-project-docs` 完成初始化与全量生成。
@@ -240,7 +241,8 @@ Git 提交 / push / 创建 MR 等外部动作沿用当前会话已有授权；�
 | 测试工程师 | `test-engineer` | 前端 Playwright 实跑 + 后端三层验证（接口契约真实请求 / mvn test 业务逻辑 / 只读 SELECT 数据落库） |
 | 发布助手 | `release-assistant` | 提交前维护知识并执行暂存区检查；沿用已有 Git/MR 授权；合入后核验实际版本；前端走 devops MCP 云端构建，后端确认合并即收尾 |
 
-各 Agent 在 frontmatter 中声明推荐模型，便于宿主按角色能力与成本路由：
+各 Agent 在 frontmatter 中声明模型标识，实际可用性取决于宿主和模型供应方配置。
+这些自定义标识不是跨宿主通用配置；宿主不支持时，需按该宿主的配置方式改为可用模型或继承默认模型。当前声明如下：
 
 | Agent | 模型 |
 |---|---|
@@ -300,7 +302,8 @@ Git 提交 / push / 创建 MR 等外部动作沿用当前会话已有授权；�
 - **trace-command.js** — 命令审计：记录命令 / Agent / Skill / MCP 调用轨迹，供 harness-evolve 度量分析
 
 另有两条输入侧安全约束：storyId 须以字母/数字开头、仅含字母数字与 `-_`（最长 64 字符），
-在 schema 与状态脚本双层强制；shell 命令一律走数组参数执行，不经 shell 字符串拼接。
+在 schema 与状态脚本双层强制。Story 参数与 lint 文件路径通过数组参数传递；
+项目构建仍执行既有构建命令，不能将其视为任意 shell 脚本的隔离环境。
 
 另有：`kb-query` 的 skill 描述直接声明自动触发场景（涉及业务模块、改代码、查实现等场景先查知识库）；`output-styles/harness.md` 提供表格化汇报、结构化 blocker 列表并禁止泄露内部状态文件路径。
 
@@ -343,8 +346,9 @@ merged results pipeline 或 merge train 上的严格检查保证。完整命令�
 
 ## 零外部依赖设计
 
-插件**无需安装任何 CLI、无需配置额外 LLM Key**，安装即用（node 即唯一运行时，
-提供 6 个常用 slash command 与 1 个兼容统一入口）：
+插件自身**无需 npm install、独立 OpenSpec CLI 或额外 LLM Key**；运行需要宿主、Node.js 和 Git。
+业务项目的依赖、编译工具链、模型访问及外部服务仍需按使用场景准备。
+插件提供 6 个常用 slash command 与 1 个兼容统一入口：
 
 | 能力 | 实现方式 |
 |---|---|
@@ -354,8 +358,10 @@ merged results pipeline 或 merge train 上的严格检查保证。完整命令�
 | 知识维护 | 项目内置 Node.js 运行时脚本 + Git hook + GitLab CI 模板；无需 graphify 或外部索引服务 |
 | 发布前验证 | `cd plugins/fsflow && npm run verify`：插件结构一致性检查 + 自动发现并运行全部回归测试 |
 
-可选增强（按需配置，不配置时各 agent 自动降级）：Figma MCP（设计稿拉取）、devops MCP（前端云端构建）、
+按场景配置外部服务：Figma MCP（设计稿拉取）、devops MCP（前端云端构建）、
 GitLab MCP（MR 管理）、TAPD（需求/缺陷导入）、Playwright MCP（前端实跑测试）。
+触发 Figma 硬门控或需要云端部署时，缺少对应服务会阻塞相关步骤，需要补齐配置或人工交接；
+测试环境缺失时可记录 `unverifiable`，不能宣称已经验证通过。
 
 **默认检索流程**：kb-query 定位业务、规范和历史经验 → 源码验证 → 按需 LSP 查引用。共享代码变更与上游 Bug 必须确认调用方和回归项；证据记录源码版本（含相关工作区变更），跨阶段复用，变化后重新核实。审查按实际证据和影响判断，不以工具调用次数记 debt 或扣分。
 
@@ -416,7 +422,7 @@ fullstackflow/
         ├── commands/                    # run/fixbugs/status/end/evolve/archive + 兼容统一入口
         ├── agents/                      # 6 个角色代理
         ├── skills/                      # 16 个技能（工作流 / 知识库 / 开发规范 / 辅助工具）
-        ├── hooks/hooks.json             # 5 类安全护栏钩子
+        ├── hooks/hooks.json             # 4 类事件、6 个 Hook 脚本
         ├── output-styles/harness.md     # 汇报输出风格
         ├── scripts/                     # dispatch / advance-phase / archive / policy 门控等
         ├── scripts/commands/kb-maintenance.js # 知识维护安装与命令入口

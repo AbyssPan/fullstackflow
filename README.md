@@ -1,8 +1,6 @@
 # FullstackFlow
 
-**全栈研发自动化工作流插件市场。** 整合规格驱动方法论与
-[open-code-review](https://github.com/alibaba/open-code-review) 审查规则集（Apache-2.0）、
-[OpenSpec](https://github.com/Fission-AI/OpenSpec) 规格规范（MIT）。
+**全栈研发自动化工作流插件市场。** 提供规格驱动、分阶段开发、代码审查、功能验证与发布交付能力。
 
 安装 **FullstackFlow** 插件后，你的 AI 编程助手（Claude Code / CodeBuddy Code）获得一条
 门控式全流程研发流水线：需求分析 → 任务规划 → 全栈开发 → 代码审查 → 功能测试 →
@@ -22,7 +20,7 @@
 - [常用命令](#常用命令)
 - [最佳实践](#最佳实践)
 - [6 个角色 Agent](#6-个角色-agent)
-- [12 个 Skill](#12-个-skill)
+- [16 个 Skill](#16-个-skill)
 - [Hook 安全护栏](#hook-安全护栏)
 - [同仓知识维护快速使用](#同仓知识维护快速使用)
 - [零外部依赖设计](#零外部依赖设计)
@@ -95,6 +93,7 @@ flowchart TD
 工作流不是「口头约定」，而是**结构化契约 + 程序化门控**：
 
 - 每个 Phase 推进前，产出物按 JSON Schema 程序化校验（内置 ajv，缺文件 / 格式错直接拦截）
+- 新工作流 Phase 3 核对审查仓库与文件覆盖、内容指纹及问题行号；范围或证据过期时留在审查阶段补齐，旧流程保持兼容
 - 验收标准（AC）与任务（Task）交叉引用校验，杜绝「AC 全绿但功能缺失」
 - Phase 2→3 按仓库类型自动跑**前端 eslint 或后端 mvn compile / gradle compileJava**，
   编译错误不再漏到云端构建才暴露
@@ -252,7 +251,7 @@ Git 提交 / push / 创建 MR 等外部动作沿用当前会话已有授权；�
 | 测试工程师 | `deepseek-v4.1-flash` |
 | 发布助手 | `hy3` |
 
-## 12 个 Skill
+## 16 个 Skill
 
 **工作流编排（4 个）**
 
@@ -272,11 +271,15 @@ Git 提交 / push / 创建 MR 等外部动作沿用当前会话已有授权；�
 | `kb-update` | 提交前增量维护：按域定位源码/知识变化，沉淀规格与经验，记录来源回执；保留手工批注，正文与代码同 MR |
 | `gen-project-docs` | 扫描源码生成结构化文档：通用 5 类 + 项目类型特有切面，支持全量 / 单域 / 增量模式与新鲜度检测 |
 
-**开发规范（1 个）**
+**开发、审查与验证（5 个）**
 
 | Skill | 用途 |
 |---|---|
 | `backend-tech-spec` | 后端开发规范解析：已有项目优先知识库与工程约定，新项目或规范缺失处采用安全、现代的 Java / Spring Boot 默认基线 |
+| `frontend-tech-spec` | 前端规范解析：按框架、项目约定与设计要求处理请求、状态、组件、样式和交互 |
+| `code-review` | 逐文件审查：范围快照、内置规则、跨文件查证、覆盖记录和问题位置校验 |
+| `systematic-debugging` | 根因调查：复现、数据流追踪、最小实验、修复依据与回归范围 |
+| `test-design-and-execution` | AC 到用例映射，单元/组件/接口/E2E/视觉分层验证，环境与证据管理 |
 
 **辅助工具（3 个）**
 
@@ -346,7 +349,7 @@ merged results pipeline 或 merge train 上的严格检查保证。完整命令�
 | 能力 | 实现方式 |
 |---|---|
 | OpenSpec 规格门控 | `policy.js` 在 Phase 0 强制校验 Why/Non-Goals/Decisions/Capabilities/Risks、规范性 Requirement 与 Given/When/Then；Phase 1 校验功能点→AC→Task 追踪链，无需独立 OpenSpec CLI 或文件目录 |
-| 后端代码审查 | 内置规则库 `skills/harness-conductor/references/review-rules/`（default 五维度 / Java / TS·JS / Mapper XML，均含「不报告」防误报护栏），由审查师模型逐文件执行 |
+| 全栈代码审查 | code-review 技能与 Node.js + Git 范围脚本；内置规则库 `skills/code-review/references/rules/`（default 五维度 / Java / TS·JS / Mapper XML，按场景应用防误报规则），由审查师模型逐文件执行 |
 | JSON Schema 校验 | 内置 `vendor/ajv.bundle.js`（免 npm install） |
 | 知识维护 | 项目内置 Node.js 运行时脚本 + Git hook + GitLab CI 模板；无需 graphify 或外部索引服务 |
 | 发布前验证 | `cd plugins/fsflow && npm run verify`：插件结构一致性检查 + 自动发现并运行全部回归测试 |
@@ -412,7 +415,7 @@ fullstackflow/
         ├── plugin.json                  # 旧宿主兼容元信息
         ├── commands/                    # run/fixbugs/status/end/evolve/archive + 兼容统一入口
         ├── agents/                      # 6 个角色代理
-        ├── skills/                      # 12 个技能（工作流 / 知识库 / 开发规范 / 辅助工具）
+        ├── skills/                      # 16 个技能（工作流 / 知识库 / 开发规范 / 辅助工具）
         ├── hooks/hooks.json             # 5 类安全护栏钩子
         ├── output-styles/harness.md     # 汇报输出风格
         ├── scripts/                     # dispatch / advance-phase / archive / policy 门控等
@@ -420,7 +423,7 @@ fullstackflow/
         ├── scripts/lib/kb-maintenance.cjs # 可复制到项目内的维护运行时
         ├── scripts/templates/kb-gitlab-ci.yml # 候选合并一致性检查模板
         ├── scripts/audit/plugin-check.js # manifest / 命令 / Skill / Hook 一致性检查
-        ├── scripts/__tests__/           # 11 个自动发现的回归测试文件
+        ├── scripts/__tests__/           # 自动发现的回归测试文件
         └── vendor/ajv.bundle.js         # 内置 ajv（免 npm install）
 ```
 

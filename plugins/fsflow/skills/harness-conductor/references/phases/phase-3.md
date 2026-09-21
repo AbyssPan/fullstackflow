@@ -7,7 +7,7 @@
 
 Agent 注册名 **`code-reviewer`**（代码审查师）。审查本 Story 的代码变更（git diff），
 产出 `code-review.json`。若 Story 目录下存在 `fix-request.json`，说明这是修复回路的复查，
-需做**增量审查**而非全量重审。
+需调用 `use_skill("code-review")` 做增量审查，复用未变化证据并重新核对完整文件清单。
 
 ## 产出物
 
@@ -19,16 +19,17 @@ Agent 注册名 **`code-reviewer`**（代码审查师）。审查本 Story 的�
 
 | 检查 | 级别 | failureType |
 |------|------|-------------|
+| 新工作流缺少 coverage，或仓库/文件清单/指纹/问题位置不一致 | BLOCKER (2)，留在 Phase 3 补审 | `review_coverage_invalid` |
 | 存在 `severity=BLOCKER` 且 `status=open` 的 issue | BLOCKER (2) | `code_review_blocker` |
 | `code-review.json` 解析失败 | BLOCKER (4) | `code_review_blocker` |
 | 修复回路复查缺 `fix-verification.json` | WARNING | — |
 | `fix-verification.json` 中有 `status=skipped` 的修复项 | WARNING | — |
 | `fix-verification.json` 解析失败 | WARNING | — |
 
-门控唯一信源是 `issues[].status`：只有 `BLOCKER` + `open` 组合会阻断。
+语义问题以 `issues[].status` 为准：`BLOCKER` + `open` 会阻断。审查覆盖校验独立执行。
 把 BLOCKER 改成 `fixed` / `skipped` 即可放行 —— 因此 `status` 的诚实性由审查师负责，不由门控保证。
 
-失败时 `result._meta` 会带 `fixLoopAvailable: true` / `fixLoopSource: 'phase3'` /
+覆盖不完整时不触发源码修复回路，由审查师补齐报告。语义 BLOCKER 失败时 `result._meta` 会带 `fixLoopAvailable: true` / `fixLoopSource: 'phase3'` /
 `fixLoopHint`，`dispatch.js` 据此把 `status` 输出成 `fix_loop`。
 
 ## 修复回路（fix-loop）
@@ -70,7 +71,7 @@ Agent 注册名 **`code-reviewer`**（代码审查师）。审查本 Story 的�
 }
 ```
 
-顶层 `additionalProperties: false`（storyId/issues/summary 之外的顶层字段会被门控拒绝）；
+顶层仅接受 schema 声明的字段（含 phase/reviewedAt/fixRound/coverage）；
 `issues[]` 内为 `additionalProperties: true`，可携带 `impact`/`reason`/`project`/`repoPath`
 供 Phase 4 交叉对账与 fix-loop 跨仓定位消费。
 
@@ -79,4 +80,12 @@ Agent 注册名 **`code-reviewer`**（代码审查师）。审查本 Story 的�
 - **WARNING 级问题带病过关**：本门控只看 BLOCKER。但如果 WARNING 的 `impact` 里写了「影响 AC-3」，
   而 Phase 4 把 AC-3 判 passed，**Phase 4→5 会以 `review_acceptance_conflict` 阻断** ——
   所以填 `impact` 不是可选的礼貌，它是下一道门控的输入。见 [phase-4.md](./phase-4.md)。
-- **顶层多写字段被拒**：如加了 `reviewedAt` 之类。放进 `issues[]` 内或删掉。
+- **顶层多写字段被拒**：字段以实际 Schema 为准，reviewedAt 和 coverage 已声明，不能另加 findings 等别名。
+
+## 覆盖契约
+
+新建流程的 reviewCoverageRequired=true，由建流脚本设置。报告 coverage.version=1，repositories 按 Story 的 repos.json 全量登记。
+每仓保留范围脚本输出的 root/head/base/files，每文件填写 reviewed+evidence 或 skipped+reason；跳过项会转述为 warning。
+报告生成后源码或暂存区变化必须补审。未关闭问题使用仓库根相对路径和有效行号，跨仓填 project；lineVersion 可指定 worktree/index/base，避免部分暂存时错用版本行号。
+旧流程缺少该状态开关且报告未携带 coverage 时沿用旧门控；一旦提交 coverage 即校验，不把无记录的历史审查当作已完成覆盖核验。
+门控只能检查覆盖记录与当前文件一致，判断与跳过理由的真实性仍需审查师负责。

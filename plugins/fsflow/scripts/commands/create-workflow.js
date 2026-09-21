@@ -291,6 +291,7 @@ function createWorkflow (storyId, title, bypass, hasFigma, mode, opts = {}) {
     updatedAt: now,
     bypass: bypass || false,
     verificationMode,
+    reviewCoverageRequired: true,
     hasFigmaDesign: figma.enabled, // 🌐 是否开启 Figma 硬门控（信源: story-input.json figmaUrls / --figma）
     hasFigmaDesignReason: figma.reason, // 判定依据，便于排查门控为何未触发
     // 修复回路最大轮次 —— 按失败源（Phase 3 代码审查 / Phase 4 功能测试）独立预算，各 2 次，用尽转人工

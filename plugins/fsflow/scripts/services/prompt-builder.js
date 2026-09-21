@@ -522,6 +522,9 @@ function buildAgentPrompt (opts) {
     '',
     storyInputSection,
     verificationInstruction,
+    targetPhase === 3 && readStateFile(storyId)?.reviewCoverageRequired
+      ? '## 审查覆盖要求\n调用 use_skill("code-review")，按 repos.json 逐仓生成范围快照；code-review.json 必须包含 coverage。覆盖缺失或证据过期时留在 Phase 3 补审，不回退开发。\n'
+      : '',
     kbPreflightInstruction,
     storyContext.length > 0 ? `## Story 背景资料\n请读取以下文件获取完整内容：\n${storyContext.join('\n')}\n` : '',
     (targetPhase === 1 && taskPlannerFigmaInstruction.length > 0) ? taskPlannerFigmaInstruction.join('\n') : '',

@@ -31,6 +31,8 @@ try {
     fs.writeFileSync(inputPath, JSON.stringify({ mode, sources: {} }))
     assert.equal(createWorkflow(id, '测试选择', false, false, mode, { inputFile: inputPath }).verificationMode, 'ask')
     const initial = state.readStateFile(id)
+    // 以旧审查产物隔离测试选择行为；新覆盖契约另有 Git 集成测试。
+    delete initial.reviewCoverageRequired
     assert.equal(setVerificationMode(id, 'full').success, false) // Phase 0 不允许记录测试阶段选择
     assert.notEqual(dispatch(id).recovery?.type, 'verification_choice_required')
     initial.phase = 4

@@ -13,6 +13,7 @@
     "updatedAt": { "type": "string", "format": "date-time" },
     "bypass": { "type": "boolean" },
     "verificationMode": { "type": "string", "enum": ["ask", "full", "review-only"] },
+    "reviewCoverageRequired": { "type": "boolean", "description": "新工作流要求代码审查覆盖与版本核验，旧流程缺省保持兼容" },
     "hasFigmaDesign": { "type": "boolean" },
     "maxReviewFixRounds": { "type": "integer", "minimum": 1, "maximum": 5, "description": "代码审查(Phase3)失败源的最大修复轮次，独立计数" },
     "maxTestFixRounds": { "type": "integer", "minimum": 1, "maximum": 5, "description": "功能测试(Phase4)失败源的最大修复轮次，独立计数" },

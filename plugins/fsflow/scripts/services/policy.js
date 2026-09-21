@@ -48,6 +48,7 @@ const {
   checkFigmaFrameInventory,
   hasFigmaDesign,
   readJsonArtifact,
+  readStateFile,
   getStoryDir,
   getPhaseName,
   loadRepos,
@@ -58,6 +59,7 @@ const {
 } = require('../lib/state')
 
 const schemaValidator = require('./schema-validator')
+const { validateCoverage } = require('../../skills/code-review/scripts/review-scope.cjs')
 
 function isValidMustCheckItem (item) {
   return item &&
@@ -329,6 +331,11 @@ const RECOVERY_SUGGESTIONS = {
     autoFixable: false,
     resolution: 'advance-phase.js <storyId> 2 --fix-loop'
   },
+  review_coverage_invalid: {
+    level: 2,
+    action: '由代码审查师补齐审查覆盖、更新过期证据或校正问题位置；保持 Phase 3',
+    autoFixable: false
+  },
   // Phase 3→4: code-review.json 不存在
   code_review_missing: {
     level: 4,
@@ -538,7 +545,7 @@ function runGateCheck (storyId, phaseNum, state) {
   } else if (phaseNum === 2) {
     checkPhase2Gate(storyId, state, result)
   } else if (phaseNum === 3) {
-    checkPhase3Gate(storyId, result)
+    checkPhase3Gate(storyId, result, state)
   } else if (phaseNum === 4) {
     checkPhase4Gate(storyId, result)
   } else if (phaseNum === 6) {
@@ -996,7 +1003,7 @@ function checkPhase2Gate (storyId, state, result) {
  *       此函数只负责内容检查（BLOCKER 数量等），避免重复采集。
  *       当检测到 BLOCKER 时，附加 fixLoopAvailable 标记供主 Agent 触发修复回路。
  */
-function checkPhase3Gate (storyId, result) {
+function checkPhase3Gate (storyId, result, state) {
   const crJsonPath = path.join(PLANS_DIR, storyId, 'code-review.json')
 
   // 读取 code-review.json（唯一信源）
@@ -1004,6 +1011,23 @@ function checkPhase3Gate (storyId, result) {
 
   try {
     const crData = JSON.parse(fs.readFileSync(crJsonPath, 'utf-8'))
+    const workflow = state || readStateFile(storyId) || {}
+    if (workflow.reviewCoverageRequired || crData.coverage) {
+      const errors = validateCoverage(crData.coverage, loadRepos(storyId), crData.issues || [])
+      if (errors.length) {
+        result.blockers.push(structuredError(
+          'review_coverage_invalid', errors.join('; '), 2,
+          '由代码审查师重新核对范围、版本、逐文件记录和问题位置，更新 code-review.json；不回退开发阶段'
+        ))
+        result.passed = false
+        return
+      }
+      for (const repo of crData.coverage.repositories) {
+        for (const file of repo.files.filter(f => f.status === 'skipped')) {
+          result.warnings.push(`审查跳过 ${repo.project}/${file.path}: ${file.reason}`)
+        }
+      }
+    }
     const openBlockers = (crData.issues || []).filter(
       i => i.severity === 'BLOCKER' && i.status === 'open'
     )

@@ -14,10 +14,10 @@ description: 后端开发规范解析与执行。用于新增或修改后端代�
 1. 用户本次明确要求、验收标准和已确认的技术决策。
 2. 当前项目知识库中与本模块、语言或框架匹配的编码规范，以及知识库中的人工批注。
 3. 仓库级指令、格式化/静态检查配置、架构决策记录和项目文档。
-4. `harness-conductor` 的内置 OpenCodeReview 抽取规则：
-   [Java](../harness-conductor/references/review-rules/java.md)、
-   [Mapper/DAO XML](../harness-conductor/references/review-rules/mapper_dao_xml.md) 和
-   [其他后端文件](../harness-conductor/references/review-rules/default.md)。
+4. `code-review` 的内置审查规则：
+   [Java](../code-review/references/rules/java.md)、
+   [Mapper/DAO XML](../code-review/references/rules/mapper_dao_xml.md) 和
+   [其他后端文件](../code-review/references/rules/default.md)。
 5. 相邻既有代码形成的稳定约定与当前依赖实际支持的写法。
 6. 本 skill 的默认规范。
 

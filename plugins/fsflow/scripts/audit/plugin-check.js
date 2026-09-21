@@ -193,6 +193,8 @@ function checkSkillsAndAgents(identity) {
         fail(`插件内 use_skill 调用不应带命名空间: ${match[1]}（${path.relative(REPO_ROOT, file)}）`)
       } else if (match[1].includes(':')) {
         fail(`插件内 use_skill 调用包含未知命名空间: ${match[1]}（${path.relative(REPO_ROOT, file)}）`)
+      } else if (!skillNames.has(match[1])) {
+        fail(`插件内 use_skill 调用指向不存在的技能: ${match[1]}（${path.relative(REPO_ROOT, file)}）`)
       }
     }
   }

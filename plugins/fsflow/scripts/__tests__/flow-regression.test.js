@@ -276,6 +276,9 @@ section('5b-2. 检索工具可选，实际审查问题仍阻断')
 createWorkflow('SOURCE-EVIDENCE', '源码证据审查', false, false, 'run')
 const evidenceDir = storyDir('SOURCE-EVIDENCE')
 const evidenceState = state.readStateFile('SOURCE-EVIDENCE')
+// 本节保留旧审查格式，覆盖门控由 review-coverage.test.js 在真实 Git 沙箱验证。
+delete evidenceState.reviewCoverageRequired
+state.writeStateFile('SOURCE-EVIDENCE', evidenceState)
 const review = { storyId: 'SOURCE-EVIDENCE', issues: [], summary: { blockerCount: 0, warningCount: 0, suggestionCount: 0 } }
 fs.writeFileSync(path.join(evidenceDir, 'code-review.json'), JSON.stringify(review))
 // Skill 事件不完整不能当作未查证；同样覆盖有其他 Skill 但无 KB 调用的场景。

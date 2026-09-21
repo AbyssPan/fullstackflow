@@ -9,6 +9,126 @@
     "phase": { "type": "integer", "minimum": 3, "maximum": 3 },
     "reviewedAt": { "type": "string", "format": "date-time" },
     "fixRound": { "type": "integer", "minimum": 0 },
+    "coverage": {
+      "type": "object",
+      "required": [
+        "version",
+        "repositories"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "repositories": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "project",
+              "root",
+              "head",
+              "base",
+              "files"
+            ],
+            "properties": {
+              "project": {
+                "type": "string",
+                "minLength": 1
+              },
+              "root": {
+                "type": "string",
+                "minLength": 1
+              },
+              "head": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "base": {
+                "type": "string",
+                "minLength": 1
+              },
+              "files": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "path",
+                    "fingerprint",
+                    "status"
+                  ],
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "fingerprint": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "reviewed",
+                        "skipped"
+                      ]
+                    },
+                    "evidence": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "beforeLines": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "indexLines": { "type": "integer", "minimum": 0 },
+                    "afterLines": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "rules": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "excluded": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "path",
+                    "reason"
+                  ],
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "issues": {
       "type": "array",
       "items": {
@@ -21,6 +141,7 @@
           "project": { "type": "string", "description": "问题所属项目/仓库名（可选）。跨仓时用于表达仓归属，供 fix-loop 定位受影响文件到正确仓库" },
           "repoPath": { "type": "string", "description": "问题所属仓库的根路径或具体修复点路径（可选）。当修复点与 issue.file 不在同一仓库时声明" },
           "line": { "type": ["integer", "string", "null"] },
+          "lineVersion": { "type": "string", "enum": ["worktree", "index", "base"] },
           "title": { "type": "string", "minLength": 1 },
           "description": { "type": "string", "minLength": 1 },
           "suggestion": { "type": "string" },

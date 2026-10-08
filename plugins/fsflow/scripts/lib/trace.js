@@ -39,7 +39,7 @@
 
 const fs = require('fs')
 const path = require('path')
-const { PLANS_DIR, getStoryDir } = require('./state')
+const { PLANS_DIR, getStoryDir, readStateFile } = require('./state')
 
 /**
  * 追加一条 trace 记录到 story 的 trace.jsonl
@@ -64,7 +64,18 @@ function appendTrace (storyId, entry) {
     storyId,
     ...entry
   }
-  fs.appendFileSync(traceFile, JSON.stringify(record) + '\n', 'utf-8')
+  // A process may have stopped halfway through its last JSONL record. Start a new
+  // line so that one damaged record cannot swallow the next invocation's start.
+  const fd = fs.openSync(traceFile, 'a+')
+  try {
+    const size = fs.fstatSync(fd).size
+    const last = Buffer.alloc(1)
+    if (size) fs.readSync(fd, last, 0, 1, size - 1)
+    fs.writeSync(fd, (size && last[0] !== 10 ? '\n' : '') + JSON.stringify(record) + '\n')
+  } finally { fs.closeSync(fd) }
+  if (['agent_spawn', 'agent_result', 'phase_transition', 'phase_outcome', 'fix_loop', 'failure_recovery', 'workflow'].includes(entry.type)) {
+    try { require('../services/workflow-metrics').saveMetrics(storyId) } catch { /* telemetry must not block work */ }
+  }
 }
 
 /**
@@ -75,13 +86,20 @@ function appendTrace (storyId, entry) {
  * @param {Object} [details] - 附加详情
  */
 function traceAgentSpawn (storyId, agentName, taskId, details = {}) {
+  const invocationId = details.invocationId || require('crypto').randomUUID()
+  if (!details.configuredModel) {
+    try { details = { ...details, configuredModel: require('../services/workflow-metrics').configuredModel(agentName) } } catch { /* unavailable */ }
+  }
   appendTrace(storyId, {
     type: 'agent_spawn',
     agent: agentName,
     taskId,
+    invocationId,
+    phase: details.phase ?? readStateFile(storyId)?.phase ?? null,
     result: 'spawned',
     details
   })
+  return invocationId
 }
 
 /**
@@ -95,6 +113,8 @@ function traceAgentResult (storyId, agentName, status, details = {}) {
   appendTrace(storyId, {
     type: 'agent_result',
     agent: agentName,
+    invocationId: details.invocationId || null,
+    phase: details.phase ?? readStateFile(storyId)?.phase ?? null,
     result: status,
     details
   })
@@ -298,8 +318,8 @@ if (require.main === module) {
   } else if (cmd === 'agent-spawn' && storyId && args[2]) {
     const agentName = args[2]
     const taskId = args[3] || ''
-    traceAgentSpawn(storyId, agentName, taskId, { phase: args[4] || '?' })
-    console.log(JSON.stringify({ ok: true, storyId, agent: agentName, taskId }))
+    const invocationId = traceAgentSpawn(storyId, agentName, taskId, { phase: args[4] ?? readStateFile(storyId)?.phase })
+    console.log(JSON.stringify({ ok: true, storyId, agent: agentName, taskId, invocationId }))
   } else if (cmd === 'git' && storyId && args[2]) {
     const action = args[2]
     const result = args[3] === 'failed' ? 'failed' : 'success'

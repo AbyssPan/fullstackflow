@@ -40,13 +40,42 @@ Step 2: 按 status 分支（四态互斥且穷尽，无「其他情况自行处�
 
   ┌ ready     → 若 readyToAdvance=true: 先执行 advanceCommand，再回 Step 1
   │             否则: Spawn nextAgent，prompt = agentPrompt（原样注入，不加工）
-  ├ fix_loop  → 执行 recovery.command
+  ├ fix_loop  → 执行 recovery.command，成功后回 Step 1（按原因回退或在原阶段重新验证）
   ├ blocked   → verification_choice_required：询问 recovery.question，等待用户选择后执行对应 options[].command，再回 Step 1
   │             其他情况按 recovery.description 处理，无 command 则转人工
   └ terminal  → 流程结束（未创建／已完成／已归档），按 recovery 提示收尾
 
 Step 3: 子 Agent 汇报产出物路径 → 回到 Step 1
 ```
+
+## 轻量路线与阶段用量
+
+dispatch 返回 `workflowRoute`（profile + 原因）。新任务默认 auto；单仓、至多 3 个明确文件、
+低风险且无跨模块/接口/依赖/迁移/权限变化时，P0 可一次产出需求与最小规划。
+仍逐步通过 P0→P1→P2 门控，P1 产物已通过就不再 Spawn 规划师。
+full 或证据不足走完整路线；light 不代表跳过审查或默认跳过测试。
+
+每个 Agent 返回及阶段完成后，展示该阶段的 `phaseMetrics` / `progress`：
+阶段总耗时（含等待）、Agent 累计耗时、实际/配置模型、已采集 Token、覆盖率、调用/失败/返修次数。
+缺失显示「未采集」，部分覆盖明确标「部分」，不得从字数或账户额度变化推算 Token。
+如需完整对照，运行 `workflow-metrics.js <storyId>`；最终汇报链接到 Story 目录内的
+`workflow-metrics.md` 和 `workflow-metrics.json`，与 `task-dag.json` 同目录。
+报告在 Agent 事件、阶段转换和结果记录后自动更新；可用 `--write` 手动刷新。
+指出主要耗时、Token 和返修点供使用者判断，不为每一行统计新增确认等待。
+
+宿主支持 Agent/Task Pre/Post Hook 且提供 tool_use_id 时自动记调用；usage/model 只取宿主真实返回值。
+无 Hook 或后台任务缺少完成回调时，用 `trace.js agent-spawn <storyId> <agent> <taskId> <phase>`
+记录开始并保存 invocationId。结束时用 `agent-result` 的 detailsJSON 传同一 invocationId、phase，
+以及宿主实际返回的 model、usage（inputTokens/outputTokens/totalTokens/cacheReadTokens/cacheWriteTokens）
+和可用的 durationMs；未知字段省略。自动记录已有该调用时不另建一份手工调用。
+失败也记录；后台任务还在运行不能记 completed。配置模型不代表实际模型。
+阶段耗时含离线间隔，不能直接当成模型执行时间；并行 Agent 时长可超过墙钟时长。
+缓存 Token 单列不重复相加；主控和未上报调用不在 Token 总量中，不自动估算费用。
+
+失败报告用 `failureKind` + `failureReason` 分类：requirement→P0、planning→P1、
+implementation→P2、environment/verification→原阶段。unknown 留在原审查/测试 Agent
+补充分类证据；禁止统一回 P2。恢复命令由脚本重新核验，归档失效产物后重新 dispatch，
+不要使用回退前生成的 prompt。恢复达到轮次上限时按命令输出转人工，不反复执行失败命令。
 
 如有 `warnings` → 转述给用户确认，但不因此改变分支。
 

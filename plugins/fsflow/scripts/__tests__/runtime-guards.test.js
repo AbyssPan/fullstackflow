@@ -120,6 +120,7 @@ try {
   fs.unlinkSync(path.join(root, 'src/delete.js'))
   cp.execFileSync('git', ['mv', 'src/existing.js', 'src/renamed.js'], { cwd: root })
   test('Lint includes nested untracked files and renamed targets, preserves paths, skips deletions', () => {
+    require('../lib/trace').tracePhaseOutcome(story, 2, 'completed', { evidence: ['测试夹具：开发已完成，单独验证 lint 门控'] })
     setLint(0)
     assert.equal(gate().passed, true)
     const args = JSON.parse(fs.readFileSync(path.join(root, 'lint-args.json')))

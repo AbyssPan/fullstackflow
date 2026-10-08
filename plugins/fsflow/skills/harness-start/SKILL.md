@@ -23,6 +23,11 @@ description: >
 
 ## 2. 写输入并启动
 
+同一缺陷/任务的继续执行已有 storyId 时，先运行
+`node ${CLAUDE_PLUGIN_ROOT}/scripts/commands/harness-workflow.js resume <storyId>`。
+成功后直接交棒 conductor，不覆盖 story-input、不重新创建 P0/P1。resume 不接收新输入；
+新的缺陷或需求边界变化应新建 fixbugs Story。已归档先 restore，已完成不能当作中断恢复。
+
 读取 `references/启动入口.md`，按其中两步执行。只搬运用户给出的链接、参数和原始描述；
 不在主 Agent 上下文中访问 TAPD / Figma，不分析 Bug 或改动文件。
 

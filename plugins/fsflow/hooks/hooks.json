@@ -12,6 +12,10 @@
     ],
     "PreToolUse": [
       {
+        "matcher": "Agent|Task",
+        "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/trace-agent.js\" start", "timeout": 5 }]
+      },
+      {
         "matcher": "write_to_file|replace_in_file|apply_patch|Write|Edit|MultiEdit|execute_command|Bash",
         "hooks": [{
           "type": "command",
@@ -37,6 +41,10 @@
       }
     ],
     "PostToolUse": [
+      {
+        "matcher": "Agent|Task",
+        "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/trace-agent.js\" result", "timeout": 5 }]
+      },
       {
         "matcher": "execute_command|Bash|Agent|Skill|use_skill|mcp__",
         "hooks": [{

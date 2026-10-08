@@ -29,12 +29,13 @@ Agent 注册名 **`code-reviewer`**（代码审查师）。审查本 Story 的�
 语义问题以 `issues[].status` 为准：`BLOCKER` + `open` 会阻断。审查覆盖校验独立执行。
 把 BLOCKER 改成 `fixed` / `skipped` 即可放行 —— 因此 `status` 的诚实性由审查师负责，不由门控保证。
 
-覆盖不完整时不触发源码修复回路，由审查师补齐报告。语义 BLOCKER 失败时 `result._meta` 会带 `fixLoopAvailable: true` / `fixLoopSource: 'phase3'` /
-`fixLoopHint`，`dispatch.js` 据此把 `status` 输出成 `fix_loop`。
+覆盖或格式不完整时留在 P3 补齐报告。语义失败依据 `failureKind` + `failureReason` 分流：
+需求→P0，规划→P1，实现→P2，环境/验证方法→P3。原因未知先补证据。
+`failureRecovery` 给出脚本判定；仅实现错误设置 `fixLoopAvailable=true`。旧报告未分类时兼容实现修复路径。
 
 ## 修复回路（fix-loop）
 
-主 Agent 只执行 `dispatch.js` 给的 `recovery.command`，全程由 `advance-phase.js --fix-loop` 编排：
+主 Agent 只执行 `dispatch.js` 给的 `recovery.command`。以下仅适用于实现错误，由 `advance-phase.js --fix-loop` 编排；其他分类使用脚本给出的 `--recover-failure`：
 
 ```
 提取 BLOCKER → 回退 Phase 2 → 重签限域 dev-pass（仅 affectedFiles）
@@ -62,6 +63,8 @@ Agent 注册名 **`code-reviewer`**（代码审查师）。审查本 Story 的�
     "title": "...",                    // MUST
     "description": "...",              // MUST
     "suggestion": "...",
+    "failureKind": "implementation", // 新失败报告填写原因分类
+    "failureReason": "源码与调用方证据",
     "impact": "...",                   // 可选：影响到的 AC-N，供 Phase 4 交叉对账
     "reason": "...",                   // 可选：根因分析
     "project": "userlive",             // 可选：跨仓时声明问题所属仓库

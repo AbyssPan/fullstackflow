@@ -45,15 +45,18 @@ node $HARNESS/advance-phase.js <storyId> 3 --lint-fix         # 按 task-dag 仓
 node $HARNESS/advance-phase.js <storyId> <phase> --auto-fix   # 门控失败先尝试自动恢复再重跑
 node $HARNESS/advance-phase.js <storyId> <phase> --rollback   # 回退：归档中间产出物
 node $HARNESS/advance-phase.js <storyId> 2 --fix-loop         # 修复回路
+node $HARNESS/advance-phase.js <storyId> <phase> --recover-failure # 按报告原因回 P0/P1 或原阶段，目标由 dispatch 给出
 HARNESS_RUN_BUILD=1 node $HARNESS/advance-phase.js <id> 3     # 启用本地编译校验
 ```
 
-**输出只看 `success` 一个字段**：
-- `true` → 回 Step 1 重新 dispatch
-- `false` → `recovery.command` 存在则原样执行后回 Step 1；为 null 则转人工
+**结合退出码与结构化状态处理**：
+- 普通推进 `success=true`，或恢复返回 `fix_loop_prepared` / `recovery_prepared` → 回 Step 1 重新 dispatch。
+- `fix_loop_exhausted` / `recovery_exhausted` → 转人工，不反复重试相同命令。
+- 其他失败先读 `error` / `nextAction` / `recovery`；重新 dispatch 获取权威下一步，不能把命令执行失败当作阶段通过。
 
 推进脚本只返回**推进结果**（`success` / `fromPhase` / `toPhase` / `gateChecks` /
-`devPass` / `recovery` 等），修复回路另有 `fixLoopContext`。
+`devPass` / `phaseMetrics` 等）；实现修复还返回 `fix_loop_prepared` 与兼容的 spawnPrompt，
+但 conductor 不使用该旧 prompt，恢复后重新 dispatch 获取持久化上下文。
 `nextAgent` / `agentPrompt` 的唯一来源是重新执行 `dispatch.js`，不可从推进结果自行拼装 Spawn。
 
 入参约束：targetPhase 范围 0~8（8 为完成终态），普通推进步长必须 +1；重复请求当前阶段为幂等操作。
@@ -62,8 +65,13 @@ HARNESS_RUN_BUILD=1 node $HARNESS/advance-phase.js <id> 3     # 启用本地编�
 
 ## harness-workflow.js — 模式激活总开关
 
+阶段度量查询：`node $HARNESS/workflow-metrics.js <storyId> [--json] [--write]`。
+缺省只读输出；`--write` 刷新 Story 目录内的 `workflow-metrics.json` 与 `workflow-metrics.md`。
+原始事件位于 `trace.jsonl`；模型、Token 和时间来源与缺失覆盖在报告中单独标注。
+
 ```bash
 node $HARNESS/harness-workflow.js start <storyId> "<标题>" [--mode=run|fixbugs] [--input <file>]
+node $HARNESS/harness-workflow.js resume <storyId> # 同一任务继续：保留状态、输入和预算，不支持 --input
 node $HARNESS/harness-workflow.js end
 node $HARNESS/harness-workflow.js status
 ```

@@ -80,14 +80,19 @@ try {
       assert.equal(dispatch(id).status, 'fix_loop')
       assert.equal(run('advance-phase.js', [id, '2', '--fix-loop']).status, 0)
       assert.equal(state.readStateFile(id).verificationMode, 'full')
+      assert.equal(dispatch(id).nextAgent, 'fullstack-developer')
+      writeArtifact('fix-verification.json', { round: 1, source: 'acceptance-test', fixes: [{ id: 'FIX-01', status: 'fixed', actualChange: '修复接口返回值' }] })
       assert.equal(run('advance-phase.js', [id, '3']).status, 0)
+      assert.equal(dispatch(id).nextAgent, 'code-reviewer')
+      writeArtifact('code-review.json', { storyId: id, issues: [], summary: { blockerCount: 0, warningCount: 0, suggestionCount: 0 } })
       assert.equal(run('advance-phase.js', [id, '4']).status, 0)
-      assert.equal(dispatch(id).status, 'fix_loop') // 返修后失败记录仍生效，不再询问
+      assert.equal(dispatch(id).nextAgent, 'test-engineer') // 旧报告失效，复测且不再询问
       verification.results[0].status = 'passed'
       verification.results[0].evidence = ['测试夹具：接口返回 200']
       verification.summary.passed = 1
       verification.summary.failed = 0
       writeArtifact('acceptance-verification.json', verification)
+      fs.writeFileSync(path.join(state.PLANS_DIR, id, 'test-report.md'), '复测通过')
       assert.equal(dispatch(id).readyToAdvance, true)
       assert.equal(run('advance-phase.js', [id, '5']).status, 0)
       assert.equal(state.readStateFile(id).phases['4_e2e_verification'].status, 'completed')

@@ -25,6 +25,8 @@
             "minItems": 1,
             "items": { "type": "string", "maxLength": 500 }
           },
+          "failureKind": { "type": "string", "enum": ["requirement", "planning", "implementation", "environment", "verification", "unknown"], "description": "失败原因决定恢复阶段；旧报告缺省按 implementation 兼容" },
+          "failureReason": { "type": "string", "minLength": 1, "description": "失败分类的证据和依据；无法定位时使用 unknown" },
           "notes": { "type": "string" }
         },
         "additionalProperties": false

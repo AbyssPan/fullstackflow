@@ -3,7 +3,7 @@
  * advance-phase.js — Phase 门控裁定与状态跃迁的唯一执行者
  *
  * 职责:
- *   - 独立校验 targetPhase 入参合法性（范围 0~7、步长必须为 +1），越权一律拒绝
+ *   - 独立校验 targetPhase 入参合法性（范围 0~8（8 为完成态）、步长必须为 +1），越权一律拒绝
  *   - 委托 policy.js 执行门控校验，失败时输出结构化 blockers 与 nextAction
  *   - 门控通过后在 e2e-state.json 中完成相位跃迁，并签发/撤销 dev-pass
  *   - 生成 phase-N-summary.md 上下文摘要、委托 prompt-builder 构造下个 Agent 的 prompt
@@ -22,6 +22,8 @@
  *     回退到更早 Phase：归档中间产出物；targetPhase <= 2 时重置修复预算
  *   node plugins/fsflow/scripts/commands/advance-phase.js <storyId> 2 --fix-loop
  *     修复回路：提取 BLOCKER → 回退 Phase 2 → 签发限域 dev-pass → 输出 spawnPrompt
+ *   node plugins/fsflow/scripts/commands/advance-phase.js <storyId> <phase> --recover-failure
+ *     按当前失败报告恢复到 P0/P1 或在原阶段重试，目标必须匹配脚本判定
  *   参数解析：第一个纯数字视为 storyId，最后一个纯数字视为 targetPhase；
  *   非数字参数（可带 plans/ 或 .codebuddy/plans/ 前缀）优先作为 storyId。
  *
@@ -88,6 +90,11 @@ const trace = require('../lib/trace')
 const experience = require('../services/experience')
 const contextRefresh = require('../services/context-refresh')
 
+function persistWorkflowState (storyId, state) {
+  writeStateFile(storyId, state)
+  try { require('../services/workflow-metrics').saveMetrics(storyId) } catch { /* metrics never block state persistence */ }
+}
+
 // ========================
 // CLI 参数解析
 // ========================
@@ -100,6 +107,7 @@ let lintFixFlag = false
 let autoFixFlag = false
 let rollbackFlag = false
 let fixLoopFlag = false
+let recoverFailureFlag = false
 
 // 纯数字参数可能同时包含 storyId（TAPD 需求 ID 为纯数字）与 phase 数字。
 // 解析规则：第一个纯数字视为 storyId，最后一个纯数字视为 targetPhase。
@@ -114,6 +122,7 @@ for (let i = 0; i < args.length; i++) {
   else if (arg === '--auto-fix') autoFixFlag = true
   else if (arg === '--rollback') rollbackFlag = true
   else if (arg === '--fix-loop') fixLoopFlag = true
+  else if (arg === '--recover-failure') recoverFailureFlag = true
   else if (/^\d+$/.test(arg)) numericArgs.push(arg)
   else nonNumericArgs.push(arg)
 }
@@ -179,7 +188,7 @@ const currentPhaseName = getPhaseName(currentPhase)
 //         写出 phase: 99 / phases["99_undefined"] 这类污染状态。
 // ========================
 
-const MAX_PHASE = PHASE_SLUGS.length - 1
+const MAX_PHASE = PHASE_SLUGS.length - 1 // Includes Phase 8, the completed terminal.
 
 if (targetPhase < 0 || targetPhase > MAX_PHASE) {
   console.log(JSON.stringify({
@@ -266,8 +275,47 @@ if (!integrityCheck.valid) {
 }
 
 // ========================
-// --rollback: 回退 Phase（归档当前阶段产出物，更新 phase）
+// Cause-specific recovery is independently revalidated before any mutation.
 // ========================
+
+if (recoverFailureFlag) {
+  const gate = policy.runGateCheck(storyId, currentPhase, state)
+  const plan = gate._meta?.failureRecovery
+  if (state.status === 'archived' || rollbackFlag || fixLoopFlag || renewFlag ||
+      !plan || plan.targetPhase === null || plan.targetPhase === 2 || plan.targetPhase !== targetPhase) {
+    console.log(JSON.stringify({ error: '恢复目标与当前失败证据不符，请重新 dispatch', storyId }))
+    process.exit(1)
+  }
+  const round = (state.recoveryRounds?.[currentPhase] || 0) + 1
+  const maxRounds = getMaxFixRounds(storyId, currentPhase)
+  if (round > maxRounds) {
+    console.log(JSON.stringify({ status: 'recovery_exhausted', action: 'human_intervention_required', storyId, maxRounds }))
+    process.exit(1)
+  }
+  const now = new Date().toISOString()
+  const archiveRoot = path.join(PLANS_DIR, storyId, 'archive')
+  fs.mkdirSync(archiveRoot, { recursive: true })
+  const archiveDir = fs.mkdtempSync(path.join(archiveRoot, 'recovery-'))
+  require('../services/failure-routing').invalidateArtifacts(storyId, state, targetPhase, archiveDir)
+  const fixPath = path.join(PLANS_DIR, storyId, 'fix-request.json')
+  if (fs.existsSync(fixPath)) fs.renameSync(fixPath, path.join(archiveDir, 'fix-request.json'))
+  const recovery = { ...plan, round, maxRounds, archiveDir: path.relative(PROJECT_ROOT, archiveDir), generatedAt: now }
+  fs.writeFileSync(path.join(PLANS_DIR, storyId, 'failure-recovery.json'), JSON.stringify(recovery, null, 2))
+  state.recoveryRounds = { ...state.recoveryRounds, [currentPhase]: round }
+  state.phases = state.phases || {}
+  state.phases[`${targetPhase}_${PHASE_SLUGS[targetPhase]}`] = { status: 'running', startedAt: now }
+  state.phase = targetPhase
+  state.status = 'running'
+  state.updatedAt = now
+  revokeDevPass(storyId)
+  delete state.devPass
+  persistWorkflowState(storyId, state)
+  trace.appendTrace(storyId, { type: 'failure_recovery', from: String(currentPhase), to: String(targetPhase), round: String(round), causes: plan.causes })
+  console.log(JSON.stringify({ success: true, status: 'recovery_prepared', storyId, targetPhase, round, nextAction: '重新 dispatch；读取 failure-recovery.json，仅重做失效范围' }))
+  process.exit(0)
+}
+
+// --rollback: explicit manual rollback
 
 if (rollbackFlag) {
   // 🛡️ 归档状态守卫：归档后禁止 --rollback（归档后产出物已移走，回退无意义）
@@ -338,6 +386,8 @@ if (rollbackFlag) {
   // 手工 --rollback 后若不重置，剩余预算会被上一轮吃掉，甚至直接撞 fix_loop_exhausted。
   let fixBudgetReset = null
   if (targetPhase <= 2) {
+    delete state.fixRounds
+    delete state.recoveryRounds
     const fixRequestPath = path.join(PLANS_DIR, storyId, 'fix-request.json')
     if (fs.existsSync(fixRequestPath)) {
       let prevRound = 0
@@ -369,7 +419,7 @@ if (rollbackFlag) {
   })
 
   // 持久化
-  writeStateFile(storyId, state)
+  persistWorkflowState(storyId, state)
 
   console.log(JSON.stringify({
     success: true,
@@ -413,7 +463,9 @@ function extractFixIssuesFromReview(storyDir) {
       description: b.title ? `${b.title}: ${b.description || ''}` : (b.description || ''),
       suggestion: b.suggestion || '',
       project: b.project || undefined,
-      repoPath: b.repoPath || undefined
+      repoPath: b.repoPath || undefined,
+      failureKind: b.failureKind || 'implementation',
+      failureReason: b.failureReason || b.description
     }))
   } catch (e) {
     return []
@@ -436,11 +488,18 @@ function extractFixIssuesFromVerification(verification) {
       acId: r.id,
       description: `验收标准 ${r.id}: ${r.title || '未通过验收'}`,
       suggestion: Array.isArray(r.evidence) ? r.evidence.join('; ') : (r.notes || '请根据验收标准修复相关功能'),
-      notes: r.notes || ''
+      notes: r.notes || '',
+      failureKind: r.failureKind || 'implementation',
+      failureReason: r.failureReason || r.notes
     }))
 }
 
 if (fixLoopFlag) {
+  const gate = policy.runGateCheck(storyId, currentPhase, state)
+  if (targetPhase !== 2 || !gate._meta?.fixLoopAvailable) {
+    console.log(JSON.stringify({ error: '当前失败不属于实现修复，或报告格式无效，请重新 dispatch', storyId }))
+    process.exit(1)
+  }
   // 🛡️ 归档状态守卫：归档后禁止 --fix-loop（归档后产出物已移走，无法提取修复问题）
   if (state.status === 'archived') {
     console.log(JSON.stringify({
@@ -458,7 +517,7 @@ if (fixLoopFlag) {
   let sourceFile = null
 
   // 从 code-review.json 提取未修复 BLOCKER（唯一信源）
-  const extracted = extractFixIssuesFromReview(storyDir)
+  const extracted = currentPhase === 3 ? extractFixIssuesFromReview(storyDir) : []
   if (extracted.length > 0) {
     issues = extracted
     sourcePhase = 3
@@ -466,7 +525,7 @@ if (fixLoopFlag) {
   }
 
   // 如果审查报告没有 BLOCKER，尝试从 acceptance-verification.json 提取 failed
-  if (issues.length === 0) {
+  if (issues.length === 0 && currentPhase === 4) {
     const verifyPath = path.join(storyDir, 'acceptance-verification.json')
     if (fs.existsSync(verifyPath)) {
       try {
@@ -515,12 +574,12 @@ if (fixLoopFlag) {
 
   // 检查修复轮次
   const fixRequestPath = path.join(storyDir, 'fix-request.json')
-  let currentRound = 0
+  let currentRound = state.fixRounds?.[sourcePhase] || 0
   if (fs.existsSync(fixRequestPath)) {
     try {
       const prevFix = JSON.parse(fs.readFileSync(fixRequestPath, 'utf-8'))
-      // round 独立计数：仅当上次 fix-loop 与本次同源才累加；跨源（review→test 或反之）视为该阶段首次
-      currentRound = (prevFix.sourcePhase === sourcePhase) ? (prevFix.round || 0) : 0
+      // 兼容旧状态的同源计数；新状态按来源持久化，交替失败不重置预算。
+      currentRound = Math.max(currentRound, (prevFix.sourcePhase === sourcePhase) ? (prevFix.round || 0) : 0)
     } catch (e) { /* 解析失败，从 0 开始 */ }
   }
 
@@ -542,6 +601,7 @@ if (fixLoopFlag) {
   }
 
   const nextRound = currentRound + 1
+  state.fixRounds = { ...state.fixRounds, [sourcePhase]: nextRound }
 
   // 3. 提取受影响文件 —— 跨仓 Story 中 issue.file 只是「问题出现位置」，修复点可能在别的仓库
   //    （如跳转参数无人消费，问题报在跳出端，要改的是落地页）。
@@ -611,6 +671,10 @@ if (fixLoopFlag) {
   }
 
   // 6. 回退到 Phase 2 + 重新运行 Phase 2
+  const invalidatedDir = fs.mkdtempSync(path.join(archiveDir, 'fix-artifacts-'))
+  require('../services/failure-routing').invalidateArtifacts(storyId, state, 2, invalidatedDir)
+  fixRequest.previousArtifacts = path.relative(PROJECT_ROOT, invalidatedDir)
+  fs.writeFileSync(fixRequestPath, JSON.stringify(fixRequest, null, 2), 'utf-8')
   const now = new Date()
   const phase2Key = '2_development'
   const phase3Key = '3_code_review'
@@ -673,7 +737,7 @@ if (fixLoopFlag) {
   })
 
   // 9. 持久化 state
-  writeStateFile(storyId, state)
+  persistWorkflowState(storyId, state)
 
   // 9.5 生成 fix-context.md（上下文延续，供下轮审查/测试 Agent 加载）
   const fixContextPath = path.join(storyDir, 'fix-context.md')
@@ -976,8 +1040,8 @@ if (!combinedResult.passed) {
       .map(r => `  → ${r.suggestion.action} (Level ${r.suggestion.level})`)
 
     // nextAction 强语义输出：降低主 Agent 理解成本，直接给出下一步动作
-    const nextAction = combinedResult._meta?.fixLoopAvailable
-      ? { action: 'run_fix_loop', command: combinedResult._meta.fixLoopHint, description: '执行修复回路: 提取问题 → 回退 Phase 2 → 签发限域 dev-pass → Spawn 开发者修复' }
+    const nextAction = combinedResult._meta?.fixLoopHint
+      ? { action: 'recover_failure', command: combinedResult._meta.fixLoopHint, description: combinedResult._meta.failureRecovery.description }
       : (autoFixFlag
         ? { action: 'manual_fix', command: null, description: '自动修复未能解决所有 blockers，需人工分析处理' }
         : { action: 'retry_with_auto_fix', command: `node advance-phase.js ${storyId} ${targetPhase} --auto-fix`, description: '可尝试 --auto-fix 自动修复格式类问题' })
@@ -995,7 +1059,7 @@ if (!combinedResult.passed) {
       structuredBlockers: combinedResult.blockers,  // ← 新增：结构化 blocker 供主 Agent 使用
       warnings: combinedResult.warnings,
       recoverySuggestions: recoveryHints.length > 0 ? recoveryHints : undefined,
-      hint: combinedResult._meta?.fixLoopAvailable
+      hint: combinedResult._meta?.fixLoopHint
         ? `发现可修复问题，建议执行: ${combinedResult._meta.fixLoopHint}`
         : (autoFixFlag ? '自动修复未能解决所有问题，请手动处理' : '可添加 --auto-fix 尝试自动修复')
     }, null, 2))
@@ -1024,9 +1088,9 @@ if (state.phases && state.phases[currentPhaseKey]) {
 
 // 启动目标 Phase
 if (!state.phases) state.phases = {}
-state.phases[phaseKey] = { status: 'running', startedAt: now.toISOString() }
+if (targetPhase < MAX_PHASE) state.phases[phaseKey] = { status: 'running', startedAt: now.toISOString() }
 state.phase = targetPhase
-state.status = 'running'
+state.status = targetPhase === MAX_PHASE ? 'completed' : 'running'
 state.updatedAt = now.toISOString()
 
 // 记录门控结果
@@ -1165,7 +1229,7 @@ try {
 }
 
 // 持久化 — 最关键的步骤，必须在 trace 之前完成
-writeStateFile(storyId, state)
+persistWorkflowState(storyId, state)
 
 // 记录 trace（state 写入成功后才记录，确保 trace 不会领先于 state）
 try {
@@ -1223,10 +1287,16 @@ if (currentPhase === 7 && targetPhase > 7) {
   state.status = 'completed'
   state.completedAt = now.toISOString()
   state.updatedAt = now.toISOString()
-  writeStateFile(storyId, state)
+  persistWorkflowState(storyId, state)
   trace.appendTrace(storyId, { type: 'workflow', action: 'completed', result: 'success' })
   console.log('  ✓ 工作流已标记为 completed')
 }
 
+try {
+  const metrics = require('../services/workflow-metrics').collectMetrics(storyId)
+  result.phaseMetrics = metrics.phases[currentPhase]
+  result.metricsTotals = metrics.totals
+  result.workflowRoute = require('../services/workflow-route').selectRoute(storyId, state)
+} catch { result.metricsWarning = '阶段度量暂不可用' }
 console.log(JSON.stringify(result, null, 2))
 process.exit(0)

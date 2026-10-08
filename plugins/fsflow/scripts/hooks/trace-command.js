@@ -79,9 +79,20 @@ process.stdin.on('end', () => {
     const winDrive = process.platform === 'win32' ? /^\/([a-zA-Z])\/(.*)$/.exec(rawRoot) : null
     const PROJECT_ROOT = winDrive ? `${winDrive[1]}:/${winDrive[2]}` : rawRoot
     const plansDir = path.join(PROJECT_ROOT, '.codebuddy', 'plans')
-    const storyDirs = fs.existsSync(plansDir)
+    let storyDirs = fs.existsSync(plansDir)
       ? fs.readdirSync(plansDir).filter(d => fs.statSync(path.join(plansDir, d)).isDirectory())
       : []
+    // Attribute to the selected Story, never whichever directory sorts first.
+    const flagPath = path.join(plansDir, '.harness-active')
+    if (fs.existsSync(flagPath)) {
+      const flag = JSON.parse(fs.readFileSync(flagPath, 'utf8'))
+      storyDirs = flag.active && storyDirs.includes(flag.storyId) ? [flag.storyId] : []
+    } else {
+      storyDirs = storyDirs.filter(id => {
+        try { return JSON.parse(fs.readFileSync(path.join(plansDir, id, 'e2e-state.json'), 'utf8')).status === 'running' } catch { return false }
+      })
+      if (storyDirs.length !== 1) storyDirs = [] // ambiguous attribution remains unrecorded
+    }
 
     for (const storyId of storyDirs) {
       const e2ePath = path.join(plansDir, storyId, 'e2e-state.json')

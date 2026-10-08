@@ -60,6 +60,7 @@
  */
 
 const fs = require('fs')
+const { readStoryInput } = require('../lib/state')
 const path = require('path')
 const {
   PLANS_DIR,
@@ -287,6 +288,8 @@ function createWorkflow (storyId, title, bypass, hasFigma, mode, opts = {}) {
     phase: initialPhase,
     status: 'running',
     mode: workflowMode, // run | fixbugs —— story-input.json 缺失时的模式回退信源
+    workflowProfile: readStoryInput(storyId)?.workflowProfile || 'auto',
+    executionEvidenceRequired: true,
     createdAt: now,
     updatedAt: now,
     bypass: bypass || false,
@@ -332,7 +335,7 @@ function createWorkflow (storyId, title, bypass, hasFigma, mode, opts = {}) {
       }
     } else if (i === initialPhase) {
       state.phases[phaseKeys[i]] = {
-        status: bypass ? 'running' : 'pending'
+        status: bypass ? 'running' : 'pending', startedAt: now
       }
     } else {
       state.phases[phaseKeys[i]] = { status: 'pending' }

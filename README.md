@@ -36,52 +36,88 @@
 | Phase | 阶段 | 负责 Agent | 关键产出物 |
 |---|---|---|---|
 | 0 | 知识库前置确认 + 需求分析 | 需求分析师 | 缺库时经用户确认后全量生成或留痕拒绝；requirement-analysis.md、内嵌 OpenSpec 语义的 acceptance-criteria.json |
-| 1 | 任务规划 | 任务规划师 | task-dag.json（DB→后端→前端→集成 DAG）、Figma 组件绑定 |
-| 2 | 代码开发 | 全栈开发工程师 | 代码变更（dev-pass 限域保护） |
+| 1 | 任务规划 | 完整路线由任务规划师执行；轻量路线可复用 P0 产物 | task-dag.json（DB→后端→前端→集成 DAG）、Figma 组件绑定 |
+| 2 | 代码开发 | 全栈开发工程师 | 代码变更、交付证据；返修时为本轮 fix-verification.json（dev-pass 限域保护） |
 | 3 | 代码审查 | 代码审查师 | code-review.json（前端人工 + 后端内置规则库） |
 | 4 | 功能测试 | 测试工程师 | test-report.md、acceptance-verification.json |
 | 5 | 知识维护 + Git/MR | 发布助手 | 提交前更新知识并记录回执，代码与知识一起进入指定目标分支 MR；外部动作沿用已有授权 |
 | 6 | 合入版本知识核验 | 发布助手 | 核验实际合入版本的知识与代码，复用提交前更新/延期结果；缺库或失败留痕 |
 | 7 | 发布收尾 | 发布助手 | 前端：devops MCP 云端构建 + 部署 URL；后端：确认合并即收尾 |
 
-#### 8 Phase 横向流转
+#### 8 个执行阶段与完成态
+
+P0–P7 是执行阶段，P8 是完成态，不再调度 Agent。测试选择与轻量路线相互独立。
 
 ```mermaid
 flowchart LR
-    P0["Phase 0<br/>知识库确认 + 需求分析"] -->|"规格语义门控通过"| P1["Phase 1<br/>任务规划"]
-    P1 -->|"门控通过<br/>签发 dev-pass（限域）"| P2["Phase 2<br/>代码开发"]
-    P2 -->|"增量 lint（编译可选）<br/>撤销 dev-pass"| P3["Phase 3<br/>代码审查"]
-    P3 -->|"无 BLOCKER"| P4["Phase 4<br/>功能测试"]
-    P4 -->|"无失败 AC / 明确跳过测试"| P5["Phase 5<br/>知识维护 + 提交 MR"]
-    P5 -->|"确认 MR 已合并"| P6["Phase 6<br/>知识核验"]
-    P6 -->|"版本核验 / 明确未验证结果"| P7["Phase 7<br/>发布收尾（前端部署 / 后端跳过）"]
-    P7 -->|"terminal"| ARC["归档<br/>archive/round-N"]
-
-    P3 -.->|"有 BLOCKER → fix-loop 回退"| P2
-    P4 -.->|"验收失败 → fix-loop 回退"| P2
+    P0["P0 需求分析"] -->|"规格门控"| P1["P1 规划产物校验"]
+    P1 -->|"门控通过，签发限域 dev-pass"| P2["P2 开发或限域修复"]
+    P2 -->|"执行凭据 + 增量检查，撤销 dev-pass"| P3["P3 独立代码审查"]
+    P3 -->|"覆盖有效且无 BLOCKER"| P4["P4 验证选择与功能测试"]
+    P4 -->|"测试门控通过或用户明确跳过"| P5["P5 知识维护与 Git/MR"]
+    P5 -->|"提交结果或用户明确跳过"| P6["P6 合入版本知识核验"]
+    P6 -->|"核验、延期或未验证结果留痕"| P7["P7 发布收尾"]
+    P7 -->|"发布、不适用或用户跳过凭据"| P8["P8 已完成"]
+    P8 --> ARC["归档 archive/round-N"]
+    P3 -.->|"审查失败"| Recovery["按失败原因恢复，见下图"]
+    P4 -.->|"验证失败"| Recovery
 ```
 
-#### 主控循环（dispatch.js 四态调度）
+`verificationMode=ask` 在 P4 等待用户选择，`full` 执行独立测试，`review-only` 按已有明确选择跳过。
+新工作流 P2/P5 及所有工作流 P7 都要求执行结果证据；有文件或没有代码差异不等于实际工作已完成。
+P5/P7 的跳过记录必须引用用户决定，不能由轻量路线自动生成。阶段凭据不替代 Git/CI 或部署平台的真实验证。
+
+#### 入口与轻量准备
 
 ```mermaid
 flowchart TD
-    Start(["触发词：做个需求 / 修 bug"]) --> Entry["harness-start<br/>梳理 story-input.json"]
-    Entry --> Create["harness-workflow start --input<br/>校验输入并一次建流"]
-    Create --> Dispatch{"dispatch.js<br/>读状态 + 判门控"}
-
-    Dispatch -->|"ready · readyToAdvance=true"| Advance["advance-phase.js<br/>推进到下一 Phase"]
-    Advance --> Dispatch
-
-    Dispatch -->|"ready · 需产出"| Spawn["Spawn 当前 Phase Agent<br/>（注入 agentPrompt）"]
-    Spawn --> Report["Agent 产出并汇报"]
-    Report --> Dispatch
-
-    Dispatch -->|"fix_loop"| FixLoop["执行 recovery.command<br/>--fix-loop 回退 Phase 2<br/>重签限域 dev-pass"]
-    FixLoop --> Dispatch
-
-    Dispatch -->|"blocked"| Manual["等待测试选择<br/>或转人工处理"]
-    Dispatch -->|"terminal"| End(["归档 / 流程结束"])
+    Start["run / fixbugs / 自然语言"] --> Existing{"继续同一任务？"}
+    Existing -->|"已有未完成 Story"| Resume["resume：保留输入、契约、测试选择和预算"]
+    Existing -->|"新任务或新缺陷"| Create["写 story-input.json，start --input"]
+    Create --> P0["P0 核实需求与影响面"]
+    P0 --> Route{"auto / light 且轻量条件满足？"}
+    Route -->|"是"| Combined["同一次分析产出最小任务规划"]
+    Route -->|"否，或指定 full"| Standard["P0 仅产出需求契约"]
+    Combined --> Gate0["通过 P0 门控，进入 P1"]
+    Standard --> Gate0
+    Gate0 --> Gate1{"P1 规划产物门控通过？"}
+    Gate1 -->|"缺失或无效"| Planner["规划师产出或修订任务规划"]
+    Planner --> Gate1
+    Gate1 -->|"通过"| Dev["P2 开发，随后独立审查与验证"]
+    Resume --> Dispatch["dispatch：从当前阶段继续"]
 ```
+
+轻量条件为：单仓、低风险、1–3 个明确文件，有影响面证据，且不涉及跨模块、接口、依赖、数据迁移、
+权限变化或 Figma 强制还原。`light` 是请求，不是强行跳关开关；条件不满足就使用完整路线。
+轻量路线节省的是重复分析和一次规划 Agent 调用，P0/P1 门控均保留。
+已归档任务先 restore；已完成任务上的新缺陷应新建 Story，不复用旧验收结论。
+
+#### 主控循环与失败分流
+
+```mermaid
+flowchart TD
+    Dispatch{"dispatch：只读状态与门控"} -->|"ready：产物待完成"| Agent["调度 nextAgent，原样传 agentPrompt"]
+    Agent --> Dispatch
+    Dispatch -->|"ready：可推进"| Advance["advance-phase 独立复核门控并写状态"]
+    Advance --> Dispatch
+    Dispatch -->|"fix_loop"| Cause{"脚本根据失败证据选择目标"}
+    Cause -->|"requirement"| R0["回 P0 修订需求"]
+    Cause -->|"planning"| R1["回 P1 修订规划"]
+    Cause -->|"implementation"| R2["回 P2 限域修复"]
+    Cause -->|"environment / verification"| Same["原阶段修复运行条件或验证方法"]
+    R0 --> Recover["执行恢复命令：归档失效产物，保留有效上游"]
+    R1 --> Recover
+    R2 --> Recover
+    Same --> Recover
+    Recover --> Dispatch
+    Dispatch -->|"blocked"| Wait["等待测试选择，或处理预算耗尽与门控异常"]
+    Wait -->|"问题解决后"| Dispatch
+    Dispatch -->|"terminal"| End["按原因创建、复档或完成归档"]
+```
+
+原因不明时保留在原审查/测试 Agent 补证据，不猜测回退目标；旧报告未分类时兼容原实现修复路径。
+格式或覆盖证据错误先留在原阶段补齐。恢复命令会重新核对目标与预算，成功后重新 dispatch，
+不用回退前的旧 prompt。只有实现修复签发 dev-pass；新的修复核对记录通过后再进入独立复查。
 
 > **核心设计：AI 不操作状态，只机械执行。** `dispatch.js` 是「只读调度器」——读状态、判门控、
 > 说下一步，零写权限；`advance-phase.js` 是「相位跃迁唯一执行者」——判门控、写状态、
@@ -216,17 +252,73 @@ Git 提交 / push / 创建 MR 等外部动作沿用当前会话已有授权；�
 - 选错模式的后果：`fixbugs` 误走 run 会重新要求原型文档且不做 Bug 报告门控。
 
 ### 5. 修复回路（fix-loop）
-- 审查/测试发现 BLOCKER 或验收失败时，工作流自动回退到 Phase 2 修复，重新签发限域 dev-pass。
+- 审查/测试失败按报告中的 `failureKind` + `failureReason` 分流：需求错误回 P0，规划错误回 P1，实现错误回 P2 并签发限域 dev-pass，环境/验证方法错误在原阶段重新验证。原因不明时先补证据；旧报告未分类时兼容原 P2 路径。
+- 恢复时归档目标阶段及下游失效报告，保留更早的有效产物。P2 只修复当前问题清单，产出本轮 `fix-verification.json` 后才进入增量复查；旧报告不能直接充当本轮验收结果。
 - **代码审查与功能测试各默认最多 2 轮，独立计数**；对应预算耗尽后转人工介入。
+- 同一缺陷继续执行 `/fsflow:fixbugs <storyId>` 时，入口优先 `harness-workflow.js resume <storyId>`，保留 P0/P1、验证选择和轮次，不新建完整流程。新缺陷仍新建 Story，P0/P1 仅分析本次缺陷与受影响范围；不得把新输入当作原任务继续而复用旧验收。
 
-### 6. 知识库（KB）
+### 6. 轻量路线与执行度量
+
+小改动可设置 `story-input.json` 的 `workflowProfile: "auto"`（新流程默认）或 `"light"`。
+只有单仓、低风险、1–3 个明确文件且无跨模块/接口/依赖/迁移/权限变化时，才合并 P0 分析和最小规划。
+`full` 保留独立规划；风险不明确自动使用 full。阶段门控、独立审查和原测试选择都保留。
+
+每个 Story 会在 `task-dag.json` 同目录生成 `workflow-metrics.md`（人读报告）和
+`workflow-metrics.json`（含逐调用记录），在 Agent 事件、阶段结果及阶段转换后更新。
+展示路线与原因、阶段状态、实际/配置模型、阶段总耗时、Agent 累计耗时、调用/失败/返修次数、
+输入/输出/总 Token、缓存读写 Token，以及每项采集覆盖率。原始证据留在 `trace.jsonl`。
+可执行 `node ${CLAUDE_PLUGIN_ROOT}/scripts/commands/workflow-metrics.js <storyId> --write` 刷新，
+或加 `--json` 查询机器可读数据。dispatch 保持只读，不写报告。
+
+Token 和实际模型只取宿主上报值；缺失显示“未采集”，配置模型不能充当实际模型。
+缓存不重复加到总量，不估算费用。阶段耗时含等待和离线间隔；并行 Agent 的累计时间可能更长。
+表格仅统计已上报的子 Agent，不包含未采集的主控用量，不能当作完整账单。
+
+#### 度量采集与报告文件
+
+```mermaid
+flowchart LR
+    Host["Agent / Task 宿主回调"] --> Events["trace.jsonl 原始事件"]
+    CLI["无回调时用同一 invocationId 补记真实结果"] --> Events
+    Phase["阶段转换、执行结果、返修事件"] --> Events
+    Events --> Metrics["聚合调用、耗时、模型和 Token"]
+    State["e2e-state 与路线评估"] --> Metrics
+    Metrics --> JSON["workflow-metrics.json 逐调用明细"]
+    Metrics --> MD["workflow-metrics.md 使用者报告"]
+    Events -.->|"只读查询"| DispatchMetrics["dispatch.progress / workflow-metrics CLI"]
+    State -.->|"只读查询"| DispatchMetrics
+```
+
+文件位于每个项目的 Story 目录，随 Story 一起归档：
+
+```text
+.codebuddy/plans/<storyId>/
+├── task-dag.json
+├── change-scope.json       # 申请轻量准备时的影响面评估
+├── trace.jsonl             # 原始事件，调用 ID 用于去重
+├── workflow-metrics.json   # 结构化汇总、采集来源及逐调用明细
+└── workflow-metrics.md     # 人读表格与优化提示
+```
+
+| 信息 | 口径与用途 |
+|---|---|
+| 实际 / 配置模型 | 实际模型只取宿主返回，按调用记录；配置仅供对照，实际模型有单独覆盖率 |
+| 阶段 / Agent 耗时 | 阶段时间含等待和离线间隔；Agent 为调用累计时间，包含其执行工具的时间，并行时不能相减推算等待 |
+| 输入 / 输出 / 总 / 缓存 Token | 各字段独立累计与标注覆盖率；缺失不是 0，缓存不再次计入总量 |
+| 调用 / 失败 / 返修 | 区分调用失败与阶段回退，定位重复工作；同一 invocationId 的重复回调不会重复计费统计 |
+| 路线 / 状态 / 更新时间 | 明确报告所属 Story、当前状态和快照时间，便于复盘轻量路线收益 |
+
+自动报告为非阻塞的快照，历史任务没有的遥测无法补算。`--write` 可刷新文件，`--json` 可查询结构化数据；
+实际调用与 Token 采集需要宿主支持对应字段。目前不把这些数据当成完整账单，也不据此自动减少验收要求。
+
+### 7. 知识库（KB）
 - 新项目在 Phase 0 需求分析开始时确认：用户同意后由 `kb-init` + `gen-project-docs` 完成初始化与全量生成。
 - 需求分析 / 改代码前用 `kb-query` 分层检索，历史教训自动注入各 Phase 的 prompt。
 - Phase 5 在提交前执行 `kb-update`：更新受影响业务域，或把延期原因、责任人与范围写入回执；随后对暂存区执行严格检查。
 - 代码和知识必须在同一分支、同一 MR 中评审。Phase 6 不重新生成知识，只核验 GitLab 实际合入版本与 Phase 5 回执。
 - 各分支维护与本分支代码匹配的知识快照；集成分支与功能分支通过 Git 合并继承，不在知识库内复制分支目录。
 
-### 7. 多项目协作
+### 8. 多项目协作
 - 涉及多仓库时，需求分析师在 Phase 0 写入 story 级 `repos.json`（`primary` + `repos` 映射）。
 - 跨项目 task 的 `description` 必须含行号引用，便于全栈开发工程师定位改动点。
 
@@ -299,7 +391,8 @@ Git 提交 / push / 创建 MR 等外部动作沿用当前会话已有授权；�
 - **enforce-dev-pass.js** — 开发门控：无有效 dev-pass 或写入超出限域文件清单时拦截源码编辑（文件工具与 shell 双通道，shell 命令中的重定向 / sed -i / tee 等写 src/ 行为一并校验）
 - **enforce-artifact.js** — 产出物契约：按 Phase 检查必备产出物存在性
 - **session-start.js / session-stop.js** — 会话恢复与清理：新会话自动恢复工作流状态，Stop 时落盘
-- **trace-command.js** — 命令审计：记录命令 / Agent / Skill / MCP 调用轨迹，供 harness-evolve 度量分析
+- **trace-command.js** — 命令审计：记录当前激活 Story 的命令 / Skill / MCP 调用轨迹；无法唯一归属时不随意记到其他 Story
+- **trace-agent.js** — Agent/Task 调用前后记录 invocationId、配置与实际模型、宿主上报用量；自动刷新度量报告。后台任务或宿主缺少回调时可按 conductor 指引补记
 
 另有两条输入侧安全约束：storyId 须以字母/数字开头、仅含字母数字与 `-_`（最长 64 字符），
 在 schema 与状态脚本双层强制。Story 参数与 lint 文件路径通过数组参数传递；
@@ -386,6 +479,9 @@ kb-query 在缺少知识库或索引损坏时，报告原因并使用 Git 文件
 | 项目已使用 Husky / 自定义 `core.hooksPath` | 不覆盖现有 hook；按安装指南把 `check --staged` 命令接入现有 `pre-commit` |
 | GitLab 知识检查提示只运行了源分支流水线 | 为目标分支启用 merged results pipeline 或 merge train，使检查针对候选合并提交执行 |
 | 严格检查提示业务域缺少处理结果 | 运行 `kb-update` 后为受影响域执行 `record`，记录已更新或明确延期，再重新暂存回执 |
+| Token / 实际模型显示未采集 | 宿主未上报相应字段；检查 Agent Hook 或按 conductor 指引用同一 invocationId 补记真实结果，不能从配置或字数推算 |
+| 设置 light 后仍走 full | 查看 dispatch 的 workflowRoute.reasons；检查影响面证据、文件范围、跨仓和风险标记，不要绕过门控 |
+| 度量报告需要刷新 | 运行 workflow-metrics.js <storyId> --write；dispatch 本身保持只读 |
 | Story 目录被清空了 | 已归档：root 文件在 `archive/round-{N}/`，执行 restore 命令可完全复原 |
 
 > 更多排障细节见 [INSTALL.md](./INSTALL.md)。
@@ -422,9 +518,12 @@ fullstackflow/
         ├── commands/                    # run/fixbugs/status/end/evolve/archive + 兼容统一入口
         ├── agents/                      # 6 个角色代理
         ├── skills/                      # 16 个技能（工作流 / 知识库 / 开发规范 / 辅助工具）
-        ├── hooks/hooks.json             # 4 类事件、6 个 Hook 脚本
+        ├── hooks/hooks.json             # 4 类事件、7 个 Hook 脚本
         ├── output-styles/harness.md     # 汇报输出风格
         ├── scripts/                     # dispatch / advance-phase / archive / policy 门控等
+        ├── scripts/commands/workflow-metrics.js # 查询 / 刷新每个 Story 的度量报告
+        ├── scripts/services/workflow-route.js # 轻量路线判定
+        ├── scripts/services/failure-routing.js # 失败原因分流与产物失效
         ├── scripts/commands/kb-maintenance.js # 知识维护安装与命令入口
         ├── scripts/lib/kb-maintenance.cjs # 可复制到项目内的维护运行时
         ├── scripts/templates/kb-gitlab-ci.yml # 候选合并一致性检查模板

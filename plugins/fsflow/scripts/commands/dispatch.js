@@ -14,7 +14,7 @@
  *   输出为纯 JSON，主 Agent 按 status 分支机械执行:
  *     ready     Spawn nextAgent 注入 agentPrompt 干活，或执行 advanceCommand 推进
  *     blocked   状态异常，按 recovery.command / description 修复
- *     fix_loop  Phase 3/4 存在 BLOCKER，执行 recovery.command 回退 Phase 2 修复
+ *     fix_loop  Phase 3/4 失败，执行 recovery.command 按原因恢复，再重新 dispatch
  *     terminal  冷启动未建流 / 已归档 / 已完成，recovery 给出创建、复档或归档命令
  *
  * 使用场景:
@@ -40,8 +40,7 @@
  *        迫使主 Agent 自己去读文件、自己判断——判断权回流即失控。
  *   - 门控预检只是"预读"，真正的裁定权在 advance-phase.js。dispatch.js 的门控结论仅用于
  *     决定"该干活还是该修复"，绝不代替 advance-phase.js 写状态。
- *   - fix_loop 分支会一并给出回退后要 Spawn 的 Phase 2 Agent 与 prompt，否则主 Agent 执行完
- *     --fix-loop 只能自行判断该 Spawn 谁 —— 判断权回流即失控。
+ *   - fix_loop 只给恢复命令；写入恢复上下文后重新 dispatch，避免提前构造的 prompt 缺少本轮问题。
  *   - agentPrompt 只在本脚本确定当前 Phase 需要 Spawn 时，由 services/prompt-builder.js 构造。
  *     门控已通过的推进分支不预构造下一 Phase prompt，推进后重新 dispatch。
  *   - 冷启动处理: 状态文件不存在时不再静默失败，而是返回 terminal + 创建工作流的 recovery 命令，
@@ -63,7 +62,8 @@ const {
   getPhaseName,
   getPhaseAgent,
   errorToString,
-  errorToType
+  errorToType,
+  getMaxFixRounds
 } = require('../lib/state')
 
 const policy = require('../services/policy')
@@ -129,6 +129,7 @@ function detectFixLoop (storyId) {
     const fr = JSON.parse(fs.readFileSync(p, 'utf-8'))
     return {
       active: true,
+      sourcePhase: fr.sourcePhase,
       round: fr.round,
       maxRounds: fr.maxRounds,
       issueCount: Array.isArray(fr.issues) ? fr.issues.length : 0,
@@ -144,7 +145,7 @@ function detectFixLoop (storyId) {
  * @param {string} storyId - Story ID
  * @returns {Object} 调度指令
  */
-function dispatch (storyId) {
+function dispatchCore (storyId) {
   // ── 冷启动: 状态文件不存在 ────────────────────────────────
   // 原 dispatcher Agent 要求先读 e2e-state.json 才能输出下一步，
   // 导致 Phase 0 之前无法调度（冷启动死锁）。此处显式处理。
@@ -229,7 +230,12 @@ function dispatch (storyId) {
   try {
     gate = policy.runGateCheck(storyId, phase, state)
   } catch (e) {
-    result.warnings.push(`门控预检异常（不阻塞调度）: ${e.message}`)
+    result.status = 'blocked'
+    result.recovery = {
+      type: 'gate_check_error', command: null,
+      description: `门控预检异常，无法确认可推进：${e.message}。修复报告或门控错误后重新 dispatch。`
+    }
+    return result
   }
   result.warnings.push(...(gate.warnings || []))
 
@@ -248,41 +254,39 @@ function dispatch (storyId) {
     return result
   }
 
-  const fixLoop = detectFixLoop(storyId)
+  const failureRecovery = gate._meta && gate._meta.failureRecovery
+  if (!gate.passed && failureRecovery && failureRecovery.targetPhase !== null) {
+    const target = failureRecovery.targetPhase
+    const previousFix = detectFixLoop(storyId)
+    const rounds = target === 2
+      ? Math.max(state.fixRounds?.[phase] || 0, previousFix.sourcePhase === phase ? previousFix.round || 0 : 0)
+      : state.recoveryRounds?.[phase] || 0
+    const maxRounds = getMaxFixRounds(storyId, phase)
+    if (rounds >= maxRounds) {
+      result.status = 'blocked'
+      result.recovery = {
+        type: target === 2 ? 'fix_loop_exhausted' : 'recovery_exhausted', command: null,
+        description: `Phase ${phase} 已达 ${maxRounds} 轮恢复上限，需人工介入。`,
+        causes: failureRecovery.causes
+      }
+      return result
+    }
+    result.status = 'fix_loop'
+    result.recovery = {
+      type: target === 2 ? 'fix_loop' : 'failure_recovery',
+      command: `${ADVANCE_CMD} ${storyId} ${target} ${target === 2 ? '--fix-loop' : '--recover-failure'}`,
+      description: failureRecovery.description,
+      targetPhase: target,
+      causes: failureRecovery.causes,
+      blockers: gate.blockers.map(b => ({ type: errorToType(b), message: errorToString(b) }))
+    }
+    result.instruction = '执行 recovery.command，成功后重新 dispatch，使用持久化后的恢复上下文调度 Agent。'
+    return result
+  }
 
   // ── 分支 A: 当前 Phase 产出物未就绪 → 该 Phase 的 Agent 干活 ──
   if (!gate.passed) {
     const agentInfo = getPhaseAgent(phase)
-
-    // 修复回路已激活且卡在 Phase 3/4 → 回退开发修复
-    const isReviewOrTest = phase === 3 || phase === 4
-    if (isReviewOrTest && gate.blockers.length > 0 && gate._meta && gate._meta.fixLoopAvailable) {
-      result.status = 'fix_loop'
-      result.recovery = {
-        type: 'fix_loop',
-        command: `${ADVANCE_CMD} ${storyId} 2 --fix-loop`,
-        description: `Phase ${phase} 存在 BLOCKER，执行修复回路回退到 Phase 2 修复` +
-          (fixLoop.active ? `（当前第 ${fixLoop.round}/${fixLoop.maxRounds} 轮）` : ''),
-        blockers: gate.blockers.map(b => ({ type: errorToType(b), message: errorToString(b) }))
-      }
-
-      // 回退后要干活的是 Phase 2 的开发者。此处一并给出 Agent 与 prompt，
-      // 否则主 Agent 执行完 --fix-loop 只能自行判断该 Spawn 谁 —— 判断权回流即失控。
-      const fixAgentInfo = getPhaseAgent(2)
-      if (fixAgentInfo) {
-        const pb = promptBuilder.buildAgentPrompt({
-          storyId,
-          targetPhase: 2,
-          summaryPhase: phase
-        })
-        result.nextAgent = pb.agent
-        result.agentLabel = pb.agentLabel
-        result.agentPrompt = pb.agentPrompt
-        result.expectedOutputs = pb.expectedOutputs
-        result.instruction = `先执行 recovery.command 回退到 Phase 2，成功后 Spawn ${pb.agent} 并注入 agentPrompt 修复 BLOCKER`
-      }
-      return result
-    }
 
     // 常规情况: 本 Phase 的 Agent 尚未产出，让它干活
     if (agentInfo) {
@@ -295,6 +299,7 @@ function dispatch (storyId) {
       result.nextAgent = pb.agent
       result.agentLabel = pb.agentLabel
       result.agentPrompt = pb.agentPrompt
+      if (failureRecovery && failureRecovery.targetPhase === null) result.agentPrompt += `\n${failureRecovery.description}\n`
       result.expectedOutputs = pb.expectedOutputs
       result.advanceCommand = `${ADVANCE_CMD} ${storyId} ${phase + 1}`
       result.pendingBlockers = gate.blockers.map(b => ({
@@ -324,6 +329,23 @@ function dispatch (storyId) {
   result.readyToAdvance = true
   result.instruction = `执行 advanceCommand 推进到 Phase ${nextPhase}，然后重新执行 dispatch.js 获取唯一的下一步指令`
 
+  return result
+}
+
+function dispatch (storyId) {
+  const result = dispatchCore(storyId)
+  const state = readStateFile(storyId)
+  if (state && !state._parseError) {
+    result.workflowRoute = require('../services/workflow-route').selectRoute(storyId, state)
+    try {
+      const report = require('../services/workflow-metrics').collectMetrics(storyId)
+      result.progress = {
+        current: report.phases[result.phase] || null, totals: report.totals,
+        reportCommand: `node \${CLAUDE_PLUGIN_ROOT}/scripts/commands/workflow-metrics.js ${storyId}`,
+        measurement: report.measurement
+      }
+    } catch { result.metricsWarning = '阶段度量暂不可用，执行流程继续' }
+  }
   return result
 }
 

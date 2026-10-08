@@ -398,6 +398,16 @@ const RECOVERY_SUGGESTIONS = {
     action: '请先完成对应 Phase 的产出物',
     autoFixable: false
   },
+  fix_verification_pending: {
+    level: 4,
+    action: '由开发者完成本轮问题清单并写入匹配 round/source 的 fix-verification.json，再进入独立复查',
+    autoFixable: false
+  },
+  execution_outcome_missing: {
+    level: 4,
+    action: '由当前阶段 Agent 完成实际工作后记录 phase-outcome 和 details.evidence，禁止空转推进',
+    autoFixable: false
+  },
   // Phase 3/4 修复回路：代码审查发现 BLOCKER → 回退 Phase 2
   fix_loop_code_review: {
     level: 2,
@@ -550,6 +560,25 @@ function runGateCheck (storyId, phaseNum, state) {
     checkPhase4Gate(storyId, result)
   } else if (phaseNum === 6) {
     checkPhase6Gate(storyId, result)
+  }
+  if (phaseNum === 7 || (state?.executionEvidenceRequired && [2, 5].includes(phaseNum))) {
+    // fix-verification is the current implementation-repair receipt; other executions need an outcome.
+    const fixing = phaseNum === 2 && fs.existsSync(path.join(PLANS_DIR, storyId, 'fix-request.json'))
+    if (!fixing) checkExecutionOutcome(storyId, phaseNum, state, result)
+  }
+
+  // Recovery routes are derived from the current report, never from stale upstream failures.
+  if ((phaseNum === 3 || phaseNum === 4) && !result.passed) {
+    const malformed = result.blockers.some(b => ['schema_validation_failed', 'review_coverage_invalid'].includes(errorToType(b)))
+    const recovery = malformed ? null : require('./failure-routing').planRecovery(storyId, phaseNum)
+    result._meta.fixLoopAvailable = Boolean(recovery && recovery.targetPhase === 2)
+    delete result._meta.fixLoopHint
+    if (recovery) {
+      result._meta.failureRecovery = recovery
+      if (recovery.targetPhase !== null) {
+        result._meta.fixLoopHint = `advance-phase.js ${storyId} ${recovery.targetPhase} ${recovery.targetPhase === 2 ? '--fix-loop' : '--recover-failure'}`
+      }
+    }
   }
 
   // 3. 为未匹配恢复建议的 blocker 补充兜底 recoveries
@@ -915,6 +944,23 @@ function checkPhase1Gate (storyId, state, result) {
  *   - 未检测到变更时降级为 warning（可能代码已提交或本 Story 无代码改动），不误阻塞
  */
 function checkPhase2Gate (storyId, state, result) {
+  const fixPath = path.join(PLANS_DIR, storyId, 'fix-request.json')
+  if (fs.existsSync(fixPath)) {
+    let complete = false
+    try {
+      const request = JSON.parse(fs.readFileSync(fixPath, 'utf8'))
+      const verification = JSON.parse(fs.readFileSync(path.join(PLANS_DIR, storyId, 'fix-verification.json'), 'utf8'))
+      complete = verification.round === request.round && verification.source === request.source &&
+        Array.isArray(verification.fixes) && Array.isArray(request.issues) && request.issues.length > 0 &&
+        request.issues.every(i => verification.fixes.some(f => f.id === i.id &&
+          ['fixed', 'partially', 'skipped'].includes(f.status) && typeof f.actualChange === 'string' && f.actualChange.trim()))
+    } catch { /* missing or malformed evidence requires the developer */ }
+    if (!complete) {
+      result.passed = false
+      result.blockers.push(structuredError('fix_verification_pending', '本轮修复尚未完成：缺少对应轮次、来源及逐项说明的 fix-verification.json', 4, '开发者按 fix-request.json 修复并逐项记录实际改动，再进入独立复查'))
+      return
+    }
+  }
   const repos = loadRepos(storyId)
   const repoNames = Object.keys(repos.repos || {})
   const targets = repoNames.length > 0 ? repoNames : [null]
@@ -1181,6 +1227,27 @@ function checkPhase4Gate (storyId, result) {
  * @param {string} storyId - Story ID
  * @param {Object} result - runGateCheck 聚合结果
  */
+function checkExecutionOutcome (storyId, phase, state, result) {
+  const allowed = { 2: ['completed'], 5: ['submitted', 'skipped_by_user'], 7: ['deployed', 'not_applicable', 'skipped_by_user'] }
+  const startedAt = state?.phases?.[`${phase}_${require('../lib/state').PHASE_SLUGS[phase]}`]?.startedAt
+  let latest
+  try {
+    for (const line of fs.readFileSync(path.join(getStoryDir(storyId), 'trace.jsonl'), 'utf8').split('\n')) {
+      try {
+        const e = JSON.parse(line)
+        if (e.type === 'phase_outcome' && String(e.phase) === String(phase) &&
+            (!startedAt || Date.parse(e.ts) >= Date.parse(startedAt))) latest = e
+      } catch { /* tolerate incomplete trace lines */ }
+    }
+  } catch { /* missing outcome */ }
+  if (!latest || !allowed[phase].includes(latest.result) ||
+      !Array.isArray(latest.details?.evidence) || !latest.details.evidence.some(e => typeof e === 'string' && e.trim())) {
+    result.passed = false
+    result.blockers.push(structuredError('execution_outcome_missing', `Phase ${phase} 尚无本轮执行结果和证据`, 4,
+      `由阶段 Agent 完成实际工作后执行 trace.js phase-outcome ${storyId} ${phase} <${allowed[phase].join('|')}>，details.evidence 记录文件/自测结果、提交或发布结果；跳过须引用用户决定`))
+  }
+}
+
 function checkPhase6Gate (storyId, result) {
   const tracePath = path.join(getStoryDir(storyId), 'trace.jsonl')
   let latest = null

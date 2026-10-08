@@ -156,7 +156,8 @@ function aggregateMetrics () {
     }
 
     // Phase 耗时
-    const durations = computePhaseDurations(state)
+    const stageMetrics = require('../services/workflow-metrics').collectMetrics(storyId)
+    const durations = Object.fromEntries(stageMetrics.phases.filter(p => p.elapsedMs !== null).map(p => [p.phase, p.elapsedMs]))
     for (const [phase, dur] of Object.entries(durations)) {
       if (!allPhaseDurations[phase]) allPhaseDurations[phase] = []
       allPhaseDurations[phase].push(dur)

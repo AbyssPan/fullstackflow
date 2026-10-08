@@ -240,6 +240,36 @@ function cmdEnd() {
   }))
 }
 
+/** Resume the same request without rewriting input, contracts, phase or retry budgets. */
+function cmdResume(storyId) {
+  const id = storyId && storyId.replace(/^(plans\/|\.codebuddy\/plans\/)/i, '')
+  const fail = message => {
+    console.error(JSON.stringify({ ok: false, message }))
+    process.exit(1)
+  }
+  if (!id || id.includes('/') || id.includes('\\') || id === '..' || id === '.') fail('resume 必须指定有效的 storyId')
+  if (cliInput || modeArg) fail('resume 不接收新输入或模式变更；新缺陷请创建独立 fixbugs Story，避免复用不匹配的旧结果')
+  const state = readStateFile(id)
+  if (!state || state._parseError) fail('已有工作流不存在或状态损坏，无法恢复')
+  if (state.status === 'archived') fail('Story 已归档，请先 restore 再恢复')
+  if (state.status === 'completed' || state.phase >= 8) fail('Story 已完成；新的缺陷需创建独立 fixbugs Story')
+  if (!Number.isInteger(state.phase) || state.phase < 0) fail('工作流 phase 无效，无法恢复')
+  const existing = readFlag()
+  if (existing?.active && existing.storyId !== id) fail(`另一个 Story ${existing.storyId} 正在运行，请先结束或切换工作流`)
+  if (fs.existsSync(HARNESS_FLAG) && !existing) fail('激活标记损坏，请先修复标记')
+  const repos = loadRepos(id)
+  if (!existing?.active) writeFlag({
+    active: true, storyId: id, title: state.title, mode: state.mode || 'run',
+    activatedAt: new Date().toISOString(), primaryRepo: repos.primary,
+    repoCount: Object.keys(repos.repos).length
+  })
+  console.log(JSON.stringify({
+    ok: true, resumed: true, storyId: id, phase: state.phase,
+    message: '已恢复原工作流；保留输入、契约、验证选择和修复预算，按当前失败原因继续，不从 P0 重跑。',
+    nextCommand: `node ${'${CLAUDE_PLUGIN_ROOT}'}/scripts/commands/dispatch.js ${id}`
+  }))
+}
+
 /**
  * 查看当前 harness 状态
  */
@@ -283,6 +313,9 @@ const cliMode = modeArg ? modeArg.slice('--mode='.length) : 'run'
 const positional = args.filter(a => !a.startsWith('--'))
 
 switch (command) {
+  case 'resume':
+    cmdResume(positional[1])
+    break
   case 'start':
     if (cliMode !== 'run' && cliMode !== 'fixbugs') {
       console.error(`❌ 无效的 --mode 值: ${cliMode}（仅支持 run / fixbugs）`)
@@ -309,6 +342,7 @@ switch (command) {
       '用法:',
       '  node harness-workflow.js start <storyId> "<标题>" [--mode=run|fixbugs] [--input <file>]   激活 harness 模式',
       '  node harness-workflow.js end                          关闭 harness 模式',
+      '  node harness-workflow.js resume <storyId>              恢复同一缺陷/任务，不重建流程',
       '  node harness-workflow.js status                       查看当前状态',
       '',
       '  --mode=fixbugs   Bug 修复模式：免除原型文档要求，Phase 0 需求分析师负责产出 Bug 分析报告',

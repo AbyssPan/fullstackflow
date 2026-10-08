@@ -372,7 +372,7 @@ function buildTaskPlannerFigmaInstruction (storyId) {
  * @returns {Object|null} fixLoopContext，无修复回路时返回 null
  */
 function buildFixLoopContext (storyId, targetPhase) {
-  if (targetPhase !== 3) return null
+  if (![2, 3, 4].includes(targetPhase)) return null
 
   const fixRequestPath = path.join(PLANS_DIR, storyId, 'fix-request.json')
   if (!fs.existsSync(fixRequestPath)) return null
@@ -393,9 +393,11 @@ function buildFixLoopContext (storyId, targetPhase) {
       affectedFiles: fixRequest.affectedFiles || [],
       fixVerificationExists: hasFixVerification,
       fixContextFile: '.codebuddy/plans/' + storyId + '/fix-context.md',
-      instruction: '本次审查为修复回路后的复查。请加载 fix-context.md + fix-request.json' +
+      instruction: (targetPhase === 2
+        ? '本次只执行 fix-request.json 指定的修复，不重跑整个 task-dag，不重复 P0/P1。修复后产出匹配 round/source 的 fix-verification.json，每项记录 id、status、actualChange。'
+        : '本次为修复后的增量复查。') + '请加载 fix-context.md + fix-request.json' +
         (hasFixVerification ? ' + fix-verification.json' : '') +
-        '，逐项核对每个 FIX-XX 是否真正修复，聚焦复查 affectedFiles 的改动，确认未引入新问题。'
+        '；上轮报告从 fix-request.json 的 previousArtifacts 目录按需读取。逐项核对问题 ID，聚焦 affectedFiles 及调用方。审查可复用版本/指纹一致的记录；测试优先失败 AC 与受影响回归项，仍覆盖全部 AC，只复用代码、依赖、环境和数据前提均未变且有证据的结果；无法证明时重跑。'
     }
   } catch (e) {
     // fix-request.json 解析失败 → 视为无修复回路上下文
@@ -429,6 +431,7 @@ function buildAgentPrompt (opts) {
   const summaryPhase = opts.summaryPhase !== undefined ? opts.summaryPhase : targetPhase - 1
 
   const agentInfo = getPhaseAgent(targetPhase)
+  const route = require('./workflow-route').selectRoute(storyId, readStateFile(storyId) || {})
 
   // 上一 Phase 摘要
   const summaryInfo = opts.summaryInfo !== undefined
@@ -521,6 +524,10 @@ function buildAgentPrompt (opts) {
     agentInfo ? `\n## 你的任务\n${agentInfo.instruction}` : '',
     '',
     storyInputSection,
+    targetPhase === 0 && route.requested !== 'full'
+      ? '## 小改动的轻量准备\n先评估影响面。单仓、至多 3 个明确文件、低风险且无跨模块/接口/依赖/迁移/权限变化时，写 change-scope.json：{risk:"low",files:["src/a.js"],crossModule:false,publicApiChanged:false,dependenciesChanged:false,dataMigration:false,securitySensitive:false,evidence:["调用方及源码查证依据"]}。不满足条件就保留完整分析与独立规划。符合时在同一次任务中产出简短需求/AC/待确认项及 task-dag.json + task-dag.md（依原 schema），只列当前改动与回归项，避免另起一次规划 Agent。已明确的信息直接记录，不重复进行四轮提问；不写业务源码。脚本仍逐阶段校验，轻量不会跳过审查或自动跳过测试。\n' : '',
+    route.profile === 'light' && targetPhase <= 4
+      ? `## 轻量路线\n范围：${route.files.join(', ')}。${route.reasons.join('；')}。复用已核实的上下文，扩大影响面时更新评估并恢复完整路线；所有契约和质量门控仍有效。\n` : '',
     verificationInstruction,
     targetPhase === 3 && readStateFile(storyId)?.reviewCoverageRequired
       ? '## 审查覆盖要求\n调用 use_skill("code-review")，按 repos.json 逐仓生成范围快照；code-review.json 必须包含 coverage。覆盖缺失或证据过期时留在 Phase 3 补审，不回退开发。\n'
@@ -536,6 +543,10 @@ function buildAgentPrompt (opts) {
     lessons ? `## 历史教训\n${lessons.trim()}\n` : '',
     metricsInsights ? `## 度量洞察\n${metricsInsights.trim()}\n` : '',
     fixLoopContext ? `## 修复回路上下文 (第 ${fixLoopContext.round}/${fixLoopContext.maxRounds} 轮)\n${fixLoopContext.instruction}\n受影响文件: ${fixLoopContext.affectedFiles.join(', ') || '(见 fix-request.json)'}\n` : '',
+    fs.existsSync(path.join(PLANS_DIR, storyId, 'failure-recovery.json')) && targetPhase <= 4
+      ? '## 按失败原因恢复\n读取 failure-recovery.json 及其 archiveDir 中的原报告。需求/规划只修订失败涉及的条目，保留仍有效内容；环境问题先修复运行条件再验证，禁止通过改业务代码或放宽 AC 掩盖环境失败。恢复产物必须完整，通过原有门控。\n' : '',
+    storyMode === 'fixbugs' && targetPhase <= 1
+      ? '## 缺陷修复的最小准备\n只分析本次缺陷及其调用方，复用可核实的既有知识和规格；不重新梳理整个需求或拆解无关功能。P0 记录复现、根因与对应 AC；P1 只列修复所需文件、依赖与回归项。仅需求/接口边界发生变化时扩大分析。\n' : '',
     '## 契约文件内容',
     contractContents.length > 0 ? '请逐个读取以下契约文件获取完整内容（不要依赖摘要）：\n' + contractContents.join('\n') : '(无契约文件)',
     '',
@@ -551,6 +562,8 @@ function buildAgentPrompt (opts) {
     ...agentConstraints.map(c => `- 🚫 ${c}`),
     '',
     '## 完成后',
+    [2, 5, 7].includes(targetPhase)
+      ? `实际完成后记录：node \${CLAUDE_PLUGIN_ROOT}/scripts/lib/trace.js phase-outcome ${storyId} ${targetPhase} <${({ 2: 'completed', 5: 'submitted|skipped_by_user', 7: 'deployed|not_applicable|skipped_by_user' })[targetPhase]}> '<detailsJSON>'。details.evidence 为非空字符串数组，附源码/自测、提交或发布证据；跳过必须引用用户决定。没有执行或执行失败时不得记录完成。` : '',
     buildArtifactCompletionInstruction(expectedOutputs)
   ]
 

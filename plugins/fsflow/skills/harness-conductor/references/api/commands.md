@@ -20,7 +20,9 @@ node $HARNESS/dispatch.js <storyId>
 | `status` | `ready`\|`fix_loop`\|`blocked`\|`terminal` | **四态互斥且穷尽**，主 Agent 按此机械分支 |
 | `nextAgent` | string\|null | Agent **注册名**（英文），原样传给 Spawn 的 name |
 | `agentLabel` | string\|null | 中文名，仅供展示，**禁止用于 Spawn** |
-| `agentPrompt` | string\|null | 完整 prompt，无占位符，原样注入 |
+| `agentPrompt` | string\|null | 单 Agent 指令，原样注入；有 batches 时为空 |
+| `batches` | array | 开发批次，按顺序执行各项 agent + agentPrompt；仅全部完成后汇总阶段证据 |
+| `contextMode` | string | full / rework / repair / batch，说明本轮上下文范围 |
 | `advanceCommand` | string\|null | 已算好 targetPhase 的推进命令，不要手写 |
 | `readyToAdvance` | boolean | true 表示应先执行 `advanceCommand` 再回 Step 1 |
 | `instruction` | string\|null | 人类可读的下一步说明 |

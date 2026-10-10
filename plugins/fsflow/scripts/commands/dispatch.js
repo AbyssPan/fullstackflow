@@ -290,16 +290,31 @@ function dispatchCore (storyId) {
 
     // 常规情况: 本 Phase 的 Agent 尚未产出，让它干活
     if (agentInfo) {
-      const pb = promptBuilder.buildAgentPrompt({
-        storyId,
-        targetPhase: phase,
-        summaryPhase: phase - 1
-      })
+      const pendingBlockers = gate.blockers.map(b => ({ type: errorToType(b), message: errorToString(b) }))
+      const promptOptions = { storyId, targetPhase: phase, summaryPhase: phase - 1, pendingBlockers }
+      let pb
+      let batches
+      try {
+        batches = phase === 2 ? promptBuilder.buildBatchSequence(promptOptions) : []
+        pb = batches.length > 0 ? batches[0] : promptBuilder.buildAgentPrompt(promptOptions)
+      } catch (error) {
+        result.status = 'blocked'
+        result.recovery = { type: 'prompt_context_invalid', command: null,
+          description: `无法生成执行指令: ${error.message}。修正相关契约后重新 dispatch。` }
+        return result
+      }
       result.status = 'ready'
       result.nextAgent = pb.agent
       result.agentLabel = pb.agentLabel
       result.agentPrompt = pb.agentPrompt
-      if (failureRecovery && failureRecovery.targetPhase === null) result.agentPrompt += `\n${failureRecovery.description}\n`
+      result.contextMode = pb.contextMode
+      if (batches.length > 0) {
+        result.batches = batches
+        result.agentPrompt = null
+        result.contextMode = 'batch'
+        result.instruction = '按 batches 顺序逐批 Spawn 对应 agent，原样传入该批 agentPrompt；每批完成后核对任务交付和证据，失败则停止后续批次。全部批次实际完成后，由主 Agent 汇总证据记录 Phase 2 completed，再重新 dispatch；不得将单批完成记为整个阶段完成。恢复执行时先核实已有任务的版本与证据，不因说明文件存在直接跳过。'
+      }
+      if (result.agentPrompt && failureRecovery && failureRecovery.targetPhase === null) result.agentPrompt += `\n${failureRecovery.description}\n`
       result.expectedOutputs = pb.expectedOutputs
       result.advanceCommand = `${ADVANCE_CMD} ${storyId} ${phase + 1}`
       result.pendingBlockers = gate.blockers.map(b => ({

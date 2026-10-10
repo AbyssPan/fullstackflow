@@ -400,9 +400,60 @@ function buildFixLoopContext (storyId, targetPhase) {
         '；上轮报告从 fix-request.json 的 previousArtifacts 目录按需读取。逐项核对问题 ID，聚焦 affectedFiles 及调用方。审查可复用版本/指纹一致的记录；测试优先失败 AC 与受影响回归项，仍覆盖全部 AC，只复用代码、依赖、环境和数据前提均未变且有证据的结果；无法证明时重跑。'
     }
   } catch (e) {
-    // fix-request.json 解析失败 → 视为无修复回路上下文
-    return null
+    throw new Error(`fix-request.json 无法读取: ${e.message}`)
   }
+}
+
+/** Read and validate an explicit batch plan before scheduling any development. */
+function readDevelopmentBatches (storyId) {
+  const file = path.join(PLANS_DIR, storyId, 'task-dag.json')
+  if (!fs.existsSync(file)) return []
+  const dag = JSON.parse(fs.readFileSync(file, 'utf8'))
+  if (dag.batches === undefined || (Array.isArray(dag.batches) && dag.batches.length === 0)) return []
+  if (!Array.isArray(dag.batches) || !Array.isArray(dag.tasks)) throw new Error('任务批次或 tasks 格式无效')
+  const tasks = new Map(dag.tasks.map(task => [task.id, task]))
+  if (tasks.size !== dag.tasks.length) throw new Error('task id 重复')
+  const batchIds = new Set()
+  const assigned = new Set()
+  const batches = dag.batches.map(batch => {
+    if (!Number.isInteger(batch.batchId) || batch.batchId < 1 || batchIds.has(batch.batchId)) throw new Error('batchId 无效或重复')
+    batchIds.add(batch.batchId)
+    if (!Array.isArray(batch.taskIds) || batch.taskIds.length === 0) throw new Error('批次缺少 taskIds')
+    const selected = batch.taskIds.map(id => {
+      if (!tasks.has(id) || assigned.has(id)) throw new Error(`批次任务不存在或重复: ${id}`)
+      assigned.add(id)
+      return tasks.get(id)
+    })
+    return { batchId: batch.batchId, tasks: selected }
+  })
+  if (assigned.size !== tasks.size) throw new Error('批次未覆盖全部任务，请补齐规划')
+  return batches.sort((a, b) => a.batchId - b.batchId)
+}
+
+function buildBatchScope (storyId, batch) {
+  if (!batch) return ''
+  const repos = loadRepos(storyId)
+  return [
+    `## 当前开发批次 ${batch.batchId}`,
+    '只实现以下任务；契约仍以 task-dag.json 为准。批次之间串行，不实现其他批次，不再自行拆分或调度完整 DAG。',
+    ...batch.tasks.map(task => {
+      const repo = task.project || repos.primary
+      const root = repos.repos?.[repo]
+      if (!root) throw new Error(`任务 ${task.id} 的仓库未登记: ${repo}`)
+      return `- ${task.id}: ${task.title} | 仓库 ${repo}: ${toPosix(root)} | 文件: ${(task.files || []).join(', ')} | AC: ${(task.acceptanceCriteria || []).join(', ')}`
+    }),
+    `读取本批次任务、关联 AC 及必要的上游交付说明（${toPosix(path.join(PLANS_DIR, storyId, 'development-notes'))}/<taskId>.md）。已有说明须核对源码版本和实际结果，不能仅因文件存在跳过任务。`,
+    '完成本批次后汇报任务结果和证据；不要记录整个 Phase 2 completed，不要推进阶段。'
+  ].join('\n')
+}
+
+function buildBatchSequence (opts) {
+  if (fs.existsSync(path.join(PLANS_DIR, opts.storyId, 'fix-request.json'))) return []
+  return readDevelopmentBatches(opts.storyId).map(batch => {
+    const prompt = buildAgentPrompt({ ...opts, targetPhase: 2, batch })
+    return { batchId: batch.batchId, taskIds: batch.tasks.map(task => task.id),
+      agent: prompt.agent, agentLabel: prompt.agentLabel, agentPrompt: prompt.agentPrompt, expectedOutputs: prompt.expectedOutputs }
+  })
 }
 
 /**
@@ -412,6 +463,8 @@ function buildFixLoopContext (storyId, targetPhase) {
  * @param {string} opts.storyId - Story ID
  * @param {number} opts.targetPhase - 即将进入的 Phase（Agent 要干活的那个 Phase）
  * @param {number} opts.summaryPhase - 用于取摘要的 Phase（通常是 targetPhase - 1）
+ * @param {Object} [opts.batch] - 已校验的当前开发批次
+ * @param {Array} [opts.pendingBlockers] - 本轮门控缺口
  * @param {Object} [opts.summaryInfo] - 已加载的摘要对象；不传则自行加载
  * @returns {{
  *   agent: string|null,
@@ -430,16 +483,28 @@ function buildAgentPrompt (opts) {
   const { storyId, targetPhase } = opts
   const summaryPhase = opts.summaryPhase !== undefined ? opts.summaryPhase : targetPhase - 1
 
+  const fixLoopContext = buildFixLoopContext(storyId, targetPhase)
+  const incremental = targetPhase === 2 && Boolean(fixLoopContext)
+  const batch = targetPhase === 2 && !incremental ? opts.batch : null
   const agentInfo = getPhaseAgent(targetPhase)
+  const phaseInstruction = incremental
+    ? '只修复本轮问题清单，并核对受影响的调用方与回归项。'
+    : batch ? '完成当前批次的开发任务，交付证据后交回主 Agent。' : agentInfo?.instruction
   const route = require('./workflow-route').selectRoute(storyId, readStateFile(storyId) || {})
 
   // 上一 Phase 摘要
-  const summaryInfo = opts.summaryInfo !== undefined
+  const summaryInfo = incremental ? null : opts.summaryInfo !== undefined
     ? opts.summaryInfo
     : contextRefresh.loadLatestSummary(storyId, summaryPhase)
 
   // 契约文件（下个 Phase 需要读的）
-  const contractFilesToLoad = contextRefresh.getContractFiles(storyId, summaryPhase) || []
+  let contractFilesToLoad = contextRefresh.getContractFiles(storyId, summaryPhase) || []
+  if (incremental) {
+    contractFilesToLoad = ['fix-request.json', 'fix-context.md'].map(file => `.codebuddy/plans/${storyId}/${file}`)
+  } else if (batch) {
+    const ownNotes = new Set(batch.tasks.map(task => `${task.id}.md`))
+    contractFilesToLoad = contractFilesToLoad.filter(file => !file.includes('/development-notes/') || ownNotes.has(path.basename(file)))
+  }
   const contractContents = readContractContents(storyId, contractFilesToLoad)
 
   // 历史教训 + 度量洞察
@@ -469,9 +534,11 @@ function buildAgentPrompt (opts) {
     : ''
 
   // Figma 设计规格摘要（frame-inventory 的 designSpec，Phase 2 前端开发注入，辅助参考）
-  const figmaDesignSpec = readFigmaDesignSpec(storyId)
+  const figmaDesignSpec = targetPhase === 2 && !incremental && !batch ? readFigmaDesignSpec(storyId) : []
   // Figma 对齐指令（Phase 2 前端开发时强制要求按设计稿实现）
-  const figmaAlignInstruction = buildFigmaAlignInstruction(storyId, targetPhase)
+  const figmaAlignInstruction = (incremental || batch) && targetPhase === 2
+    ? (detectFigmaSource(storyId).hasFigma ? ['## 相关设计核对', '仅当当前任务或修复影响 UI 时，读取关联 task 的 figmaRefs（旧任务回落 figmaNodeId / figmaLink）并按节点拉取设计上下文；其余任务不重复拉取。无法取得必需设计证据时上报，不凭摘要猜测。'] : [])
+    : buildFigmaAlignInstruction(storyId, targetPhase)
   // Figma 任务规划指令（Phase 1 任务规划师拆 task 时处理 Figma，产出 frame-inventory + 绑定 figmaRefs）
   const taskPlannerFigmaInstruction = buildTaskPlannerFigmaInstruction(storyId)
   const repoSearchEntries = buildRepoSearchEntries(storyId, targetPhase)
@@ -479,8 +546,6 @@ function buildAgentPrompt (opts) {
     ? [...AGENT_CONSTRAINTS, ...SEARCH_CONSTRAINTS]
     : AGENT_CONSTRAINTS
 
-  // 修复回路上下文
-  const fixLoopContext = buildFixLoopContext(storyId, targetPhase)
 
   // 本 Phase 应产出的文件（来自 PHASE_ARTIFACTS，Phase 2/5/6/7 无文件产出）
   // optional 产出物（原型/Figma）按条件产出，不列入 expectedOutputs——主 Agent 靠该
@@ -517,12 +582,23 @@ function buildAgentPrompt (opts) {
     expectedDescriptions.unshift('{需求标题}_bug分析报告.md — Bug 事实记录（问题复述 + 复现步骤 + 代码定位 + 根因 + 责任方分类，不含修复方案）')
   }
 
+  const existingOutputs = expectedOutputs.filter(file => !file.includes('*') && fs.existsSync(path.join(PLANS_DIR, storyId, file)))
+  const blockers = (opts.pendingBlockers || []).map(blocker => typeof blocker === 'string' ? blocker : blocker.message).filter(Boolean)
+  const reworkSection = !incremental && existingOutputs.length > 0
+    ? `## 修订已有产物\n已存在: ${existingOutputs.join('、')}。先核对门控指出的缺口，只修订相关条目并保留仍有效内容；文件存在不代表已通过验收。` : ''
+  const incrementalSection = incremental
+    ? `## 本轮修复读取范围\n先读取 fix-request.json 与 fix-context.md，按问题 ID、affectedFiles 和 previousArtifacts 定位证据。\n仅按需读取 ${toPosix(path.join(PLANS_DIR, storyId, 'task-dag.json'))} 中关联任务及 ${toPosix(path.join(PLANS_DIR, storyId, 'acceptance-criteria.json'))} 中关联 AC。\n交付说明位于 ${toPosix(path.join(PLANS_DIR, storyId, 'development-notes'))}/<taskId>.md，只核对受影响任务。需要调用方、设计节点或需求边界证据时再扩展读取；不得删减原有验收要求或绕过 dev-pass。` : ''
+
   const promptLines = [
     `## Story: ${storyId} | Phase: ${targetPhase} (${getPhaseName(targetPhase)})`,
     '',
     agentInfo ? `## 你的角色\n${agentInfo.label} (注册名: ${agentInfo.agent})` : '',
-    agentInfo ? `\n## 你的任务\n${agentInfo.instruction}` : '',
+    agentInfo ? `\n## 你的任务\n${phaseInstruction}` : '',
     '',
+    reworkSection,
+    blockers.length ? `## 本轮待解决问题\n${blockers.map(message => `- ${message}`).join('\n')}` : '',
+    buildBatchScope(storyId, batch),
+    incrementalSection,
     storyInputSection,
     targetPhase === 0 && route.requested !== 'full'
       ? '## 小改动的轻量准备\n先评估影响面。单仓、至多 3 个明确文件、低风险且无跨模块/接口/依赖/迁移/权限变化时，写 change-scope.json：{risk:"low",files:["src/a.js"],crossModule:false,publicApiChanged:false,dependenciesChanged:false,dataMigration:false,securitySensitive:false,evidence:["调用方及源码查证依据"]}。不满足条件就保留完整分析与独立规划。符合时在同一次任务中产出简短需求/AC/待确认项及 task-dag.json + task-dag.md（依原 schema），只列当前改动与回归项，避免另起一次规划 Agent。已明确的信息直接记录，不重复进行四轮提问；不写业务源码。脚本仍逐阶段校验，轻量不会跳过审查或自动跳过测试。\n' : '',
@@ -537,8 +613,8 @@ function buildAgentPrompt (opts) {
     (targetPhase === 1 && taskPlannerFigmaInstruction.length > 0) ? taskPlannerFigmaInstruction.join('\n') : '',
     figmaAlignInstruction.length > 0 ? figmaAlignInstruction.join('\n') : '',
     figmaDesignSpec.length > 0 ? figmaDesignSpec.join('\n') : '',
-    '## 上一 Phase 摘要',
-    summaryInfo ? `请读取上轮摘要文件获取完整信息（路径: ${summaryInfo.path}）` : '(无摘要)',
+    incremental ? '' : '## 上一 Phase 摘要',
+    incremental ? '' : summaryInfo ? `请读取上轮摘要文件获取完整信息（路径: ${summaryInfo.path}）` : '(无摘要)',
     '',
     lessons ? `## 历史教训\n${lessons.trim()}\n` : '',
     metricsInsights ? `## 度量洞察\n${metricsInsights.trim()}\n` : '',
@@ -548,7 +624,7 @@ function buildAgentPrompt (opts) {
     storyMode === 'fixbugs' && targetPhase <= 1
       ? '## 缺陷修复的最小准备\n只分析本次缺陷及其调用方，复用可核实的既有知识和规格；不重新梳理整个需求或拆解无关功能。P0 记录复现、根因与对应 AC；P1 只列修复所需文件、依赖与回归项。仅需求/接口边界发生变化时扩大分析。\n' : '',
     '## 契约文件内容',
-    contractContents.length > 0 ? '请逐个读取以下契约文件获取完整内容（不要依赖摘要）：\n' + contractContents.join('\n') : '(无契约文件)',
+    contractContents.length > 0 ? (batch ? '请按当前批次读取以下文件中的任务、关联 AC 和必要依赖；保留完整契约，不截断改写：\n' : '请逐个读取以下契约文件获取完整内容（不要依赖摘要）：\n') + contractContents.join('\n') : '(无契约文件)',
     '',
     expectedDescriptions.length > 0
       ? `## 产出要求\n${expectedDescriptions.map(d => `- ${d}`).join('\n')}\n产出目录: .codebuddy/plans/${storyId}/`
@@ -562,7 +638,7 @@ function buildAgentPrompt (opts) {
     ...agentConstraints.map(c => `- 🚫 ${c}`),
     '',
     '## 完成后',
-    [2, 5, 7].includes(targetPhase)
+    !batch && [2, 5, 7].includes(targetPhase)
       ? `实际完成后记录：node \${CLAUDE_PLUGIN_ROOT}/scripts/lib/trace.js phase-outcome ${storyId} ${targetPhase} <${({ 2: 'completed', 5: 'submitted|skipped_by_user', 7: 'deployed|not_applicable|skipped_by_user' })[targetPhase]}> '<detailsJSON>'。details.evidence 为非空字符串数组，附源码/自测、提交或发布证据；跳过必须引用用户决定。没有执行或执行失败时不得记录完成。` : '',
     buildArtifactCompletionInstruction(expectedOutputs)
   ]
@@ -570,7 +646,8 @@ function buildAgentPrompt (opts) {
   const result = {
     agent: agentInfo ? agentInfo.agent : null,
     agentLabel: agentInfo ? agentInfo.label : null,
-    phaseInstruction: agentInfo ? agentInfo.instruction : null,
+    phaseInstruction: phaseInstruction || null,
+    contextMode: incremental ? 'repair' : batch ? 'batch' : existingOutputs.length ? 'rework' : 'full',
     agentPrompt: promptLines.filter(Boolean).join('\n'),
     contractFilesToLoad,
     agentConstraints,
@@ -587,6 +664,8 @@ function buildAgentPrompt (opts) {
 
 module.exports = {
   buildAgentPrompt,
+  buildBatchSequence,
+  readDevelopmentBatches,
   buildFixLoopContext,
   buildStoryInputSection,
   readContractContents,

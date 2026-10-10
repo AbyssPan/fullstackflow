@@ -1,536 +1,249 @@
 # FullstackFlow
 
-**全栈研发自动化工作流插件市场。** 提供规格驱动、分阶段开发、代码审查、功能验证与发布交付能力。
+面向 Claude Code / CodeBuddy Code 的全栈研发工作流插件。用 `/fsflow:run` 启动需求开发，
+或用 `/fsflow:fixbugs` 修复缺陷，串联需求、规划、开发、审查、测试和交付。
 
-安装 **FullstackFlow** 插件后，你的 AI 编程助手（Claude Code / CodeBuddy Code）获得一条
-门控式全流程研发流水线：需求分析 → 任务规划 → 全栈开发 → 代码审查 → 功能测试 →
-提交前知识维护与 Git/MR → 合入版本知识核验 → 发布收尾 → 归档。用 `/fsflow:run` 一条命令拉起全流程，
-也可以直接对 AI 说自然语言触发词。
+当前版本 **1.4.0** · 插件运行时无需 `npm install` · 支持前端、后端与多仓库任务
 
-> 兼容 Claude Code 与 CodeBuddy Code，安装步骤完全一致。
-> 市场清单分别位于 `.claude-plugin/marketplace.json` 与 `.codebuddy-plugin/marketplace.json`，内容一致。
-> 当前版本 **1.4.0**。
+[快速上手](#快速上手) · [研发流程](#研发流程) · [执行与恢复](#执行与恢复) · [知识维护](#知识维护) · [安装与排障指南](INSTALL.md)
 
-## 目录
+## 快速上手
 
-- [核心特性](#核心特性)
-- [环境要求](#环境要求)
-- [安装](#安装)
-- [快速上手](#快速上手)
-- [常用命令](#常用命令)
-- [最佳实践](#最佳实践)
-- [6 个角色 Agent](#6-个角色-agent)
-- [16 个 Skill](#16-个-skill)
-- [Hook 安全护栏](#hook-安全护栏)
-- [同仓知识维护快速使用](#同仓知识维护快速使用)
-- [零外部依赖设计](#零外部依赖设计)
-- [故障排除与卸载](#故障排除与卸载)
-- [仓库结构](#仓库结构)
+准备 Claude Code 或 CodeBuddy Code、Node.js 18+ 和 Git 2.20+。
+模型访问、业务项目依赖和测试环境由宿主及项目配置提供。
 
-## 核心特性
-
-### 1. 端到端 8 Phase 工作流
-
-触发词驱动完整研发链路，每个 Phase 有明确的 Agent 分工、产出物与门控校验：
-
-| Phase | 阶段 | 负责 Agent | 关键产出物 |
-|---|---|---|---|
-| 0 | 知识库前置确认 + 需求分析 | 需求分析师 | 缺库时经用户确认后全量生成或留痕拒绝；requirement-analysis.md、内嵌 OpenSpec 语义的 acceptance-criteria.json |
-| 1 | 任务规划 | 完整路线由任务规划师执行；轻量路线可复用 P0 产物 | task-dag.json（DB→后端→前端→集成 DAG）、Figma 组件绑定 |
-| 2 | 代码开发 | 全栈开发工程师 | 代码变更、交付证据；返修时为本轮 fix-verification.json（dev-pass 限域保护） |
-| 3 | 代码审查 | 代码审查师 | code-review.json（前端人工 + 后端内置规则库） |
-| 4 | 功能测试 | 测试工程师 | test-report.md、acceptance-verification.json |
-| 5 | 知识维护 + Git/MR | 发布助手 | 提交前更新知识并记录回执，代码与知识一起进入指定目标分支 MR；外部动作沿用已有授权 |
-| 6 | 合入版本知识核验 | 发布助手 | 核验实际合入版本的知识与代码，复用提交前更新/延期结果；缺库或失败留痕 |
-| 7 | 发布收尾 | 发布助手 | 前端：devops MCP 云端构建 + 部署 URL；后端：确认合并即收尾 |
-
-#### 8 个执行阶段与完成态
-
-P0–P7 是执行阶段，P8 是完成态，不再调度 Agent。测试选择与轻量路线相互独立。
-
-```mermaid
-flowchart LR
-    P0["P0 需求分析"] -->|"规格门控"| P1["P1 规划产物校验"]
-    P1 -->|"门控通过，签发限域 dev-pass"| P2["P2 开发或限域修复"]
-    P2 -->|"执行凭据 + 增量检查，撤销 dev-pass"| P3["P3 独立代码审查"]
-    P3 -->|"覆盖有效且无 BLOCKER"| P4["P4 验证选择与功能测试"]
-    P4 -->|"测试门控通过或用户明确跳过"| P5["P5 知识维护与 Git/MR"]
-    P5 -->|"提交结果或用户明确跳过"| P6["P6 合入版本知识核验"]
-    P6 -->|"核验、延期或未验证结果留痕"| P7["P7 发布收尾"]
-    P7 -->|"发布、不适用或用户跳过凭据"| P8["P8 已完成"]
-    P8 --> ARC["归档 archive/round-N"]
-    P3 -.->|"审查失败"| Recovery["按失败原因恢复，见下图"]
-    P4 -.->|"验证失败"| Recovery
-```
-
-`verificationMode=ask` 在 P4 等待用户选择，`full` 执行独立测试，`review-only` 按已有明确选择跳过。
-新工作流 P2/P5 及所有工作流 P7 都要求执行结果证据；有文件或没有代码差异不等于实际工作已完成。
-P5/P7 的跳过记录必须引用用户决定，不能由轻量路线自动生成。阶段凭据不替代 Git/CI 或部署平台的真实验证。
-
-#### 入口与轻量准备
-
-```mermaid
-flowchart TD
-    Start["run / fixbugs / 自然语言"] --> Existing{"继续同一任务？"}
-    Existing -->|"已有未完成 Story"| Resume["resume：保留输入、契约、测试选择和预算"]
-    Existing -->|"新任务或新缺陷"| Create["写 story-input.json，start --input"]
-    Create --> P0["P0 核实需求与影响面"]
-    P0 --> Route{"auto / light 且轻量条件满足？"}
-    Route -->|"是"| Combined["同一次分析产出最小任务规划"]
-    Route -->|"否，或指定 full"| Standard["P0 仅产出需求契约"]
-    Combined --> Gate0["通过 P0 门控，进入 P1"]
-    Standard --> Gate0
-    Gate0 --> Gate1{"P1 规划产物门控通过？"}
-    Gate1 -->|"缺失或无效"| Planner["规划师产出或修订任务规划"]
-    Planner --> Gate1
-    Gate1 -->|"通过"| Dev["P2 开发，随后独立审查与验证"]
-    Resume --> Dispatch["dispatch：从当前阶段继续"]
-```
-
-轻量条件为：单仓、低风险、1–3 个明确文件，有影响面证据，且不涉及跨模块、接口、依赖、数据迁移、
-权限变化或 Figma 强制还原。`light` 是请求，不是强行跳关开关；条件不满足就使用完整路线。
-轻量路线节省的是重复分析和一次规划 Agent 调用，P0/P1 门控均保留。
-已归档任务先 restore；已完成任务上的新缺陷应新建 Story，不复用旧验收结论。
-
-#### 主控循环与失败分流
-
-```mermaid
-flowchart TD
-    Dispatch{"dispatch：只读状态与门控"} -->|"ready：产物待完成"| Agent["调度 nextAgent，原样传 agentPrompt"]
-    Agent --> Dispatch
-    Dispatch -->|"ready：可推进"| Advance["advance-phase 独立复核门控并写状态"]
-    Advance --> Dispatch
-    Dispatch -->|"fix_loop"| Cause{"脚本根据失败证据选择目标"}
-    Cause -->|"requirement"| R0["回 P0 修订需求"]
-    Cause -->|"planning"| R1["回 P1 修订规划"]
-    Cause -->|"implementation"| R2["回 P2 限域修复"]
-    Cause -->|"environment / verification"| Same["原阶段修复运行条件或验证方法"]
-    R0 --> Recover["执行恢复命令：归档失效产物，保留有效上游"]
-    R1 --> Recover
-    R2 --> Recover
-    Same --> Recover
-    Recover --> Dispatch
-    Dispatch -->|"blocked"| Wait["等待测试选择，或处理预算耗尽与门控异常"]
-    Wait -->|"问题解决后"| Dispatch
-    Dispatch -->|"terminal"| End["按原因创建、复档或完成归档"]
-```
-
-原因不明时保留在原审查/测试 Agent 补证据，不猜测回退目标；旧报告未分类时兼容原实现修复路径。
-格式或覆盖证据错误先留在原阶段补齐。恢复命令会重新核对目标与预算，成功后重新 dispatch，
-不用回退前的旧 prompt。只有实现修复签发 dev-pass；新的修复核对记录通过后再进入独立复查。
-
-> **核心设计：AI 不操作状态，只机械执行。** `dispatch.js` 是「只读调度器」——读状态、判门控、
-> 说下一步，零写权限；`advance-phase.js` 是「相位跃迁唯一执行者」——判门控、写状态、
-> 签发/撤销 dev-pass；主 Agent 无判断权，只按 `status` 四态（ready / fix_loop / blocked /
-> terminal）机械分支。
-
-### 2. 契约驱动 + 硬门控
-
-工作流不是「口头约定」，而是**结构化契约 + 程序化门控**：
-
-- 每个 Phase 推进前，产出物按 JSON Schema 程序化校验（内置 ajv，缺文件 / 格式错直接拦截）
-- 新工作流 Phase 3 核对审查仓库与文件覆盖、内容指纹及问题行号；范围或证据过期时留在审查阶段补齐，旧流程保持兼容
-- 验收标准（AC）与任务（Task）交叉引用校验，杜绝「AC 全绿但功能缺失」
-- Phase 2→3 默认只对变更的前端文件执行增量 eslint（项目未安装 eslint 时警告并跳过）。
-  前端 build 与后端 `mvn compile` / `gradle compileJava` **默认关闭**，设 `HARNESS_RUN_BUILD=1` 才启用。
-  lint 执行失败或已启用的构建无法确认成功时阻止推进。
-- OpenSpec 的 Capability、增量类型、规范性 Requirement、Given/When/Then Scenario 直接内嵌到 AC，并由 Phase 0 门控强制校验；不生成重复的 `openspec/` 文件树
-
-### 3. 权限控制（dev-pass）
-
-工作流激活时，已登记仓库 `src/` 内的编辑受 dev-pass 通行证约束：开发阶段由脚本自动签发、
-限域到 `task-dag.json` 的任务文件清单，阶段结束自动撤销。Hook 检查文件工具与常见 shell 写入命令；
-它不覆盖所有源码目录或任意脚本内部行为，不能替代宿主权限控制与代码审查。
-
-### 4. 知识库（KB）管理
-
-- 知识与代码同仓，固定 `.docs/llm-knowledge/`；由 Git 分支自然隔离，不建立按分支命名的知识目录；每个分支的知识与自身代码一致。
-- kb-init 初始化业务域，gen-project-docs 生成正文；kb-query 按域和章节检索，再用源码搜索和按需 LSP 验证影响面。
-- Phase 5 提交前用 kb-update 沉淀变更、经验和已确认规格，记录按域来源摘要；代码与知识一起进入 MR。Phase 6 只核验实际合入版本。
-- 独立的 kb-maintenance 工具支持工作区、暂存区和提交快照检查。普通 Git hook 提前发现结构问题；GitLab 候选合并检查要求处理来源变化或明确延期。
-- 规格偏差由人决定修实现、批准改规格或延期，脚本不自动证明语义正确。共享依赖由源码验证后登记，未确认范围明确交接。
-- 本机源码索引与知识同步回执分离；维护模式不再反复改全局同步 hash、计数和单一 log.md。
-
-接入命令、现有 hook 兼容、GitLab 模板与迁移限制见 [安装指南](INSTALL.md#同仓知识维护与-git-hook)，详细职责见 [同仓知识维护](plugins/fsflow/skills/kb-update/references/maintenance.md)。
-
-### 5. 发布安全
-
-Git 提交 / push / 创建 MR 等外部动作沿用当前会话已有授权；尚未获得授权时，在动作执行前确认。
-知识维护结果与代码变更一起进入同一 MR，并由 GitLab 候选合并检查守住目标分支一致性；
-后端项目跳过云端部署，确认合并即收尾。
-
-## 环境要求
-
-| 依赖 | 要求 | 说明 |
-|---|---|---|
-| 宿主 | Claude Code 或 CodeBuddy Code | 两者安装步骤完全一致 |
-| Node.js | ≥ 16（推荐 18+） | 唯一运行时，所有门控 / 归档 / 校验脚本用 node 执行 |
-| Git | ≥ 2.20 | 分支隔离、暂存区检查、提交快照检查与 Phase 5 提交流程依赖 |
-
-> 无需安装 openspec CLI、无需 npm install、无需配置额外 LLM Key——见[零外部依赖设计](#零外部依赖设计)。
-
-## 安装
-
-```
+```text
 /plugin marketplace add AbyssPan/fullstackflow
 /plugin install fsflow@fullstackflow-marketplace
 ```
 
-添加市场不会自动安装插件，必须继续执行第二条命令。安装后用 `/plugin list` 确认包含
-`fsflow`，随后输入 `/fsflow:` 应能看到命令提示（冒烟测试详见
-[INSTALL.md](./INSTALL.md)）。
-
-> **安装前检查、冒烟测试、ajv 依赖排查、卸载等完整步骤请参阅 [INSTALL.md](./INSTALL.md)**。
-
-## 快速上手
-
-### 方式一：斜杠命令（推荐）
-
-插件命令会按宿主规范自动加 `fsflow:` 命名空间，常用姿势：
-
-```
-/fsflow:run "开发订单中心退款功能"       # 新功能：AI 自动建 Story 并进入 run 模式
-/fsflow:fixbugs "订单列表页白屏"         # 缺陷修复：免原型文档
-/fsflow:status                           # 查看当前工作流状态
-```
-
-`run` 和 `fixbugs` 分开后，常用场景无需再做模式猜测。兼容入口
-`/fsflow:fullstack` 仍会自动识别意图；信号不足时只询问一次。
-
-### 方式二：自然语言触发词
-
-对 AI 助手直接说触发词，效果等同：
-
-| 想做什么 | 怎么说 |
-|---|---|
-| 开发一个新功能 | 「做个需求 / 开发 xx 功能 / 实现 xx 页面」 |
-| 修 Bug / 处理 TAPD 缺陷 | 「修个 bug / 处理 TAPD 缺陷 / xx 功能报错」 |
-| 初始化项目知识库 | 「初始化知识库 / kb-init」 |
-| 提交前维护知识库 | 「生成知识库文档 / 增量更新知识库 / 检查知识库回执」 |
-| 生成 API 请求层代码 | 提供 Swagger JSON / api doc，「按模块生成接口定义」 |
-| 归档已完成的 Story | 「归档本次需求」 |
-
-> 首次启动 `run` / `fixbugs` 时，需求分析师会先检查知识库；缺失时询问是否初始化并全量生成，
-> 无需另行启动初始化流程。
-
-## 常用命令
-
-| 命令 | 说明 |
-|---|---|
-| `/fsflow:run [storyId] "<需求描述>"` | 执行端到端新功能开发（8 Phase，含原型 / Figma 门控） |
-| `/fsflow:fixbugs [storyId] "<缺陷描述>"` | 根因分析并修复缺陷（免原型门控；可在描述中附 TAPD 信息） |
-| `/fsflow:status` | 查看当前 Story、Phase 与门控状态 |
-| `/fsflow:end` | 结束当前激活会话并解除源码编辑门控，不归档 Story |
-| `/fsflow:evolve [storyId\|all] [--check-only\|--propose-only]` | 运行自进化体检（audit → 度量 → 诊断 → 治疗 → 验证） |
-| `/fsflow:archive <storyId> <archive\|restore\|list\|status> [options]` | 归档、复档或查看归档历史；不会在缺少动作时默认归档 |
-
-> `run` / `fixbugs` 的 `[storyId]` 可省略，由 AI 根据描述生成；`archive` 必须指定 Story 和动作。旧的统一形式可继续使用
-> `/fsflow:fullstack <run|fixbugs|status|end|evolve|archive> ...`。
-
-## 最佳实践
-
-### 1. 工作流初始化
-- **入口先写 `story-input.json`，再用 `harness-workflow.js start --input <file>` 一步建流**。脚本会在任何状态写入前校验输入并一次算准原型 / Figma 门控；`--refresh-input` 只用于旧流程或输入后补的恢复场景。
-- **`story-input.json` 只搬运参数、不做分析**。把用户给的链接 / 终端 / 描述原样写入即可；判断需求影响哪些文件、该怎么改，归 Phase 0 需求分析师。
-- **功能测试默认先询问**。新工作流未写 `verificationMode` 或写 `ask` 时，代码审查通过后主动询问是否执行独立测试，未回答则等待。
-  用户选择测试后执行 Phase 4；选择跳过则记为 `skipped` 并继续交付。此前已明确选择时，入口写 `full` / `review-only`，恢复会话和修复回路不重复询问。
-  旧工作流保留原有配置；旧状态未含该字段时仍按 `full` 执行。跳过独立测试不改变代码审查和项目原有检查配置。
-
-### 2. 状态文件纪律（铁律）
-- 🚫 **AI 不手改 `e2e-state.json` / `dev-pass.json`**。Phase 推进、dev-pass 签发/撤销全部由脚本完成，AI 只按 `dispatch.js` 的四态（ready / fix_loop / blocked / terminal）机械分支。
-- 🚫 **AI 不自行将 `open-questions.json` 的 `resolved` 设为 `true`**。待确认项必须由用户确认。
-- 🚫 **Phase ≠ 2 时不要编辑 `src/`**，Hook 守卫会直接拒绝。
-
-### 3. Figma 使用
-- `sources.figmaUrls` 非空即**自动开启硬门控**（run 模式），强制产出 `figma-frame-inventory.json` 与组件映射，UI 任务的 `figmaNodeId` 必须命中 frame 清单。
-- **前置条件：Figma 桌面端需运行并已打开文件**。未运行时子 Agent 会如实告知并停止，不会退回缓存数据。
-- `fixbugs` 模式不开硬门控（只碰个别页面，全量清单会卡死修复流程），但「有设计稿就该解析」的指引仍会注入。
-
-### 4. run vs fixbugs 模式选择
-- **新功能 / 页面级改造** → `run`（有原型 / Figma 门控、featurePoints 功能点枚举）
-- **缺陷修复** → `fixbugs`（免原型文档、Phase 0 产出 Bug 分析报告、后端类 Bug 自动转 open-questions）
-- 选错模式的后果：`fixbugs` 误走 run 会重新要求原型文档且不做 Bug 报告门控。
-
-### 5. 修复回路（fix-loop）
-- 审查/测试失败按报告中的 `failureKind` + `failureReason` 分流：需求错误回 P0，规划错误回 P1，实现错误回 P2 并签发限域 dev-pass，环境/验证方法错误在原阶段重新验证。原因不明时先补证据；旧报告未分类时兼容原 P2 路径。
-- 恢复时归档目标阶段及下游失效报告，保留更早的有效产物。P2 只修复当前问题清单，产出本轮 `fix-verification.json` 后才进入增量复查；旧报告不能直接充当本轮验收结果。
-- **代码审查与功能测试各默认最多 2 轮，独立计数**；对应预算耗尽后转人工介入。
-- 同一缺陷继续执行 `/fsflow:fixbugs <storyId>` 时，入口优先 `harness-workflow.js resume <storyId>`，保留 P0/P1、验证选择和轮次，不新建完整流程。新缺陷仍新建 Story，P0/P1 仅分析本次缺陷与受影响范围；不得把新输入当作原任务继续而复用旧验收。
-
-### 6. 轻量路线与执行度量
-
-小改动可设置 `story-input.json` 的 `workflowProfile: "auto"`（新流程默认）或 `"light"`。
-只有单仓、低风险、1–3 个明确文件且无跨模块/接口/依赖/迁移/权限变化时，才合并 P0 分析和最小规划。
-`full` 保留独立规划；风险不明确自动使用 full。阶段门控、独立审查和原测试选择都保留。
-
-每个 Story 会在 `task-dag.json` 同目录生成 `workflow-metrics.md`（人读报告）和
-`workflow-metrics.json`（含逐调用记录），在 Agent 事件、阶段结果及阶段转换后更新。
-展示路线与原因、阶段状态、实际/配置模型、阶段总耗时、Agent 累计耗时、调用/失败/返修次数、
-输入/输出/总 Token、缓存读写 Token，以及每项采集覆盖率。原始证据留在 `trace.jsonl`。
-可执行 `node ${CLAUDE_PLUGIN_ROOT}/scripts/commands/workflow-metrics.js <storyId> --write` 刷新，
-或加 `--json` 查询机器可读数据。dispatch 保持只读，不写报告。
-
-Token 和实际模型只取宿主上报值；缺失显示“未采集”，配置模型不能充当实际模型。
-缓存不重复加到总量，不估算费用。阶段耗时含等待和离线间隔；并行 Agent 的累计时间可能更长。
-表格仅统计已上报的子 Agent，不包含未采集的主控用量，不能当作完整账单。
-
-#### 度量采集与报告文件
-
-```mermaid
-flowchart LR
-    Host["Agent / Task 宿主回调"] --> Events["trace.jsonl 原始事件"]
-    CLI["无回调时用同一 invocationId 补记真实结果"] --> Events
-    Phase["阶段转换、执行结果、返修事件"] --> Events
-    Events --> Metrics["聚合调用、耗时、模型和 Token"]
-    State["e2e-state 与路线评估"] --> Metrics
-    Metrics --> JSON["workflow-metrics.json 逐调用明细"]
-    Metrics --> MD["workflow-metrics.md 使用者报告"]
-    Events -.->|"只读查询"| DispatchMetrics["dispatch.progress / workflow-metrics CLI"]
-    State -.->|"只读查询"| DispatchMetrics
-```
-
-文件位于每个项目的 Story 目录，随 Story 一起归档：
+安装后重载插件，用 `/plugin list` 确认 `fsflow` 已启用。
 
 ```text
-.codebuddy/plans/<storyId>/
-├── task-dag.json
-├── change-scope.json       # 申请轻量准备时的影响面评估
-├── trace.jsonl             # 原始事件，调用 ID 用于去重
-├── workflow-metrics.json   # 结构化汇总、采集来源及逐调用明细
-└── workflow-metrics.md     # 人读表格与优化提示
+/fsflow:run "开发订单中心退款功能"
+/fsflow:fixbugs "订单列表页白屏"
+/fsflow:status
 ```
 
-| 信息 | 口径与用途 |
+也可以直接说「开发退款功能」「修复订单列表报错」。首次需求分析会检查项目知识库，
+缺失时询问是否初始化；已有知识库直接复用。
+
+| 命令 | 用途 |
 |---|---|
-| 实际 / 配置模型 | 实际模型只取宿主返回，按调用记录；配置仅供对照，实际模型有单独覆盖率 |
-| 阶段 / Agent 耗时 | 阶段时间含等待和离线间隔；Agent 为调用累计时间，包含其执行工具的时间，并行时不能相减推算等待 |
-| 输入 / 输出 / 总 / 缓存 Token | 各字段独立累计与标注覆盖率；缺失不是 0，缓存不再次计入总量 |
-| 调用 / 失败 / 返修 | 区分调用失败与阶段回退，定位重复工作；同一 invocationId 的重复回调不会重复计费统计 |
-| 路线 / 状态 / 更新时间 | 明确报告所属 Story、当前状态和快照时间，便于复盘轻量路线收益 |
+| `/fsflow:run [storyId] "<需求>"` | 开发新功能或改造现有功能 |
+| `/fsflow:fixbugs [storyId] "<缺陷>"` | 分析根因并修复，可附 TAPD 信息 |
+| `/fsflow:status` | 查看当前任务、阶段和阻塞项 |
+| `/fsflow:end` | 结束激活会话并解除编辑门控，保留任务 |
+| `/fsflow:evolve [storyId\|all] [--check-only\|--propose-only]` | 工作流体检与改进建议 |
+| `/fsflow:archive <storyId> <archive\|restore\|list\|status>` | 归档、恢复或查看历史 |
 
-自动报告为非阻塞的快照，历史任务没有的遥测无法补算。`--write` 可刷新文件，`--json` 可查询结构化数据；
-实际调用与 Token 采集需要宿主支持对应字段。目前不把这些数据当成完整账单，也不据此自动减少验收要求。
+`storyId` 可由入口自动生成；归档命令需要明确指定任务与动作。
+兼容入口 `/fsflow:fullstack <run|fixbugs|status|end|evolve|archive> ...` 仍可使用。
 
-### 7. 知识库（KB）
-- 新项目在 Phase 0 需求分析开始时确认：用户同意后由 `kb-init` + `gen-project-docs` 完成初始化与全量生成。
-- 需求分析 / 改代码前用 `kb-query` 分层检索，历史教训自动注入各 Phase 的 prompt。
-- Phase 5 在提交前执行 `kb-update`：更新受影响业务域，或把延期原因、责任人与范围写入回执；随后对暂存区执行严格检查。
-- 代码和知识必须在同一分支、同一 MR 中评审。Phase 6 不重新生成知识，只核验 GitLab 实际合入版本与 Phase 5 回执。
-- 各分支维护与本分支代码匹配的知识快照；集成分支与功能分支通过 Git 合并继承，不在知识库内复制分支目录。
+## 研发流程
 
-### 8. 多项目协作
-- 涉及多仓库时，需求分析师在 Phase 0 写入 story 级 `repos.json`（`primary` + `repos` 映射）。
-- 跨项目 task 的 `description` 必须含行号引用，便于全栈开发工程师定位改动点。
+P0–P7 为执行阶段，P8 为完成态。每次推进由脚本复核产物与门控，角色之间通过契约和交付证据协作。
 
-## 6 个角色 Agent
+```mermaid
+flowchart TB
+    subgraph Prepare["01 · 需求与规划"]
+        direction LR
+        P0["P0 需求分析"] --> P1["P1 任务规划"]
+    end
+    subgraph Build["02 · 实现与验证"]
+        direction LR
+        P2["P2 按批次开发"] --> P3["P3 代码审查"] --> P4["P4 功能测试"]
+    end
+    subgraph Deliver["03 · 交付与收尾"]
+        direction LR
+        P5["P5 知识维护 · Git / MR"] --> P6["P6 合入知识核验"] --> P7["P7 发布收尾"]
+    end
+    Prepare --> Build --> Deliver --> Done(["P8 完成 · 可归档"])
 
-| Agent | 注册名 | 职责要点 |
+    classDef prepare fill:#eff6ff,stroke:#3b82f6,color:#1e3a8a
+    classDef build fill:#f0fdfa,stroke:#0d9488,color:#134e4a
+    classDef deliver fill:#f5f3ff,stroke:#8b5cf6,color:#4c1d95
+    classDef done fill:#f0fdf4,stroke:#16a34a,color:#14532d
+    class P0,P1 prepare
+    class P2,P3,P4 build
+    class P5,P6,P7 deliver
+    class Done done
+    style Prepare fill:#f8fafc,stroke:#cbd5e1
+    style Build fill:#f8fafc,stroke:#cbd5e1
+    style Deliver fill:#f8fafc,stroke:#cbd5e1
+```
+
+| 阶段 | 负责角色 | 主要结果 |
 |---|---|---|
-| 需求分析师 | `requirement-analyst` | Grill 四阶段结构化面试（目标对齐→架构决策→边界与风险→实现细节），产出内嵌 OpenSpec 语义的验收契约 |
-| 任务规划师 | `task-planner` | 任务 DAG（DB→后端→前端→集成），有 Figma 设计稿时逐 UI 任务绑定 figmaRefs |
-| 全栈开发工程师 | `fullstack-developer` | 前端 / 后端 / DB 贯通实现——分层架构、类型化 VO、DTO 校验、事务并发、SQL 规范 |
-| 代码审查师 | `code-reviewer` | 前端人工审查 + 后端内置规则库审查（零外部依赖）+ 项目规范复核（分层 / 事务 / SQL / 前后端契约一致性） |
-| 测试工程师 | `test-engineer` | 前端 Playwright 实跑 + 后端三层验证（接口契约真实请求 / mvn test 业务逻辑 / 只读 SELECT 数据落库） |
-| 发布助手 | `release-assistant` | 提交前维护知识并执行暂存区检查；沿用已有 Git/MR 授权；合入后核验实际版本；前端走 devops MCP 云端构建，后端确认合并即收尾 |
+| P0 需求分析 | 需求分析师 | 需求边界、验收标准（AC）、待确认事项 |
+| P1 任务规划 | 任务规划师 | 任务 DAG、开发批次、文件范围、Figma 节点绑定 |
+| P2 代码开发 | 全栈开发工程师 | 代码、自测证据、按任务保存的交付说明 |
+| P3 代码审查 | 代码审查师 | 问题清单、逐文件覆盖与版本证据 |
+| P4 功能测试 | 测试工程师 | AC 验证结果、失败或无法验证的原因 |
+| P5 知识维护与 Git/MR | 发布助手 | 提交前更新知识，代码与知识进入同一 MR |
+| P6 合入知识核验 | 发布助手 | 核验实际合入版本及知识维护回执 |
+| P7 发布收尾 | 发布助手 | 前端云端构建与部署结果；后端确认合并后收尾 |
 
-各 Agent 在 frontmatter 中声明模型标识，实际可用性取决于宿主和模型供应方配置。
-这些自定义标识不是跨宿主通用配置；宿主不支持时，需按该宿主的配置方式改为可用模型或继承默认模型。当前声明如下：
+**测试选择**：新任务默认在代码审查后询问是否执行独立功能测试。已明确选择时沿用选择，
+恢复与返修不重复询问。跳过会留痕，不能记为测试通过，也不会取消代码审查或项目原有检查。
 
-| Agent | 模型 |
-|---|---|
-| 需求分析师 | `deepseek-v4.1-flash` |
-| 任务规划师 | `deepseek-v4-pro` |
-| 全栈开发工程师 | `GLM-5.3` |
-| 代码审查师 | `deepseek-v4.1-flash` |
-| 测试工程师 | `deepseek-v4.1-flash` |
-| 发布助手 | `hy3` |
+**质量检查**：JSON Schema 校验产物格式，门控检查功能点 → AC → Task 关联，
+审查核对文件覆盖及证据版本。开发完成后对变更前端文件执行增量 ESLint；未安装 ESLint 时警告并跳过。
+本地前后端编译默认关闭，设 `HARNESS_RUN_BUILD=1` 启用；执行失败或无法确认成功时阻止推进。
 
-## 16 个 Skill
+**编辑与发布**：开发阶段的 dev-pass 将已登记仓库 `src/` 编辑限定在任务文件范围内，结束后撤销。
+Hook 覆盖文件工具与常见 shell 写入，不能替代宿主权限控制或代码审查。
+Git/MR 与发布动作沿用已有授权，缺少授权时在执行前确认；跳过交付步骤须记录用户决定。
 
-**工作流编排（4 个）**
+## 执行与恢复
 
-| Skill | 用途 |
-|---|---|
-| `harness-start` | 统一入口：识别意图（新功能 run / Bug 修复 fixbugs），梳理 story-input.json 并启动工作流 |
-| `harness-conductor` | 工作流编排器：调度 Agent、管理 Phase 推进、错误恢复决策；Phase 门控详情与脚本 API 在 references/ 按需读取 |
-| `harness-evolve` | 自进化闭环：体检(audit) → 度量(metrics) → 诊断(mining) → 治疗(proposal) → 验证(validation) |
-| `harness-archive` | Story 归档 / 复档恢复 / 归档历史查看，归档后 root 目录清空 |
+### 轻量准备
 
-**知识库（4 个）**
+新任务默认 `workflowProfile: "auto"`。单仓、低风险、1–3 个明确文件，且不涉及跨模块、
+接口、依赖、数据迁移、权限变化或 Figma 强制还原时，需求分析可同时产出最小任务规划。
+P0/P1 门控仍逐一执行，独立审查和测试选择保持有效。
 
-| Skill | 用途 |
-|---|---|
-| `kb-init` | 初始化知识库骨架：自动推断项目画像（project_type / source_root，支持前端 / 后端 / 插件仓），动态扫描真实业务域（不硬编码），生成 `.docs/llm-knowledge/` |
-| `kb-query` | 渐进式三层检索：L1 overview 关键词定位域 → L2 meta.yaml 精确筛选 → L3 按需加载文档；支持需求拆解 / 技术方案 / 接口搜索 / 知识问答 4 种模式；精确定位直达源码，源码搜索 / 按需 LSP 查调用方与影响面 |
-| `kb-update` | 提交前增量维护：按域定位源码/知识变化，沉淀规格与经验，记录来源回执；保留手工批注，正文与代码同 MR |
-| `gen-project-docs` | 扫描源码生成结构化文档：通用 5 类 + 项目类型特有切面，支持全量 / 单域 / 增量模式与新鲜度检测 |
+指定 `full` 保留独立规划；`light` 仍需满足上述条件，证据不足时使用完整路线。
 
-**开发、审查与验证（5 个）**
+### 按批次开发与按需读取
 
-| Skill | 用途 |
-|---|---|
-| `backend-tech-spec` | 后端开发规范解析：已有项目优先知识库与工程约定，新项目或规范缺失处采用安全、现代的 Java / Spring Boot 默认基线 |
-| `frontend-tech-spec` | 前端规范解析：按框架、项目约定与设计要求处理请求、状态、组件、样式和交互 |
-| `code-review` | 逐文件审查：范围快照、内置规则、跨文件查证、覆盖记录和问题位置校验 |
-| `systematic-debugging` | 根因调查：复现、数据流追踪、最小实验、修复依据与回归范围 |
-| `test-design-and-execution` | AC 到用例映射，单元/组件/接口/E2E/视觉分层验证，环境与证据管理 |
+- 规划包含批次时，脚本按 `batchId` 顺序生成各批的任务、仓库、文件范围和关联 AC，主 Agent 原样下发。
+- 批次之间串行；某批失败时停止后续批次。全部任务实际完成后才记录开发阶段完成。
+- 交付说明写入 `development-notes/<taskId>.md`。恢复执行时先核对源码版本与证据，不凭文件存在认定完成。
+- 阶段产物需要修订时，只补门控指出的缺口；实现返修优先读取本轮问题清单，再按需读取关联任务、AC、设计节点和调用方。
+- 无批次的旧任务沿用单 Agent 执行；返修不重新下发完整开发批次。上下文裁剪不降低验收与审查覆盖要求。
 
-**辅助工具（3 个）**
+### 失败恢复
 
-| Skill | 用途 |
-|---|---|
-| `api-generator` | 由 Swagger JSON / api doc 按模块或接口路径生成接口定义、请求函数与 JSDoc 注释，不依赖固定业务目录 |
-| `figma-to-component-map` | Phase 1 任务规划时产出 Figma frame 清单（figma-frame-inventory.json），为每个 UI 任务绑定精确 figmaRefs（nodeId + link） |
-| `tapd-bug-analyzer` | 从 TAPD 拉取需求关联 bugs，按处理人过滤，逐条记录复现步骤 / 代码定位 / 根因 / 责任方，只采集事实不产出修复方案 |
+```mermaid
+flowchart TB
+    Failed["审查或测试失败"] --> Cause{"失败原因"}
+    Cause -->|"需求 / 规划"| Replan["回 P0 / P1 修订契约"]
+    Cause -->|"实现"| Repair["回 P2 限域修复"]
+    Cause -->|"环境 / 验证方法"| Retry["原阶段修正后重验"]
+    Cause -->|"原因不明"| Evidence["原阶段补充证据"]
+    Replan --> Resume["归档失效报告<br/>保留有效上游"]
+    Repair --> Resume
+    Retry --> Resume
+    Resume --> Check["重新调度与校验"]
+    Evidence -.-> Cause
+    Check -->|"通过"| Continue(["继续交付"])
+    Check -->|"失败且有预算"| Cause
+    Check -->|"预算耗尽"| Human["人工处理"]
 
-## Hook 安全护栏
+    classDef action fill:#eff6ff,stroke:#3b82f6,color:#1e3a8a
+    classDef decision fill:#fffbeb,stroke:#d97706,color:#78350f
+    classDef success fill:#f0fdf4,stroke:#16a34a,color:#14532d
+    classDef stop fill:#fff1f2,stroke:#e11d48,color:#881337
+    class Failed,Replan,Repair,Retry,Evidence,Resume,Check action
+    class Cause decision
+    class Continue success
+    class Human stop
+```
 
-编辑类操作前置校验（PreToolUse），不合规的写入直接被拦截：
+代码审查与功能测试各默认最多 2 轮恢复，独立计数。实现返修须产出匹配本轮问题的
+`fix-verification.json`，旧报告不能代替本轮结果。
 
-- **enforce-state-file.js** — 状态文件守卫：工作流进行中保护 e2e-state.json 等内部状态不被误改（文件工具与 shell 双通道）
-- **enforce-dev-pass.js** — 开发门控：无有效 dev-pass 或写入超出限域文件清单时拦截源码编辑（文件工具与 shell 双通道，shell 命令中的重定向 / sed -i / tee 等写 src/ 行为一并校验）
-- **enforce-artifact.js** — 产出物契约：按 Phase 检查必备产出物存在性
-- **session-start.js / session-stop.js** — 会话恢复与清理：新会话自动恢复工作流状态，Stop 时落盘
-- **trace-command.js** — 命令审计：记录当前激活 Story 的命令 / Skill / MCP 调用轨迹；无法唯一归属时不随意记到其他 Story
-- **trace-agent.js** — Agent/Task 调用前后记录 invocationId、配置与实际模型、宿主上报用量；自动刷新度量报告。后台任务或宿主缺少回调时可按 conductor 指引补记
+继续同一未完成任务时复用原 Story，保留契约、测试选择与预算；已归档任务先恢复。
+新需求或新缺陷应新建 Story。
 
-另有两条输入侧安全约束：storyId 须以字母/数字开头、仅含字母数字与 `-_`（最长 64 字符），
-在 schema 与状态脚本双层强制。Story 参数与 lint 文件路径通过数组参数传递；
-项目构建仍执行既有构建命令，不能将其视为任意 shell 脚本的隔离环境。
+### 执行度量
 
-另有：`kb-query` 的 skill 描述直接声明自动触发场景（涉及业务模块、改代码、查实现等场景先查知识库）；`output-styles/harness.md` 提供表格化汇报、结构化 blocker 列表并禁止泄露内部状态文件路径。
+每个 Story 目录提供 `workflow-metrics.md` 和 `workflow-metrics.json`，展示阶段耗时、
+Agent 调用、返修、模型与 Token 采集情况，随执行事件更新。
 
-这里的宿主 Hook 与知识维护用的 Git hook 是两套机制：`hooks/hooks.json` 保护 Agent 的编辑行为；
-仓库内的 `pre-commit` hook 检查 Git 暂存区。安装插件不会替每个项目或每个 clone 自动修改
-`.git/hooks/`，需要在目标仓库显式安装一次。
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/commands/workflow-metrics.js" <storyId> --write
+```
 
-## 同仓知识维护快速使用
+实际模型与 Token 只取宿主上报值，缺失显示「未采集」。阶段耗时包含等待，Agent 耗时为调用累计；
+报告不包含未采集的主控用量，不能当作完整账单。
 
-知识库固定放在代码仓库的 `.docs/llm-knowledge/`，当前 Git 分支就是它的版本边界。
-首次初始化知识库后，把维护运行时安装到项目，并为当前 clone 安装 `pre-commit` hook：
+## 知识维护
+
+知识与代码同仓，存放在 `.docs/llm-knowledge/`，随 Git 分支维护对应版本。
+`kb-query` 定位业务与历史经验，再以源码和按需 LSP 查证调用关系。
+
+P5 提交前用 `kb-update` 更新受影响业务域，或记录明确延期；代码、知识与回执一起提交。
+P6 核验实际合入版本，复用已有维护结果。
+
+首次初始化后，可安装项目维护运行时与当前 clone 的 Git hook：
 
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/scripts/commands/kb-maintenance.js" install
 node .docs/llm-knowledge/tools/fsflow-kb/commands/kb-maintenance.js install --hooks
 ```
 
-日常开发按以下顺序执行：
-
-1. 修改代码后、提交前运行 `kb-update`，更新受影响业务域；暂不更新时记录延期回执。
-2. 将代码、知识正文和 `.docs/llm-knowledge/.sync/receipts/` 一起加入暂存区。
-3. `pre-commit` 自动做快速结构检查；也可手动运行严格检查：
-
-   ```bash
-   node .docs/llm-knowledge/tools/fsflow-kb/commands/kb-maintenance.js check --staged --strict
-   ```
-
-4. 在 GitLab 候选合并流水线中检查目标分支与源分支合并后的提交，避免并行 MR 各自通过、合并后却遗漏知识更新。
-
-项目的 `.gitlab-ci.yml` 可直接引用安装时生成的模板：
-
-```yaml
-include:
-  - local: .docs/llm-knowledge/tools/fsflow-kb/templates/kb-gitlab-ci.yml
-```
-
-本地 hook 可被跳过，也无法看到其他 MR 随后产生的合并结果，因此最终一致性由 GitLab 的
-merged results pipeline 或 merge train 上的严格检查保证。完整命令、Husky 接入和 GitLab 设置见
-[安装指南](INSTALL.md#同仓知识维护与-git-hook)。
-
-## 零外部依赖设计
-
-插件自身**无需 npm install、独立 OpenSpec CLI 或额外 LLM Key**；运行需要宿主、Node.js 和 Git。
-业务项目的依赖、编译工具链、模型访问及外部服务仍需按使用场景准备。
-插件提供 6 个常用 slash command 与 1 个兼容统一入口：
-
-| 能力 | 实现方式 |
-|---|---|
-| OpenSpec 规格门控 | `policy.js` 在 Phase 0 强制校验 Why/Non-Goals/Decisions/Capabilities/Risks、规范性 Requirement 与 Given/When/Then；Phase 1 校验功能点→AC→Task 追踪链，无需独立 OpenSpec CLI 或文件目录 |
-| 全栈代码审查 | code-review 技能与 Node.js + Git 范围脚本；内置规则库 `skills/code-review/references/rules/`（default 五维度 / Java / TS·JS / Mapper XML，按场景应用防误报规则），由审查师模型逐文件执行 |
-| JSON Schema 校验 | 内置 `vendor/ajv.bundle.js`（免 npm install） |
-| 知识维护 | 项目内置 Node.js 运行时脚本 + Git hook + GitLab CI 模板；无需 graphify 或外部索引服务 |
-| 发布前验证 | `cd plugins/fsflow && npm run verify`：插件结构一致性检查 + 自动发现并运行全部回归测试 |
-
-按场景配置外部服务：Figma MCP（设计稿拉取）、devops MCP（前端云端构建）、
-GitLab MCP（MR 管理）、TAPD（需求/缺陷导入）、Playwright MCP（前端实跑测试）。
-触发 Figma 硬门控或需要云端部署时，缺少对应服务会阻塞相关步骤，需要补齐配置或人工交接；
-测试环境缺失时可记录 `unverifiable`，不能宣称已经验证通过。
-
-**默认检索流程**：kb-query 定位业务、规范和历史经验 → 源码验证 → 按需 LSP 查引用。共享代码变更与上游 Bug 必须确认调用方和回归项；证据记录源码版本（含相关工作区变更），跨阶段复用，变化后重新核实。审查按实际证据和影响判断，不以工具调用次数记 debt 或扣分。
-
-kb-query 在缺少知识库或索引损坏时，报告原因并使用 Git 文件清单定位；已有索引也会补齐新增文件，不自动重建。开发交付说明写入 Story 的 `development-notes/<taskId>.md`，后续阶段通过文件路径读取；并行任务分开写，返修后更新。旧任务没有说明文件时直接查证源码。
-
-
-## 故障排除与卸载
-
-### 常见问题
-
-| 问题 | 解决方法 |
-|---|---|
-| 市场添加后无法加载 | 确认 GitHub 地址可访问，仓库根目录存在 `.claude-plugin/marketplace.json` / `.codebuddy-plugin/marketplace.json` |
-| 安装时提示「路径未找到」 | 使用 Git 型市场（`https://...git`），不要用 URL 型 |
-| 命令补全里找不到旧短入口 | 插件命令必须带命名空间，请输入 `/fsflow:`；重载插件（`/reload-plugins` 或重启宿主）后再试 |
-| Skill 不响应触发词 | 用 `/plugin list` 确认已安装并启用，再执行 `/reload-plugins` 或重启宿主 |
-| 报 `Cannot find module 'ajv'` | 确认 `plugins/fsflow/vendor/ajv.bundle.js` 存在，`git pull` 同步（**不要** `npm install`） |
-| 报 `e2e-state.json 不存在` | 冷启动场景：先说「做个需求」走 harness-start 建流，或按 terminal 恢复命令执行 restore 复档 |
-| dev-pass 拦截了源码编辑 | 正常行为——确认当前处于 Phase 2 且目标文件在 task-dag.json 的 `files[]` 限域内；开发未完成但 pass 过期用 `--renew-pass` 续签 |
-| 报 `非法 storyId` | storyId 须以字母/数字开头，仅含字母、数字、`-`、`_`（最长 64 字符）；storyId 会拼入文件路径与命令参数，含路径分隔符或 shell 元字符会被拒绝 |
-| 新 clone 提交时知识 hook 没有触发 | Git hook 不随 Git 仓库同步；在该 clone 执行 `node .docs/llm-knowledge/tools/fsflow-kb/commands/kb-maintenance.js install --hooks` |
-| 项目已使用 Husky / 自定义 `core.hooksPath` | 不覆盖现有 hook；按安装指南把 `check --staged` 命令接入现有 `pre-commit` |
-| GitLab 知识检查提示只运行了源分支流水线 | 为目标分支启用 merged results pipeline 或 merge train，使检查针对候选合并提交执行 |
-| 严格检查提示业务域缺少处理结果 | 运行 `kb-update` 后为受影响域执行 `record`，记录已更新或明确延期，再重新暂存回执 |
-| Token / 实际模型显示未采集 | 宿主未上报相应字段；检查 Agent Hook 或按 conductor 指引用同一 invocationId 补记真实结果，不能从配置或字数推算 |
-| 设置 light 后仍走 full | 查看 dispatch 的 workflowRoute.reasons；检查影响面证据、文件范围、跨仓和风险标记，不要绕过门控 |
-| 度量报告需要刷新 | 运行 workflow-metrics.js <storyId> --write；dispatch 本身保持只读 |
-| Story 目录被清空了 | 已归档：root 文件在 `archive/round-{N}/`，执行 restore 命令可完全复原 |
-
-> 更多排障细节见 [INSTALL.md](./INSTALL.md)。
-
-### 卸载
-
-```
-/plugin uninstall fsflow@fullstackflow-marketplace
-/plugin marketplace remove fullstackflow-marketplace
-```
-
-卸载插件不会删除项目内已提交的知识库运行时，也不会自动修改仓库 hook。需要停用当前 clone 的
-知识检查时，先在目标仓库执行：
+提交前可执行严格检查：
 
 ```bash
-node .docs/llm-knowledge/tools/fsflow-kb/commands/kb-maintenance.js uninstall-hooks
+node .docs/llm-knowledge/tools/fsflow-kb/commands/kb-maintenance.js check --staged --strict
 ```
 
-项目侧仍会保留 `.codebuddy/plans/`（Story 状态与归档）和 `.docs/llm-knowledge/`（知识正文、回执与运行时）；
-如需移除，应通过正常代码评审提交处理。
+Git hook 不随 clone 自动安装；已有 Husky 或自定义 hook 时需按指南接入。
+GitLab 候选合并检查用于发现并行 MR 合并后的知识遗漏。
+配置、CI 模板与延期回执见 [安装指南](INSTALL.md#同仓知识维护与-git-hook)。
 
-## 仓库结构
+## 能力与集成
 
+插件包含 6 个角色 Agent 与 16 个 Skill。模型配置位于各 Agent 文件中，需与宿主支持的模型匹配。
+
+| 能力 | Skill |
+|---|---|
+| 工作流 | `harness-start`、`harness-conductor`、`harness-evolve`、`harness-archive` |
+| 知识库 | `kb-init`、`kb-query`、`kb-update`、`gen-project-docs` |
+| 开发与验证 | `frontend-tech-spec`、`backend-tech-spec`、`code-review`、`systematic-debugging`、`test-design-and-execution` |
+| 辅助工具 | `api-generator`、`figma-to-component-map`、`tapd-bug-analyzer` |
+
+<details>
+<summary>角色注册名与配置模型</summary>
+
+| 角色 | 注册名 | 配置模型 |
+|---|---|---|
+| 代码审查师 | `code-reviewer` | `deepseek-v4.1-flash` |
+| 任务规划师 | `task-planner` | `deepseek-v4-pro` |
+| 全栈开发工程师 | `fullstack-developer` | `GLM-5.3` |
+| 发布助手 | `release-assistant` | `hy3` |
+| 测试工程师 | `test-engineer` | `deepseek-v4.1-flash` |
+| 需求分析师 | `requirement-analyst` | `deepseek-v4.1-flash` |
+
+以上是配置值，实际使用模型以宿主返回为准。
+
+</details>
+
+按任务需要配置外部服务：
+
+| 服务 | 用途 |
+|---|---|
+| Figma MCP | 规划时读取相关节点，开发时拉取完整设计上下文 |
+| TAPD | 导入需求与缺陷 |
+| GitLab MCP | 管理 MR |
+| devops MCP | 前端云端构建与部署 |
+| Playwright MCP | 前端浏览器实跑验证 |
+
+`run` 提供 Figma 链接时启用设计契约门控；`fixbugs` 不启用全量设计门控，但涉及 UI 的修改仍需核对设计。
+按当前 Figma 接入方式，桌面端需运行并打开对应文件。缺少必需服务时报告阻塞；测试环境缺失可记录
+`unverifiable`，不得声称验证通过。
+
+## 开发与排障
+
+```bash
+cd plugins/fsflow
+npm run verify
 ```
-fullstackflow/
-├── INSTALL.md                           # 安装 / 冒烟测试 / 排障 / 卸载完整指南
-├── .codebuddy-plugin/marketplace.json   # CodeBuddy Code 市场清单
-├── .claude-plugin/marketplace.json      # Claude Code 市场清单（内容一致）
-└── plugins/
-    └── fsflow/                          # 插件本体
-        ├── .claude-plugin/plugin.json   # Claude Code 插件元信息
-        ├── .codebuddy-plugin/plugin.json # CodeBuddy Code 插件元信息
-        ├── plugin.json                  # 旧宿主兼容元信息
-        ├── commands/                    # run/fixbugs/status/end/evolve/archive + 兼容统一入口
-        ├── agents/                      # 6 个角色代理
-        ├── skills/                      # 16 个技能（工作流 / 知识库 / 开发规范 / 辅助工具）
-        ├── hooks/hooks.json             # 4 类事件、7 个 Hook 脚本
-        ├── output-styles/harness.md     # 汇报输出风格
-        ├── scripts/                     # dispatch / advance-phase / archive / policy 门控等
-        ├── scripts/commands/workflow-metrics.js # 查询 / 刷新每个 Story 的度量报告
-        ├── scripts/services/workflow-route.js # 轻量路线判定
-        ├── scripts/services/failure-routing.js # 失败原因分流与产物失效
-        ├── scripts/commands/kb-maintenance.js # 知识维护安装与命令入口
-        ├── scripts/lib/kb-maintenance.cjs # 可复制到项目内的维护运行时
-        ├── scripts/templates/kb-gitlab-ci.yml # 候选合并一致性检查模板
-        ├── scripts/audit/plugin-check.js # manifest / 命令 / Skill / Hook 一致性检查
-        ├── scripts/__tests__/           # 自动发现的回归测试文件
-        └── vendor/ajv.bundle.js         # 内置 ajv（免 npm install）
-```
+
+验证包含插件结构一致性检查和全部回归测试。插件内置 JSON Schema 校验依赖，无需单独安装 OpenSpec CLI。
+
+| 目录 | 内容 |
+|---|---|
+| `plugins/fsflow/commands/` | 斜杠命令入口 |
+| `plugins/fsflow/agents/` | 角色职责与模型配置 |
+| `plugins/fsflow/skills/` | 技能及按需读取的参考文档 |
+| `plugins/fsflow/scripts/` | 调度、门控、契约、度量与测试 |
+| `plugins/fsflow/hooks/` | 编辑保护与执行记录 |
+
+命令不可见、dev-pass 拦截、知识检查失败等问题，以及更新与卸载步骤，见 [INSTALL.md](INSTALL.md)。
+工作流调度协议见 [编排说明](plugins/fsflow/skills/harness-conductor/SKILL.md)。
 
 ## License
 

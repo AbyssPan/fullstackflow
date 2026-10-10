@@ -260,17 +260,18 @@ function checkDocumentation(identity) {
   if (!readme.includes(`## License\n\n${identity.license}`)) fail('README License 与 manifest 不一致')
   const skills = walk(path.join(PLUGIN_ROOT, 'skills'), file => path.basename(file) === 'SKILL.md')
   const agents = walk(path.join(PLUGIN_ROOT, 'agents'), file => file.endsWith('.md'))
-  if (!readme.includes(`## ${skills.length} 个 Skill`)) fail('README Skill 数量与实际目录不一致')
-  if (!readme.includes(`## ${agents.length} 个角色 Agent`)) fail('README Agent 数量与实际目录不一致')
+  if (!readme.includes(`${skills.length} 个 Skill`)) fail('README Skill 数量与实际目录不一致')
+  if (!readme.includes(`${agents.length} 个角色 Agent`)) fail('README Agent 数量与实际目录不一致')
   for (const file of skills) {
     const name = path.basename(path.dirname(file))
-    if (!readme.includes(`| \`${name}\` |`)) fail(`README 未列出 Skill: ${name}`)
+    if (!readme.includes(`\`${name}\``)) fail(`README 未列出 Skill: ${name}`)
   }
   for (const file of agents) {
     const { fields } = frontmatter(file)
     const label = path.basename(file, '.md')
-    if (!readme.includes(`| ${label} | \`${fields.name}\` |`)) fail(`README Agent 注册名不一致: ${label}`)
-    if (!readme.includes(`| ${label} | \`${fields.model}\` |`)) fail(`README Agent 模型不一致: ${label}`)
+    const row = readme.split('\n').find(line => line.startsWith(`| ${label} | \`${fields.name}\` |`))
+    if (!row) fail(`README Agent 注册名不一致: ${label}`)
+    if (!row || !row.includes(`| \`${fields.model}\` |`)) fail(`README Agent 模型不一致: ${label}`)
   }
   const tests = walk(path.join(PLUGIN_ROOT, 'scripts/__tests__'), file => file.endsWith('.test.js'))
   const files = [path.join(REPO_ROOT, 'README.md'), path.join(REPO_ROOT, 'INSTALL.md'),

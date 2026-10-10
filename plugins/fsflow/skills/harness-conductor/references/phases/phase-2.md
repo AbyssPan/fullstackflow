@@ -6,7 +6,9 @@
 ## 职责
 
 Agent 注册名 **`fullstack-developer`**（全栈开发工程师）。按 `task-dag.json` 的批次执行开发任务（前端 / 后端 / DB 均可）——
-同一 batch 内的任务可并行 Spawn 多个开发 Agent，batch 之间串行。
+dispatch 按 batchId 顺序生成每批任务、仓库与文件范围，主 Agent 原样传入各批 agentPrompt，批次之间串行。
+单批只汇报任务证据，全部批次完成后由主 Agent 记录阶段完成；无 batches 的旧任务沿用单 Agent 执行。
+返修不重发开发批次，只读取本轮问题清单并按需补充相关任务、AC 和调用方证据。
 
 `mode=fixbugs` 时 prompt 会额外注入「修复方案自行设计」说明：bug 分析报告只给事实，
 怎么改由开发工程师根据源码和知识库证据自行决定；调用关系不明或跨域影响时用源码搜索和按需 LSP 查引用；已有同版本同范围证据（含相关工作区变更）可复用。

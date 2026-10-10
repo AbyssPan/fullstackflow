@@ -39,6 +39,7 @@ Step 1: 执行 node ${HARNESS}/dispatch.js <storyId>
 Step 2: 按 status 分支（四态互斥且穷尽，无「其他情况自行处理」）
 
   ┌ ready     → 若 readyToAdvance=true: 先执行 advanceCommand，再回 Step 1
+  │             否则若有 batches: 按顺序逐批 Spawn batches[].agent，原样注入各自 agentPrompt
   │             否则: Spawn nextAgent，prompt = agentPrompt（原样注入，不加工）
   ├ fix_loop  → 执行 recovery.command，成功后回 Step 1（按原因回退或在原阶段重新验证）
   ├ blocked   → verification_choice_required：询问 recovery.question，等待用户选择后执行对应 options[].command，再回 Step 1
@@ -47,6 +48,17 @@ Step 2: 按 status 分支（四态互斥且穷尽，无「其他情况自行处�
 
 Step 3: 子 Agent 汇报产出物路径 → 回到 Step 1
 ```
+
+## 开发批次与返修
+
+`batches` 是本轮开发指令的唯一来源；此时顶层 `agentPrompt` 为空，不再另起一个全量开发 Agent。
+按返回顺序完成每批，失败时停止后续批次。单批只交付任务说明与证据；全部任务实际完成后，
+主 Agent 汇总证据执行 `trace.js phase-outcome <storyId> 2 completed '<detailsJSON>'`，再回 dispatch。
+中断恢复时核对已有交付说明对应的源码版本与结果，不能仅凭文件存在认定完成。
+没有 batches 的旧任务沿用单 Agent 流程。
+
+返修优先读取本轮问题、受影响文件和相关契约；需要调用方或设计证据时再扩展读取。
+审查与测试仍执行原有覆盖要求。`pendingBlockers` 已注入 prompt，主 Agent 不再手工改写。
 
 ## 轻量路线与阶段用量
 
@@ -118,7 +130,7 @@ HARNESS=${CLAUDE_PLUGIN_ROOT}/scripts/commands
 ## Phase → Agent（不作为执行依据）
 
 运行时的权威来源是 `scripts/lib/state.js` 的 `PHASE_AGENTS`，由 `dispatch.js` 查表后以
-`nextAgent` 字段输出。**主 Agent 用 `nextAgent`，不查任何表。**
+`nextAgent` 或 `batches[].agent` 字段输出。**主 Agent 使用对应注册名，不查任何表。**
 需要人读的 8 Phase 总表（名称 / 注册名 / 产出物 / 门控实现）见 `references/phases/README.md`。
 
 两条必守：

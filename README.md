@@ -200,8 +200,8 @@ GitLab 候选合并检查用于发现并行 MR 合并后的知识遗漏。
 
 | 角色 | 注册名 | 配置模型 |
 |---|---|---|
-| 代码审查师 | `code-reviewer` | `deepseek-v4.1-flash` |
-| 任务规划师 | `task-planner` | `deepseek-v4-pro` |
+| 代码审查师 | `code-reviewer` | `GLM-5.3` |
+| 任务规划师 | `task-planner` | `GLM-5.3` |
 | 全栈开发工程师 | `fullstack-developer` | `GLM-5.3` |
 | 发布助手 | `release-assistant` | `hy3` |
 | 测试工程师 | `test-engineer` | `deepseek-v4.1-flash` |

@@ -56,3 +56,9 @@ node "<plugin_root>/skills/gen-project-docs/gen-docs.cjs" --story <storyId>
 ## 4. 交付
 
 代码、知识、域回执和本次 changelog 一起进入 MR。汇报受影响域、正文变化、规格决策、延期/未知范围以及检查结果。索引刷新不是文档同步，生成命令成功不是语义正确。目标分支变化或返修后重新检查受影响证据。
+
+## 5. 例行维护与历史
+
+用户请求清理审查片段或发布时的例行维护，按 [Changelog 生命周期](references/maintenance.md#changelog-生命周期与历史查询) 运行 `prune --base <目标分支>` 预览，显式 `--apply` 执行，删除走维护 MR。日常更新不自动清理。当前回执、当前片段及无法证明已替代的记录保留；延期事项不能因后续审查而被推定关闭。
+
+查询某域审查原因使用 `history --scope domain:<id> [--ref REF] [--limit N]`，历史来自 Git 中已提交回执。重要决策及经验写入正文的权威位置，不只保存在 changelog 中。

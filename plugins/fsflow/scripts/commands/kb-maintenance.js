@@ -17,7 +17,8 @@ const preCommit = '#!/bin/sh\n# fsflow-kb managed hook\nset -e\n' +
 
 function install (root, hooks) {
   if (!fs.existsSync(path.join(root, KB_DIR, 'meta.yaml'))) throw new Error('Initialize the knowledge base before installing maintenance support')
-  const bundle = ['commands/kb-maintenance.js', 'lib/kb-maintenance.cjs', 'lib/kb.cjs', 'vendor/js-yaml.cjs', 'vendor/js-yaml.LICENSE', 'templates/kb-gitlab-ci.yml']
+  // Install dependencies before replacing the entry point used by existing hooks.
+  const bundle = ['lib/kb.cjs', 'vendor/js-yaml.cjs', 'vendor/js-yaml.LICENSE', 'lib/kb-maintenance.cjs', 'lib/kb-history.cjs', 'templates/kb-gitlab-ci.yml', 'commands/kb-maintenance.js']
   const origin = path.resolve(__dirname, '..')
   const manifestPath = path.join(root, DEST, 'installed.json')
   const previous = fs.existsSync(manifestPath) ? JSON.parse(fs.readFileSync(manifestPath, 'utf8')) : {}
@@ -76,8 +77,8 @@ function main (args, root = process.cwd()) {
   if (fs.realpathSync(root) !== fs.realpathSync(kb.git(root, ['rev-parse', '--show-toplevel']).trim())) throw new Error('Run this command at the target repository root')
   const command = args.shift()
   const options = {}, sources = []
-  const flags = new Set(['staged', 'strict', 'hooks'])
-  const values = new Set(['ref', 'base', 'scope', 'status', 'reason', 'spec-review', 'source'])
+  const flags = new Set(['staged', 'strict', 'hooks', 'dry-run', 'apply'])
+  const values = new Set(['ref', 'base', 'scope', 'status', 'reason', 'spec-review', 'source', 'limit'])
   while (args.length) {
     const key = args.shift().replace(/^--/, '')
     if (flags.has(key)) options[key] = true
@@ -88,9 +89,12 @@ function main (args, root = process.cwd()) {
       else options[key] = value
     } else throw new Error('Unknown or incomplete option: ' + key)
   }
-  const permitted = { check: ['staged', 'strict', 'ref', 'base'], record: ['scope', 'status', 'reason', 'spec-review'], install: ['hooks'], 'uninstall-hooks': [] }
-  if (!permitted[command] || Object.keys(options).some(k => !permitted[command].includes(k)) || (sources.length && command !== 'record')) throw new Error('Usage: kb-maintenance.js check [--staged|--ref REF] [--base REF] [--strict] | record --scope common|domain:ID --status updated|unchanged|deferred --reason TEXT --spec-review aligned|approved|deferred [--source PATH] | install [--hooks] | uninstall-hooks')
+  const permitted = { check: ['staged', 'strict', 'ref', 'base'], record: ['scope', 'status', 'reason', 'spec-review'], install: ['hooks'], 'uninstall-hooks': [], prune: ['base', 'dry-run', 'apply'], history: ['scope', 'ref', 'limit'] }
+  if (!Object.hasOwn(permitted, command) || Object.keys(options).some(k => !permitted[command].includes(k)) || (sources.length && command !== 'record')) throw new Error('Usage: kb-maintenance.js check [--staged|--ref REF] [--base REF] [--strict] | record --scope common|domain:ID --status updated|unchanged|deferred --reason TEXT --spec-review aligned|approved|deferred [--source PATH] | prune --base REF [--dry-run|--apply] | history --scope common|domain:ID [--ref REF] [--limit 1..100] | install [--hooks] | uninstall-hooks')
   if (options.staged && options.ref) throw new Error('Choose staged or ref, not both')
+  if (options['dry-run'] && options.apply) throw new Error('Choose dry-run or apply, not both')
+  if (command === 'prune') return require('../lib/kb-history.cjs').prune(root, { base: options.base, apply: options.apply })
+  if (command === 'history') return require('../lib/kb-history.cjs').history(root, { scope: options.scope, ref: options.ref, limit: options.limit === undefined ? 20 : Number(options.limit) })
   if (command === 'check') {
     const result = kb.check(root, { mode: options.staged ? 'staged' : options.ref || 'working', base: options.base, strict: options.strict })
     const bounded = item => item.files ? { ...item, fileCount: item.files.length, files: item.files.slice(0, 50), truncated: item.files.length > 50 } : item

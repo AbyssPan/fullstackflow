@@ -184,6 +184,16 @@ Git hook 不随 clone 自动安装；已有 Husky 或自定义 hook 时需按指
 GitLab 候选合并检查用于发现并行 MR 合并后的知识遗漏。
 配置、CI 模板与延期回执见 [安装指南](INSTALL.md#同仓知识维护与-git-hook)。
 
+`changelog/` 的独立审查片段可在发布或例行维护时清理：
+
+```bash
+node .docs/llm-knowledge/tools/fsflow-kb/commands/kb-maintenance.js prune --base origin/main
+node .docs/llm-knowledge/tools/fsflow-kb/commands/kb-maintenance.js prune --base origin/main --apply
+node .docs/llm-knowledge/tools/fsflow-kb/commands/kb-maintenance.js history --scope domain:order --limit 20
+```
+
+`origin/main` 替换为实际目标分支并事先更新引用。默认只预览；显式执行仅删除已合入基线且能证明被后续回执替代的旧片段，不自动暂存或提交。当前回执与片段、延期记录、未合并及无法核实的记录保留；完整历史通过 Git 查询。已有项目需从更新后的插件重跑 `install` 才能使用新命令。详见 [生命周期与保留规则](plugins/fsflow/skills/kb-update/references/maintenance.md#changelog-生命周期与历史查询)。
+
 ## 能力与集成
 
 插件包含 6 个角色 Agent 与 16 个 Skill。模型配置位于各 Agent 文件中，需与宿主支持的模型匹配。

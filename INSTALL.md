@@ -213,6 +213,8 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/commands/kb-maintenance.js" install
 
 这会将独立运行时安装到 `.docs/llm-knowledge/tools/fsflow-kb/`，后续不依赖插件宿主或个人缓存路径。运行时、配置、文档、域回执与源码一起提交。
 
+**已有知识库升级**同样从更新后的插件目录执行上述命令。项目内的旧运行时执行 `install` 只会重装自身，不会获取新插件。现有 v1 配置、域回执及 changelog 格式兼容，无需重新生成知识；正文、人工批注、旧 log.md 和已有配置值保留。安装器会核对安装摘要，遇到本地定制先报错，不强制覆盖。只有旧 git.hash/log.md、尚未接入维护模式的项目，首次安装后仍需逐域审查并记录回执，再启用严格 CI。详见 [兼容边界与历史清理](plugins/fsflow/skills/kb-update/references/maintenance.md#已生成知识库的兼容边界)。
+
 每个 clone 启用本地 hook：
 
 ```bash

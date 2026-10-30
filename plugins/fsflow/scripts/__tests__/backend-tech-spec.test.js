@@ -24,6 +24,7 @@ const spec = read('skills/backend-tech-spec/SKILL.md')
 const analyst = read('agents/需求分析师.md')
 const developer = read('agents/全栈开发工程师.md')
 const reviewer = read('agents/代码审查师.md')
+const reviewSkill = read('skills/code-review/SKILL.md')
 
 ok('Skill 注册名正确', /name:\s*backend-tech-spec/.test(spec))
 ok('项目知识库位于内置审查规则之前',
@@ -36,7 +37,9 @@ ok('只有需求分析 Agent 执行知识库初始化确认',
   !/知识库前置确认/.test(developer) && !/use_skill\("kb-init"\)/.test(developer))
 ok('开发 Agent 调用 backend-tech-spec', /use_skill\("backend-tech-spec"\)/.test(developer))
 ok('开发 Agent 预读审查规则', /预读内置审查规则/.test(developer))
-ok('审查 Agent 调用 backend-tech-spec', /use_skill\("backend-tech-spec"\)/.test(reviewer))
+ok('审查 Agent 经 code-review 技能加载后端规范',
+  /use_skill\("code-review"\)/.test(reviewer) &&
+  /use_skill\("backend-tech-spec"\)/.test(reviewSkill))
 ok('审查 Agent 明确审查规则优先于开发默认规范',
   /优先级固定为：[\s\S]*内置审查规则[\s\S]*backend-tech-spec` 默认规范/.test(reviewer))
 ok('已移除 ServiceImpl 禁止调用 Mapper 的错误规则', !/ServiceImpl 仅调 Service 不跨层直调 Mapper/.test(reviewer))

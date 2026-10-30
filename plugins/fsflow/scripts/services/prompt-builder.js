@@ -605,6 +605,9 @@ function buildAgentPrompt (opts) {
     route.profile === 'light' && targetPhase <= 4
       ? `## 轻量路线\n范围：${route.files.join(', ')}。${route.reasons.join('；')}。复用已核实的上下文，扩大影响面时更新评估并恢复完整路线；所有契约和质量门控仍有效。\n` : '',
     verificationInstruction,
+    [2, 3, 4].includes(targetPhase)
+      ? '## 阶段分工与检查去重\n遵守 skills/harness-conductor/references/verification.md：P2 定向自测并保留原始运行证据，出门门控将执行的相同检查不预跑；P3 默认一轮有证据的审查，高风险深入相关路径，修复后增量复核，不重跑完整功能验收；P4 逐条核验前序运行证据，只复用版本、相关工作区内容、环境和数据前提一致的结果，记录来源与断言，补测缺口及受影响回归，高风险补充独立验证。静态审查不能替代 UI/API 运行证据；所有 AC 与原有门控仍须覆盖，不改变 verificationMode 或用户明确重跑要求。\n'
+      : '',
     targetPhase === 3 && readStateFile(storyId)?.reviewCoverageRequired
       ? '## 审查覆盖要求\n调用 use_skill("code-review")，按 repos.json 逐仓生成范围快照；code-review.json 必须包含 coverage。覆盖缺失或证据过期时留在 Phase 3 补审，不回退开发。\n'
       : '',

@@ -16,6 +16,8 @@
 Agent 注册名 **`test-engineer`**（测试工程师）。逐条验证 `acceptance-criteria.json` 中的 AC
 是否通过，产出 `test-report.md` + `acceptance-verification.json`。
 
+执行前按 [验证与交付](../verification.md) 核验开发/审查阶段原始运行证据。AC 断言、相关版本、环境和数据前提均一致时可复用并注明来源；补测未覆盖或失效项与受影响回归，高风险路径补充独立验证。独立验收仍覆盖全部 AC，静态审核通过不能替代功能测试，不机械重复所有测试层次。
+
 ## 产出物
 
 | 文件 | 契约 |

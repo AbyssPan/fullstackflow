@@ -35,7 +35,10 @@ description: 后端开发规范解析与执行。用于新增或修改后端代�
    - `沿用约定`：从相邻代码确认的稳定模式；
    - `默认补位`：项目未规定、由本 skill 提供的规则；
    - `冲突/未知`：需要兼容处理或在交付中说明的事项。
-5. 仅加载与实际技术栈匹配的参考。Java + Spring Boot + MyBatis/MyBatis-Plus 项目或新项目采用该栈时，读取 [references/java-spring-boot.md](references/java-spring-boot.md)。其他后端技术栈只执行本文件中的通用基线，不强行套用 Java 约定。
+5. 仅加载与实际技术栈匹配的参考：
+   - **团队/公司项目**（项目属于团队 Java Spring Boot 技术栈（MyBatis-Plus + Nacos + Feign + MySQL），或知识库、用户明确指定团队规范）：读取 [references/team-standard.md](references/team-standard.md) 并按其执行，代码示例见 [references/code-templates.md](references/code-templates.md)。该档案是「条件规则」的团队确认版，命中后其中条目即为强制规范；档案未覆盖的事项才回退到下条默认值。
+   - Java + Spring Boot + MyBatis/MyBatis-Plus 项目或新项目采用该栈时（不命中团队规范）：读取 [references/java-spring-boot.md](references/java-spring-boot.md)。
+   - 其他后端技术栈只执行本文件中的通用基线，不强行套用 Java 约定。
 
 不要为了“统一”而批量改写任务范围外的旧代码、目录或 API。
 
@@ -65,6 +68,8 @@ description: 后端开发规范解析与执行。用于新增或修改后端代�
 - 文件数量最少、相似写操作合并等组织偏好。
 
 若是全新 Java/Spring Boot 项目且用户没有指定这些选择，使用参考文档中的现代默认值，而不是将上列团队特有约定自动设为硬规则。
+
+上列条目的团队确认版本集中在 [references/team-standard.md](references/team-standard.md)。当项目命中团队/公司技术栈，或知识库、相邻代码、用户选择确认采用团队规范时，按该档案执行，上述条目即为强制规则。
 
 ## 交付检查
 

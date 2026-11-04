@@ -80,6 +80,7 @@ try {
     assert.equal(task.mode, 'quick')
     assert.equal(task.status, 'in_progress')
     assert.equal(task.relatedStoryId, 'STORY-REF-1')
+    assert.equal(task.description, '修复列表页空指针', '带值 flag 不得混入描述')
 
     const st = state.readStateFile(id)
     assert.equal(st.mode, 'quick')

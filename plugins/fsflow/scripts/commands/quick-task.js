@@ -368,7 +368,16 @@ function cmdStatus (storyId) {
 
 const args = process.argv.slice(2)
 const command = args[0]
-const positional = args.filter(a => !a.startsWith('--'))
+// 带值 flag 解析 positional 时连同其值一并跳过，防止 flag 值混入位置参数
+// （如 create "描述" --story <id> 时 storyId 被拼进描述）
+const VALUE_FLAGS = ['--story', '--note']
+const positional = []
+for (let i = 0; i < args.length; i++) {
+  const a = args[i]
+  if (VALUE_FLAGS.includes(a)) { i++; continue }
+  if (a.startsWith('--')) continue
+  positional.push(a)
+}
 const flagValue = (name) => {
   const inline = args.find(a => a.startsWith(`--${name}=`))
   if (inline) return inline.slice(name.length + 3)

@@ -1453,6 +1453,266 @@ function renewDevPass (storyId, ttl = DEV_PASS_TTL) {
   return issueDevPass(storyId, ttl)
 }
 
+// ─── 会话级 Harness 激活记录 ────────────────────────────────────
+//
+// v1.5 多会话并行改造: 原全局单文件 `.harness-active`（一次只激活一个 Story）
+// 无法支撑「不同会话（对话框）并行处理不同任务」。现改为目录式布局:
+//
+//   .codebuddy/plans/.harness-active/          ← 目录（新布局）
+//     <sessionId>.json                          ← 会话绑定（Hook 认领后写入）
+//     pending-<ts>-<seq>.json                   ← 待认领记录（start/resume 写入，
+//                                                 由携带 session_id 的 Hook 认领）
+//   .codebuddy/plans/.harness-active            ← 旧单文件（兼容读取，首次写入时迁移）
+//
+// 认领链路:
+//   1. start/resume（Bash 命令，无会话上下文）→ 写 pending 记录，输出 harnessEvent 事件
+//   2. PostToolUse trace-command.js（stdin 带 session_id + 命令输出）→ 将 pending 认领为本会话绑定
+//   3. 兜底: PreToolUse enforce-dev-pass.js 首次见到「无绑定 + 仅一条 pending」时懒认领
+//
+// 无 session_id 的宿主（旧版）自动退化为旧语义: pending/绑定总数为 1 时视作全局激活。
+
+/** Harness 激活记录目录（与旧单文件同路径，二者互斥存在） */
+const HARNESS_ACTIVE_PATH = path.join(PLANS_DIR, '.harness-active')
+
+/** pending 记录文件名前缀 */
+const HARNESS_PENDING_PREFIX = 'pending-'
+
+/**
+ * 归一化 session_id 为安全文件名（防路径穿越与非法字符）
+ * @param {*} sessionId
+ * @returns {string|null} 合法文件名（不含扩展名）；非法输入返回 null
+ */
+function sanitizeSessionId (sessionId) {
+  if (typeof sessionId !== 'string') return null
+  const trimmed = sessionId.trim()
+  if (!trimmed) return null
+  const safe = trimmed.replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 64)
+  return safe || null
+}
+
+/**
+ * 读取旧版单文件标记（仅当路径上是文件而非目录时）
+ * @returns {Object|null}
+ */
+function readLegacyHarnessFlag () {
+  try {
+    if (!fs.existsSync(HARNESS_ACTIVE_PATH)) return null
+    if (fs.statSync(HARNESS_ACTIVE_PATH).isDirectory()) return null
+    return JSON.parse(fs.readFileSync(HARNESS_ACTIVE_PATH, 'utf-8'))
+  } catch { return null }
+}
+
+/**
+ * 确保记录目录存在；若旧单文件占据该路径则先迁移：
+ * 旧标记内容转为一条 pending 记录（保持激活不丢失），再建目录。
+ */
+function ensureHarnessRecordsDir () {
+  if (fs.existsSync(HARNESS_ACTIVE_PATH)) {
+    if (fs.statSync(HARNESS_ACTIVE_PATH).isDirectory()) return
+    // 旧单文件 → 迁移为 pending 记录（保留原激活状态与字段）
+    const legacy = readLegacyHarnessFlag()
+    fs.unlinkSync(HARNESS_ACTIVE_PATH)
+    fs.mkdirSync(HARNESS_ACTIVE_PATH, { recursive: true })
+    if (legacy && legacy.active && legacy.storyId) {
+      writePendingHarnessRecord(legacy)
+    }
+    return
+  }
+  fs.mkdirSync(HARNESS_ACTIVE_PATH, { recursive: true })
+}
+
+/**
+ * 读取全部激活记录
+ * @returns {{ bindings: Array, pending: Array, legacy: Object|null }}
+ *   bindings: 会话绑定数组（每项含 sessionId/storyId/...）
+ *   pending: 待认领记录数组（每项含 file/storyId/...）
+ *   legacy: 旧单文件内容（存在时）
+ */
+function readHarnessRecords () {
+  const result = { bindings: [], pending: [], legacy: readLegacyHarnessFlag() }
+  try {
+    if (!fs.existsSync(HARNESS_ACTIVE_PATH) || !fs.statSync(HARNESS_ACTIVE_PATH).isDirectory()) {
+      return result
+    }
+    for (const name of fs.readdirSync(HARNESS_ACTIVE_PATH)) {
+      const full = path.join(HARNESS_ACTIVE_PATH, name)
+      try {
+        if (!fs.statSync(full).isFile()) continue
+        const data = JSON.parse(fs.readFileSync(full, 'utf-8'))
+        if (!data || data.active !== true || !data.storyId) continue
+        if (name.startsWith(HARNESS_PENDING_PREFIX)) {
+          result.pending.push({ file: name, ...data })
+        } else {
+          // file: name 放在展开之后，保证目录真实文件名优先于记录内残留字段
+          result.bindings.push({ ...data, sessionId: name.replace(/\.json$/, ''), file: name })
+        }
+      } catch { /* 单条损坏，跳过 */ }
+    }
+  } catch { /* 目录不可读，按空处理 */ }
+  return result
+}
+
+/**
+ * 写入待认领记录（start/resume 调用；脚本运行在 Bash 中拿不到 session_id）
+ * @param {Object} data - 至少含 { active: true, storyId }，其余字段原样保留
+ * @returns {Object} 写入的记录（含 file 字段）
+ */
+function writePendingHarnessRecord (data) {
+  ensureHarnessRecordsDir()
+  const file = `${HARNESS_PENDING_PREFIX}${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`
+  const record = { ...data, active: true, pendingSince: new Date().toISOString() }
+  fs.writeFileSync(path.join(HARNESS_ACTIVE_PATH, file), JSON.stringify(record, null, 2), 'utf-8')
+  return { file, ...record }
+}
+
+/**
+ * 写入会话绑定（Hook 携带 session_id 认领时调用）
+ * @param {string} sessionId - 已归一化的会话 ID
+ * @param {Object} data - 至少含 { active: true, storyId }
+ * @returns {Object} 绑定记录
+ */
+function writeHarnessBinding (sessionId, data) {
+  ensureHarnessRecordsDir()
+  // 剥离可能携带的 pending 专有字段（file 指向旧 pending 文件名，混入会误导后续清理）
+  const { file: _file, pendingSince: _pendingSince, ...rest } = data
+  const record = { ...rest, active: true, sessionId, claimedAt: new Date().toISOString() }
+  fs.writeFileSync(path.join(HARNESS_ACTIVE_PATH, `${sessionId}.json`), JSON.stringify(record, null, 2), 'utf-8')
+  return record
+}
+
+/**
+ * 读取指定会话的绑定
+ * @param {*} sessionId - 原始 session_id（内部归一化）
+ * @returns {Object|null}
+ */
+function readHarnessBinding (sessionId) {
+  const sid = sanitizeSessionId(sessionId)
+  if (!sid) return null
+  const result = readHarnessRecords()
+  return result.bindings.find(b => b.sessionId === sid) || null
+}
+
+/**
+ * 认领 pending 记录为会话绑定
+ * @param {*} sessionId - 原始 session_id
+ * @param {string|null} [storyId] - 指定 storyId 时只认领该 Story 的 pending；null 时认领唯一一条
+ * @returns {Object|null} 认领成功返回绑定记录；无可认领记录返回 null
+ */
+function claimHarnessRecord (sessionId, storyId = null) {
+  const sid = sanitizeSessionId(sessionId)
+  if (!sid) return null
+  const records = readHarnessRecords()
+  const candidates = storyId
+    ? records.pending.filter(p => p.storyId === storyId)
+    : records.pending
+  if (candidates.length !== 1) return null
+  const target = candidates[0]
+  // 同一 Story 已有本会话绑定时幂等返回，不重复认领
+  const existing = records.bindings.find(b => b.sessionId === sid && b.storyId === target.storyId)
+  if (existing) return existing
+  const binding = writeHarnessBinding(sid, target)
+  try { fs.unlinkSync(path.join(HARNESS_ACTIVE_PATH, target.file)) } catch { /* 删除失败由后续清理兜底 */ }
+  return binding
+}
+
+/**
+ * 清除指定会话的绑定
+ * @param {*} sessionId
+ */
+function clearHarnessBinding (sessionId) {
+  const sid = sanitizeSessionId(sessionId)
+  if (!sid) return
+  try { fs.unlinkSync(path.join(HARNESS_ACTIVE_PATH, `${sid}.json`)) } catch { /* 不存在即成功 */ }
+}
+
+/**
+ * 清除指定 Story 的全部激活记录（会话绑定 + pending + 旧单文件）
+ * 用于 end <storyId> 或 Story 走到终态时的收尾。
+ * @param {string} storyId
+ * @returns {number} 清除的记录数
+ */
+function clearHarnessRecordsForStory (storyId) {
+  let removed = 0
+  const records = readHarnessRecords()
+  for (const b of records.bindings) {
+    if (b.storyId === storyId) {
+      try { fs.unlinkSync(path.join(HARNESS_ACTIVE_PATH, b.file)); removed++ } catch {}
+    }
+  }
+  for (const p of records.pending) {
+    if (p.storyId === storyId) {
+      try { fs.unlinkSync(path.join(HARNESS_ACTIVE_PATH, p.file)); removed++ } catch {}
+    }
+  }
+  if (records.legacy && records.legacy.storyId === storyId) {
+    try { fs.unlinkSync(HARNESS_ACTIVE_PATH); removed++ } catch {}
+  }
+  return removed
+}
+
+/**
+ * 解析当前工具调用（Hook 视角）应按哪个 Story 执行门控。
+ *
+ * 判定顺序:
+ *   1. 本会话已有绑定 → 该 Story（严格按会话隔离）
+ *   2. 旧单文件存在 → 按 Story（旧宿主/旧版本兼容，不认领）
+ *   3. 恰好一条 pending → 有 session_id 时懒认领为本会话绑定；无 session_id 时直接使用（旧语义）
+ *   4. 多条 pending / 多条绑定但本会话未绑定 → ambiguous（拒绝编辑，提示先绑定）
+ *   5. 其他会话有绑定但本会话无任何记录 → unbound（拒绝编辑，提示先 start/resume）
+ *   6. 无任何记录 → normal（放行）
+ *
+ * @param {*} sessionId - Hook stdin 中的 session_id（可能为空）
+ * @returns {{ active: boolean, storyId: string|null, mode: string, sessionId: string|null, reason: string }}
+ *   mode: 'session' | 'legacy' | 'pending' | 'ambiguous' | 'unbound' | 'normal'
+ */
+function resolveHarnessStory (sessionId) {
+  const sid = sanitizeSessionId(sessionId)
+  const records = readHarnessRecords()
+
+  // 1. 本会话绑定
+  if (sid) {
+    const own = records.bindings.find(b => b.sessionId === sid)
+    if (own) {
+      return { active: true, storyId: own.storyId, mode: 'session', sessionId: sid, reason: `会话已绑定 Story ${own.storyId}` }
+    }
+  }
+
+  // 2. 旧单文件（兼容旧宿主；不认领，保持全局语义）
+  if (records.legacy && records.legacy.active) {
+    return { active: true, storyId: records.legacy.storyId, mode: 'legacy', sessionId: sid, reason: `旧版全局标记 (storyId: ${records.legacy.storyId})` }
+  }
+
+  // 3. pending 记录
+  if (records.pending.length === 1) {
+    const p = records.pending[0]
+    if (sid) {
+      const claimed = claimHarnessRecord(sid, p.storyId)
+      if (claimed) {
+        return { active: true, storyId: claimed.storyId, mode: 'session', sessionId: sid, reason: `懒认领 pending 记录 (storyId: ${claimed.storyId})` }
+      }
+    }
+    return { active: true, storyId: p.storyId, mode: 'pending', sessionId: sid, reason: `唯一待认领记录 (storyId: ${p.storyId})` }
+  }
+
+  // 4. 多条 pending → 无法归属
+  if (records.pending.length > 1) {
+    return { active: true, storyId: null, mode: 'ambiguous', sessionId: sid, reason: `${records.pending.length} 条待认领激活记录，无法确定归属` }
+  }
+
+  // 5. 其他会话有绑定，本会话未绑定
+  if (records.bindings.length > 0) {
+    // 宿主未提供 session_id（旧宿主）且全局只有一条绑定 → 沿用旧单激活语义
+    if (!sid && records.bindings.length === 1) {
+      const b = records.bindings[0]
+      return { active: true, storyId: b.storyId, mode: 'pending', sessionId: null, reason: `宿主未提供 session_id，按唯一绑定降级 (storyId: ${b.storyId})` }
+    }
+    return { active: true, storyId: null, mode: 'unbound', sessionId: sid, reason: `${records.bindings.length} 个其他会话的 Harness 已激活，本会话未绑定 Story` }
+  }
+
+  // 6. 无任何记录
+  return { active: false, storyId: null, mode: 'normal', sessionId: sid, reason: '无激活记录' }
+}
+
 // ─── 修复回路配置 ───────────────────────────────────────────────
 
 /**
@@ -1626,6 +1886,19 @@ module.exports = {
   revokeDevPass,
   checkDevPass,
   renewDevPass,
+
+  // 会话级 Harness 激活记录
+  HARNESS_ACTIVE_PATH,
+  sanitizeSessionId,
+  readLegacyHarnessFlag,
+  readHarnessRecords,
+  writePendingHarnessRecord,
+  writeHarnessBinding,
+  readHarnessBinding,
+  claimHarnessRecord,
+  clearHarnessBinding,
+  clearHarnessRecordsForStory,
+  resolveHarnessStory,
 
   // 修复回路配置
   DEFAULT_MAX_REVIEW_FIX_ROUNDS,

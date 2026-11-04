@@ -1,16 +1,15 @@
 #!/usr/bin/env node
 // Optional host telemetry: missing/unsupported fields never block task execution.
-const fs = require('fs')
-const path = require('path')
-const { PLANS_DIR, readStdin, readStateFile } = require('../lib/state')
+const { readStdin, readStateFile, resolveHarnessStory } = require('../lib/state')
 const trace = require('../lib/trace')
 const { readEvents, normalizeUsage } = require('../services/workflow-metrics')
 try {
   const event = JSON.parse(readStdin())
   if (['Agent', 'Task'].includes(event.tool_name)) {
-    const flag = JSON.parse(fs.readFileSync(path.join(PLANS_DIR, '.harness-active'), 'utf8'))
-    if (flag.active && /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(flag.storyId)) {
-      const id = flag.storyId
+    // v1.5 会话级激活: 按 session_id 解析本会话绑定的 Story（兼容旧单文件与唯一 pending）
+    const resolution = resolveHarnessStory(event.session_id)
+    if (resolution.active && resolution.storyId && /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(resolution.storyId)) {
+      const id = resolution.storyId
       const state = readStateFile(id)
       const agent = event.tool_input?.subagent_type || event.tool_input?.name || 'agent'
       const invocationId = event.tool_use_id

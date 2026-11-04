@@ -3,11 +3,18 @@
  * harness-workflow.js — FullstackFlow 模式激活与关闭（dev-pass 门控总开关）
  *
  * 职责:
- *   - 通过 .codebuddy/plans/.harness-active 标记文件控制 harness 模式的激活/关闭
- *   - start: 生成或采用 storyId，写标记文件，并内部调用 createWorkflow 同步创建 e2e-state.json
+ *   - 通过 .codebuddy/plans/.harness-active/ 目录（会话绑定 + pending 记录）控制 harness 模式
+ *   - start: 生成或采用 storyId，写 pending 待认领记录，并内部调用 createWorkflow 同步创建 e2e-state.json
  *   - start --input: 建流前摄入并校验 story-input.json，使原型/Figma 判定一次算准
- *   - end: 删除标记文件，恢复 src/ 的自由编辑
- *   - status: 输出激活状态、当前 Phase、主仓库与涉及仓库
+ *   - end [storyId]: 清除激活记录，恢复 src/ 的自由编辑（多会话激活时可选指定 Story）
+ *   - status: 输出全部激活记录（会话/待认领/旧单文件）、当前 Phase、主仓库与涉及仓库
+ *
+ * v1.5 多会话并行:
+ *   - start/resume 运行在 Bash 中拿不到 session_id → 写 pending 记录并输出 harnessEvent 协议，
+ *     由 PostToolUse trace-command.js 认领为会话绑定（.harness-active/<sessionId>.json）
+ *   - 不同 Story 的并行激活合法（不同对话框各跑各的任务）；同一 Story 重复激活被拒绝
+ *   - resume 不再拒绝「其他 Story 激活中」——那是别的会话的任务
+ *   - 旧版全局单文件 .harness-active 由 lib/state.js 兼容读取并自动迁移
  *
  * 用法:
  *   node plugins/fsflow/scripts/commands/harness-workflow.js start <storyId> "<标题>" [--mode=run|fixbugs] [--input <file>]
@@ -51,59 +58,36 @@
  */
 
 const fs = require('fs')
-const path = require('path')
-const { ensureReposJson, readStateFile, loadRepos, PROJECT_ROOT, PLANS_DIR } = require('../lib/state')
+const {
+  ensureReposJson, readStateFile, loadRepos, PROJECT_ROOT, PLANS_DIR,
+  readHarnessRecords, writePendingHarnessRecord, clearHarnessRecordsForStory
+} = require('../lib/state')
 const { createWorkflow, precheckStoryInput, takeFlagValue } = require('./create-workflow')
 
 // ─── 路径常量 ──────────────────────────────────────────────────
 // PROJECT_ROOT / PLANS_DIR 单一信源: lib/state.js（含 CLAUDE_PROJECT_DIR 跨宿主回退）
 
-/** harness 激活标记文件 */
-const HARNESS_FLAG = path.join(PLANS_DIR, '.harness-active')
+// v1.5 会话级激活: 标记从全局单文件 `.harness-active` 改为目录 `.harness-active/`
+// （会话绑定 + pending 待认领记录）。start/resume 写 pending（Bash 中拿不到 session_id），
+// 由 PostToolUse trace-command.js 依据输出中的 harnessEvent 协议认领为会话绑定。
+// 读写收口于 lib/state.js（readHarnessRecords / writePendingHarnessRecord / clearHarnessRecordsForStory）。
 
 // ─── 工具函数 ──────────────────────────────────────────────────
 
-/**
- * 确保 plans 目录存在
- */
-function ensurePlansDir() {
-  if (!fs.existsSync(PLANS_DIR)) {
-    fs.mkdirSync(PLANS_DIR, { recursive: true })
-  }
-}
-
-/**
- * 读取标记文件内容
- * @returns {Object|null} 标记内容，不存在时返回 null
- */
-function readFlag() {
-  if (!fs.existsSync(HARNESS_FLAG)) return null
-  try {
-    return JSON.parse(fs.readFileSync(HARNESS_FLAG, 'utf-8'))
-  } catch {
-    return null
-  }
-}
-
-/**
- * 写入标记文件
- * @param {Object} data - 标记数据
- */
-function writeFlag(data) {
-  ensurePlansDir()
-  fs.writeFileSync(HARNESS_FLAG, JSON.stringify(data, null, 2), 'utf-8')
-}
-
-/**
- * 删除标记文件
- */
-function deleteFlag() {
-  if (fs.existsSync(HARNESS_FLAG)) {
-    fs.unlinkSync(HARNESS_FLAG)
-  }
-}
-
 // ─── 命令处理 ──────────────────────────────────────────────────
+
+/**
+ * 汇总当前全部激活记录（会话绑定 + pending + 旧单文件）
+ * @returns {Array<{ kind: 'binding'|'pending'|'legacy', storyId: string, sessionId?: string, data: Object }>}
+ */
+function collectActiveRecords() {
+  const records = readHarnessRecords()
+  const all = []
+  for (const b of records.bindings) all.push({ kind: 'binding', storyId: b.storyId, sessionId: b.sessionId, data: b })
+  for (const p of records.pending) all.push({ kind: 'pending', storyId: p.storyId, data: p })
+  if (records.legacy && records.legacy.active) all.push({ kind: 'legacy', storyId: records.legacy.storyId, data: records.legacy })
+  return all
+}
 
 /**
  * 自动生成 Story ID
@@ -140,7 +124,7 @@ function cmdStart(storyId, title, mode, opts = {}) {
 
   // --input 先做无副作用校验，早于一切写操作。
   // 不能等 createWorkflow 里报错: 它被 try/catch 包住且失败不阻塞 start，
-  // 那时 .harness-active 已经写下去了，会留下「标记已写、工作流未建」的半激活状态。
+  // 那时激活记录已经写下去了，会留下「记录已写、工作流未建」的半激活状态。
   if (opts.inputFile) {
     const pre = precheckStoryInput(opts.inputFile, workflowMode, opts.modeExplicit)
     if (!pre.ok) {
@@ -150,19 +134,20 @@ function cmdStart(storyId, title, mode, opts = {}) {
     workflowMode = pre.mode
   }
 
-  // 检查是否已有激活的 harness
-  const existing = readFlag()
-  if (existing && existing.active) {
+  const id = storyId || generateStoryId()
+  const name = title || '待定'
+
+  // v1.5 多会话: 只拒绝「同一 Story 重复激活」；不同 Story 并行激活是合法的
+  // （不同会话/对话框各跑各的任务）。旧版全局唯一限制随之取消。
+  const duplicates = collectActiveRecords().filter(r => r.storyId === id)
+  if (duplicates.length > 0) {
     console.log(JSON.stringify({
       ok: false,
-      message: `⚠️ Harness 模式已激活 (storyId: ${existing.storyId} "${existing.title}")，请先执行 /fsflow:end 结束当前工作流`,
-      current: existing
+      message: `⚠️ Story ${id} 已处于激活状态（${duplicates.map(r => r.kind).join(', ')}），请先 end ${id} 或直接 resume ${id}`,
+      current: duplicates[0].data
     }))
     process.exit(0)
   }
-
-  const id = storyId || generateStoryId()
-  const name = title || '待定'
 
   // 多仓库唯一真实信源 = story 级 repos.json（由 AI 在 Phase 0/1 通过 ensureReposJson 预配置）
   // 不再依赖任何宿主环境变量（CODEBUDDY_WORKSPACES/CLAUDE_WORKSPACES 均非官方变量，且原实现存在变量名不一致 bug）
@@ -178,8 +163,6 @@ function cmdStart(storyId, title, mode, opts = {}) {
     primaryRepo: reposConfig.primary,
     repoCount: Object.keys(reposConfig.repos).length
   }
-
-  writeFlag(data)
 
   // 内部调用 create-workflow.js 创建 e2e-state.json（断链修复）
   let workflowResult = null
@@ -200,10 +183,15 @@ function cmdStart(storyId, title, mode, opts = {}) {
     data.e2eStateError = e.message
   }
 
+  // 写 pending 待认领记录: 本脚本运行在 Bash 中拿不到 session_id，
+  // 由 PostToolUse trace-command.js 依据本输出的 harnessEvent 协议认领为会话绑定。
+  writePendingHarnessRecord(data)
+
   console.log(JSON.stringify({
     ok: true,
+    harnessEvent: 'start',
     message: `✅ Harness 模式已激活\n   Story: ${id} "${name}"\n   模式: ${workflowMode}${workflowMode === 'fixbugs' ? ' (Bug 修复，免原型文档)' : ''}` +
-      `\n   验证: ${workflowResult?.verificationMode || 'full'}\n   Phase: 0 (需求分析)\n   标记文件: .codebuddy/plans/.harness-active` +
+      `\n   验证: ${workflowResult?.verificationMode || 'full'}\n   Phase: 0 (需求分析)\n   激活记录: .codebuddy/plans/.harness-active/ (pending，待会话认领)` +
       (workflowResult?.success ? '\n   e2e-state.json: ✅ 已创建' : '\n   ⚠ e2e-state.json 创建失败，请手动执行: node ${CLAUDE_PLUGIN_ROOT}/scripts/commands/create-workflow.js ' + id + ' "' + name + '" --mode=' + workflowMode) +
       (workflowResult?.storyInputFile ? '\n   story-input.json: ✅ 已摄入，原型/Figma 判定已算准，无需 --refresh-input' : ''),
     data
@@ -212,31 +200,67 @@ function cmdStart(storyId, title, mode, opts = {}) {
 
 /**
  * 关闭 harness 模式
+ *
+ * v1.5 会话级语义:
+ *   - end <storyId>  清除指定 Story 的全部激活记录（会话绑定 + pending + 旧单文件）
+ *   - end（无参数）
+ *       · 全部记录只有 1 条 → 直接清除（兼容旧单会话行为）
+ *       · 多条记录（多会话并行）→ 脚本本身不清除，输出 harnessEvent:'end'，
+ *         本会话的绑定由 PostToolUse 钩子按 session_id 清理；其他会话保持不变。
+ *         需要强制清理时用 end <storyId>。
  */
-function cmdEnd() {
-  const existing = readFlag()
+function cmdEnd(storyId) {
+  const active = collectActiveRecords()
 
-  if (!existing || !existing.active) {
+  if (active.length === 0) {
     console.log(JSON.stringify({
       ok: true,
+      harnessEvent: 'end',
       message: 'ℹ️ Harness 模式未激活，无需关闭'
     }))
     process.exit(0)
   }
 
-  const summary = {
-    storyId: existing.storyId,
-    title: existing.title,
-    activatedAt: existing.activatedAt,
-    completedAt: new Date().toISOString()
-  }
+  let endedStoryIds = []
 
-  deleteFlag()
+  if (storyId) {
+    // 指定 Story：确定性清除其全部记录
+    const removed = clearHarnessRecordsForStory(storyId)
+    if (removed === 0) {
+      console.log(JSON.stringify({
+        ok: false,
+        message: `⚠️ Story ${storyId} 未处于激活状态，无需结束`
+      }))
+      process.exit(1)
+    }
+    endedStoryIds = [storyId]
+  } else if (active.length === 1) {
+    // 单条记录：兼容旧单会话行为，直接清除
+    const only = active[0]
+    clearHarnessRecordsForStory(only.storyId)
+    endedStoryIds = [only.storyId]
+  }
+  // 多条记录且未指定 storyId：脚本不清除任何记录；
+  // 本会话绑定由 PostToolUse 钩子（harnessEvent:'end' + session_id）清理。
+
+  const message = endedStoryIds.length > 0
+    ? `✅ Harness 模式已关闭\n   Story: ${endedStoryIds.join(', ')}\n   激活记录已清除，src/ 编辑恢复正常`
+    : `✅ 多会话激活中（${active.length} 条记录）。本会话的绑定将由结束钩子清理；其他会话不受影响。\n   需要强制清理指定 Story 时执行: end <storyId>`
 
   console.log(JSON.stringify({
     ok: true,
-    message: `✅ Harness 模式已关闭\n   Story: ${existing.storyId} "${existing.title}"\n   标记文件已删除，src/ 编辑恢复正常`,
-    summary
+    harnessEvent: 'end',
+    message,
+    data: { storyIds: endedStoryIds },
+    summary: endedStoryIds.map(id => {
+      const rec = active.find(r => r.storyId === id)
+      return {
+        storyId: id,
+        title: rec?.data?.title,
+        activatedAt: rec?.data?.activatedAt,
+        completedAt: new Date().toISOString()
+      }
+    })
   }))
 }
 
@@ -254,50 +278,75 @@ function cmdResume(storyId) {
   if (state.status === 'archived') fail('Story 已归档，请先 restore 再恢复')
   if (state.status === 'completed' || state.phase >= 8) fail('Story 已完成；新的缺陷需创建独立 fixbugs Story')
   if (!Number.isInteger(state.phase) || state.phase < 0) fail('工作流 phase 无效，无法恢复')
-  const existing = readFlag()
-  if (existing?.active && existing.storyId !== id) fail(`另一个 Story ${existing.storyId} 正在运行，请先结束或切换工作流`)
-  if (fs.existsSync(HARNESS_FLAG) && !existing) fail('激活标记损坏，请先修复标记')
-  const repos = loadRepos(id)
-  if (!existing?.active) writeFlag({
-    active: true, storyId: id, title: state.title, mode: state.mode || 'run',
-    activatedAt: new Date().toISOString(), primaryRepo: repos.primary,
-    repoCount: Object.keys(repos.repos).length
-  })
+  // v1.5 多会话: 移除「另一 Story 激活中则拒绝」的限制 ——
+  // 其他会话（对话框）持有别的 Story 是合法的并行场景；本会话恢复自己的 Story 即可。
+  const alreadyActive = collectActiveRecords().some(r => r.storyId === id)
+  if (!alreadyActive) {
+    const repos = loadRepos(id)
+    writePendingHarnessRecord({
+      active: true, storyId: id, title: state.title, mode: state.mode || 'run',
+      activatedAt: new Date().toISOString(), primaryRepo: repos.primary,
+      repoCount: Object.keys(repos.repos).length
+    })
+  }
   console.log(JSON.stringify({
-    ok: true, resumed: true, storyId: id, phase: state.phase,
+    ok: true, harnessEvent: 'resume', resumed: true, storyId: id, phase: state.phase,
     message: '已恢复原工作流；保留输入、契约、验证选择和修复预算，按当前失败原因继续，不从 P0 重跑。',
-    nextCommand: `node ${'${CLAUDE_PLUGIN_ROOT}'}/scripts/commands/dispatch.js ${id}`
+    nextCommand: `node ${'${CLAUDE_PLUGIN_ROOT}'}/scripts/commands/dispatch.js ${id}`,
+    data: { storyId: id, title: state.title, mode: state.mode || 'run' }
   }))
 }
 
 /**
- * 查看当前 harness 状态
+ * 查看当前 harness 状态（v1.5: 聚合展示全部会话激活记录）
  */
 function cmdStatus() {
-  const existing = readFlag()
+  const active = collectActiveRecords()
 
-  if (!existing || !existing.active) {
+  if (active.length === 0) {
     console.log(JSON.stringify({
       active: false,
       message: '🟢 普通模式 — src/ 编辑不受限制'
     }))
-  } else {
-    // phase 从 e2e-state.json 读取（唯一信源，避免与 .harness-active 不同步）
-    const state = readStateFile(existing.storyId)
-    const phase = (state && typeof state.phase === 'number') ? state.phase : 0
-    // repos 从 story 级 repos.json 读取
-    const repos = loadRepos(existing.storyId)
-    console.log(JSON.stringify({
-      active: true,
-      message: `🔴 Harness 模式已激活\n   Story: ${existing.storyId} "${existing.title}"\n   激活时间: ${existing.activatedAt}\n   Phase: ${phase}\n   主仓库: ${repos.primary}\n   涉及仓库: ${Object.keys(repos.repos).join(', ')}\n   src/ 编辑需要 dev-pass`,
-      data: {
-        ...existing,
-        phase,
-        verificationMode: state?.verificationMode || existing.verificationMode || 'full',
-        repoCount: Object.keys(repos.repos).length
-      }
-    }))
+    return
   }
+
+  // 每条记录补充 phase（唯一信源 e2e-state.json）与仓库信息
+  const sessions = active.map(rec => {
+    const state = readStateFile(rec.storyId)
+    const phase = (state && typeof state.phase === 'number') ? state.phase : 0
+    const repos = loadRepos(rec.storyId)
+    return {
+      kind: rec.kind,
+      sessionId: rec.sessionId || null,
+      storyId: rec.storyId,
+      title: rec.data?.title || '',
+      mode: rec.data?.mode || 'run',
+      phase,
+      status: state?.status || 'unknown',
+      verificationMode: state?.verificationMode || rec.data?.verificationMode || 'full',
+      primaryRepo: repos.primary,
+      repoCount: Object.keys(repos.repos).length,
+      activatedAt: rec.data?.activatedAt
+    }
+  })
+
+  const primary = sessions[0]
+  const lines = [
+    `🔴 Harness 模式已激活（${sessions.length} 条激活记录）`
+  ]
+  for (const s of sessions) {
+    lines.push(`   Story: ${s.storyId} "${s.title}" [${s.kind}${s.sessionId ? ` session=${s.sessionId.slice(0, 8)}` : ''}]`)
+    lines.push(`      Phase: ${s.phase} · 模式: ${s.mode} · 主仓库: ${s.primaryRepo}`)
+  }
+  lines.push('   src/ 编辑需要 dev-pass')
+
+  console.log(JSON.stringify({
+    active: true,
+    message: lines.join('\n'),
+    data: { ...primary },
+    sessions
+  }))
 }
 
 // ─── 入口 ──────────────────────────────────────────────────────
@@ -328,7 +377,7 @@ switch (command) {
     break
 
   case 'end':
-    cmdEnd()
+    cmdEnd(positional[1])
     break
 
   case 'status':
@@ -341,7 +390,7 @@ switch (command) {
       '',
       '用法:',
       '  node harness-workflow.js start <storyId> "<标题>" [--mode=run|fixbugs] [--input <file>]   激活 harness 模式',
-      '  node harness-workflow.js end                          关闭 harness 模式',
+      '  node harness-workflow.js end [storyId]                关闭 harness 模式（多会话激活时可指定 Story）',
       '  node harness-workflow.js resume <storyId>              恢复同一缺陷/任务，不重建流程',
       '  node harness-workflow.js status                       查看当前状态',
       '',

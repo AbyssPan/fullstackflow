@@ -103,7 +103,8 @@ try {
   assert.equal(run('harness-workflow.js', ['resume', 'resume']).status, 0, 'idempotent while active')
   assert.equal(fs.readFileSync(path.join(dir('resume'), 'e2e-state.json'), 'utf8'), resumeBefore)
   assert.equal(run('harness-workflow.js', ['resume', 'resume', '--input=new.json']).status, 1)
-  assert.equal(run('harness-workflow.js', ['resume', 'legacy']).status, 1, 'cannot switch another active story')
+  // v1.5 多会话: 其他 Story 处于激活状态是别的会话的合法并行，resume 不再拒绝
+  assert.equal(run('harness-workflow.js', ['resume', 'legacy']).status, 0, 'resume alongside another active story (multi-session)')
   const completed = state.readStateFile('resume')
   completed.status = 'completed'
   state.writeStateFile('resume', completed)

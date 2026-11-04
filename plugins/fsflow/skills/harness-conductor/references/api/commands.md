@@ -74,12 +74,17 @@ HARNESS_RUN_BUILD=1 node $HARNESS/advance-phase.js <id> 3     # 启用本地编�
 ```bash
 node $HARNESS/harness-workflow.js start <storyId> "<标题>" [--mode=run|fixbugs] [--input <file>]
 node $HARNESS/harness-workflow.js resume <storyId> # 同一任务继续：保留状态、输入和预算，不支持 --input
-node $HARNESS/harness-workflow.js end
+node $HARNESS/harness-workflow.js end [storyId]
 node $HARNESS/harness-workflow.js status
 ```
 
-`start` 写 `.codebuddy/plans/.harness-active` 标记文件 —— 这是 dev-pass 门控的**总开关**，
-`enforce-dev-pass.js` 有标记才校验，无标记直接放行。因此 `end` 只在确认工作流收尾后执行。
+`start` 写 `.codebuddy/plans/.harness-active/` 下的 pending 待认领记录 —— 这是 dev-pass 门控的**总开关**，
+`enforce-dev-pass.js` 有激活记录才校验，无记录直接放行。因此 `end` 只在确认工作流收尾后执行。
+
+**v1.5 多会话**：`start/resume` 输出 `harnessEvent` 协议，由 PostToolUse 钩子按 `session_id`
+将 pending 认领为本会话绑定（`.harness-active/<sessionId>.json`）。不同会话可各持一个 Story 并行；
+同一 Story 重复激活被拒绝。`end` 无参数时清除唯一记录，多会话激活时清除本会话绑定
+（其他会话不受影响），`end <storyId>` 强制清除指定 Story 的全部记录。
 
 `--input <file>`（也支持 `--input=<file>`）：建流前摄入并校验 `story-input.json`，
 使原型/Figma 判定一次算准，免去 `--refresh-input`。校验不通过则 **exit 1 且不写标记文件**。

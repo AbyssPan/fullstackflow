@@ -73,7 +73,8 @@ function runWorkflow (args) {
 }
 
 const flagFile = path.join(PLANS, '.harness-active')
-const clearFlag = () => { try { fs.rmSync(flagFile, { force: true }) } catch (e) { /* noop */ } }
+// v1.5: 激活记录是同名目录（会话绑定 + pending），清理需递归
+const clearFlag = () => { try { fs.rmSync(flagFile, { force: true, recursive: true }) } catch (e) { /* noop */ } }
 
 // ════════════════════════════════════════════════════════════
 section('1. takeFlagValue: 两种 flag 形式，且不吞位置参数')

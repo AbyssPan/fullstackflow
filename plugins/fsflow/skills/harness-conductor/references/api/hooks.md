@@ -30,8 +30,15 @@
 三重校验：dev-pass **有效性**（存在且未过期，TTL 2h）+ **路径限域**（目标文件必须在
 `task-dag.json` 的 `files[]` 派生出的白名单内）+ **Phase 校验**（必须 Phase 2）。
 
-总开关是 `.codebuddy/plans/.harness-active`：有标记才校验，无标记直接放行
-（即 `harness-workflow.js end` 之后 `src/` 恢复自由编辑）。
+总开关是 `.codebuddy/plans/.harness-active/` 目录（v1.5 会话级布局）：有激活记录才校验，
+无记录直接放行（即 `harness-workflow.js end` 之后 `src/` 恢复自由编辑）。
+
+**多会话并行（v1.5）**：激活记录按会话隔离。`start/resume` 写 pending 记录，
+由 PostToolUse 钩子按 `session_id` 认领为本会话绑定；不同会话（对话框）可各持一个 Story
+并行推进，dev-pass 限域互不越界。本会话未绑定而其他会话已激活（`unbound`）或
+多条待认领记录无法归属（`ambiguous`）时拒绝编辑——按提示在本会话执行
+`harness-workflow.js start/resume` 绑定即可。旧版全局单文件 `.harness-active`
+仍兼容读取。
 
 **被拦了怎么办**，按提示逐项排查：
 

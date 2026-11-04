@@ -32,8 +32,9 @@ Agent 注册名 **`release-assistant`**（发布助手）。按项目类型分�
 # 归档（清空 Story root，全部文件移入 archive/round-{N}/）
 node $HARNESS/archive-story.js <storyId> archive
 
-# 关闭 harness 模式（删 .harness-active，解除 src/ 编辑限制）
+# 关闭 harness 模式（清除 .harness-active/ 激活记录，解除 src/ 编辑限制）
 node $HARNESS/harness-workflow.js end
+# 多会话激活时清除指定 Story: node $HARNESS/harness-workflow.js end <storyId>
 ```
 
 归档前可用 `--dry-run` 核对将要移走的文件清单。归档细节见 `../工作流生命周期.md`

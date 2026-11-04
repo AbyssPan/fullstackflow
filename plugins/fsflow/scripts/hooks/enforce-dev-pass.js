@@ -110,20 +110,52 @@ const writeTools = ['write_to_file', 'replace_in_file', 'apply_patch', 'Write', 
 if (!writeTools.includes(toolName)) { console.log(JSON.stringify({ continue: true })); process.exit(0) }
 if (srcFilePaths.length === 0) { console.log(JSON.stringify({ continue: true })); process.exit(0) }
 
-const harnessFlag = path.join(PLANS_DIR, '.harness-active')
-let harnessActive = false
-let activeStoryId = null
-if (fs.existsSync(harnessFlag)) {
-  try {
-    const flag = JSON.parse(fs.readFileSync(harnessFlag, 'utf-8'))
-    harnessActive = flag.active === true
-    activeStoryId = flag.storyId || null
-  } catch {}
-}
+// ─── 会话级 Harness 激活判定 ─────────────────────────────────────
+// v1.5 多会话并行: 激活记录从全局单文件改为 .harness-active/ 目录（会话绑定 + pending）。
+// 判定顺序: 本会话绑定 → 旧单文件（兼容） → 唯一 pending（有 session_id 则懒认领）。
+// 多条 pending（ambiguous）或其他会话已绑定而本会话未绑定（unbound）时拒绝编辑。
+const sessionId = (inputData && inputData.session_id) || null
+const resolution = hookUtils.resolveHarnessStory(sessionId)
 
-if (!harnessActive) {
+if (!resolution.active) {
   console.log(JSON.stringify({ continue: true, hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: 'Normal mode' } }))
   process.exit(0)
+}
+
+const activeStoryId = resolution.storyId
+
+if (!activeStoryId) {
+  // ambiguous / unbound：无法归属本会话的 Story，拒绝并给出结构化失败原因
+  const failureType = resolution.mode === 'unbound' ? 'harness_session_unbound' : 'harness_session_ambiguous'
+  trace.appendTrace(null, {
+    type: 'hook_rejection',
+    result: 'deny',
+    reason: failureType,
+    phase: '-1',
+    recordFailure: {
+      failureType,
+      rootCause: resolution.reason,
+      resolution: resolution.mode === 'unbound'
+        ? '本会话未绑定 Story：请先在当前会话执行 harness-workflow.js start/resume 激活，或等待 PostToolUse 钩子完成认领'
+        : '存在多条待认领激活记录：请在当前会话执行 harness-workflow.js start/resume 明确归属，或用 end <storyId> 清理无关记录'
+    }
+  })
+
+  console.log(JSON.stringify({
+    continue: false,
+    stopReason: `HARNESS MODE - ${resolution.reason}. ${resolution.mode === 'unbound' ? 'This session is not bound to a Story; run harness-workflow.js start/resume first.' : 'Multiple pending activations; bind this session via start/resume or clean up with end <storyId>.'}`,
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      permissionDecision: 'deny',
+      permissionDecisionReason: resolution.reason,
+      recordFailure: {
+        failureType,
+        rootCause: resolution.reason,
+        resolution: '本会话需先绑定 Story（start/resume）后才能编辑 src/'
+      }
+    }
+  }, null, 0))
+  process.exit(2)
 }
 
 const devPass = checkDevPass(activeStoryId)

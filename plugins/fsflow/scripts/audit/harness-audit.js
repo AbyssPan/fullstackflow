@@ -42,7 +42,7 @@
 const fs = require("fs")
 const path = require("path")
 const { execSync } = require("child_process")
-const { PLANS_DIR, listStoryDirs, readStateFile, findActiveWorkflows, checkPhaseArtifact, checkAcceptanceCriteria, checkOpenQuestions, checkTaskDagJson, validateContractReferences, checkAcceptanceVerification, checkDevPass, detectFigmaSource, checkFigmaFrameInventory } = require("../lib/state")
+const { PLANS_DIR, listStoryDirs, readStateFile, findActiveWorkflows, checkPhaseArtifact, checkAcceptanceCriteria, checkOpenQuestions, checkTaskDagJson, validateContractReferences, checkAcceptanceVerification, checkDevPass, detectFigmaSource, checkFigmaFrameInventory, readHarnessRecords } = require("../lib/state")
 const args = process.argv.slice(2)
 const fixMode = args.includes("--fix")
 const jsonOnly = args.includes("--json")
@@ -270,18 +270,28 @@ function stripStringsAndComments(src) {
 }
 
 function auditActiveStory() {
-  const hf = path.join(PLANS_DIR, ".harness-active")
-  const ha = fs.existsSync(hf)
+  // v1.5 会话级激活: 遍历全部激活记录（会话绑定 + pending + 旧单文件）
+  const records = readHarnessRecords()
   const wfs = findActiveWorkflows()
-  if (ha) {
-    try {
-      const flag = JSON.parse(fs.readFileSync(hf, "utf-8"))
-      summary.harnessStoryId = flag.storyId; summary.harnessActive = true
-      const st = readStateFile(flag.storyId)
-      if (!st) issues.push({ cat: "state", severity: "BLOCKER", msg: ".harness-active 引用 " + flag.storyId + " 但 e2e-state.json 不存在" })
-      else summary.harnessPhase = st.phase
-    } catch { issues.push({ cat: "state", severity: "BLOCKER", msg: ".harness-active JSON 解析失败" }) }
-  } else { summary.harnessActive = false; if (wfs.length > 0) warnings.push({ cat: "state", severity: "WARNING", msg: String(wfs.length) + " 个活跃工作流但 .harness-active 不存在" }) }
+  const all = [
+    ...records.bindings.map(b => ({ kind: "binding", storyId: b.storyId, sessionId: b.sessionId })),
+    ...records.pending.map(p => ({ kind: "pending", storyId: p.storyId })),
+    ...(records.legacy && records.legacy.active ? [{ kind: "legacy", storyId: records.legacy.storyId }] : [])
+  ]
+  summary.harnessRecords = all.length
+  summary.harnessActive = all.length > 0
+  if (all.length > 1) warnings.push({ cat: "state", severity: "INFO", msg: "多会话激活中 (" + all.length + " 条记录): " + all.map(r => r.storyId + "[" + r.kind + "]").join(", ") })
+  if (all.length > 0) {
+    summary.harnessStoryId = all[0].storyId
+    const seen = new Set()
+    for (const rec of all) {
+      if (seen.has(rec.storyId)) continue
+      seen.add(rec.storyId)
+      const st = readStateFile(rec.storyId)
+      if (!st) issues.push({ cat: "state", severity: "BLOCKER", msg: "激活记录引用 " + rec.storyId + " 但 e2e-state.json 不存在 (" + rec.kind + ")" })
+      else if (!summary.harnessPhase) summary.harnessPhase = st.phase
+    }
+  } else if (wfs.length > 0) warnings.push({ cat: "state", severity: "WARNING", msg: String(wfs.length) + " 个活跃工作流但无 harness 激活记录" })
   summary.activeWorkflows = wfs.length
 }
 

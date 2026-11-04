@@ -82,11 +82,48 @@ process.stdin.on('end', () => {
     let storyDirs = fs.existsSync(plansDir)
       ? fs.readdirSync(plansDir).filter(d => fs.statSync(path.join(plansDir, d)).isDirectory())
       : []
-    // Attribute to the selected Story, never whichever directory sorts first.
-    const flagPath = path.join(plansDir, '.harness-active')
-    if (fs.existsSync(flagPath)) {
-      const flag = JSON.parse(fs.readFileSync(flagPath, 'utf8'))
-      storyDirs = flag.active && storyDirs.includes(flag.storyId) ? [flag.storyId] : []
+
+    // ─── v1.5 会话认领维护 ──────────────────────────────────────
+    // harness-workflow.js 的 start/resume/end 由 Bash 执行，脚本本身拿不到 session_id；
+    // 本 Hook（PostToolUse）同时具备 session_id 与命令输出，是会话绑定的唯一认领点。
+    // 输出 JSON 中的 harnessEvent + data.storyId 是绑定协议（见 harness-workflow.js）。
+    if (isHarnessCmd && event.session_id) {
+      try {
+        const resp = event.tool_response || {}
+        const raw = typeof resp.stdout === 'string' ? resp.stdout : (typeof resp.output === 'string' ? resp.output : '')
+        const parsed = raw ? JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1)) : null
+        if (parsed && parsed.ok === true && parsed.harnessEvent) {
+          const state = require('../lib/state')
+          if ((parsed.harnessEvent === 'start' || parsed.harnessEvent === 'resume') && parsed.data && parsed.data.storyId) {
+            // 优先认领该 Story 的 pending 记录；无 pending（已被认领/重建）时直接写绑定
+            const claimed = state.claimHarnessRecord(event.session_id, parsed.data.storyId)
+            if (!claimed) {
+              const existing = state.readHarnessBinding(event.session_id)
+              if (!existing || existing.storyId !== parsed.data.storyId) {
+                state.writeHarnessBinding(event.session_id, {
+                  active: true,
+                  storyId: parsed.data.storyId,
+                  title: parsed.data.title || '',
+                  mode: parsed.data.mode || 'run'
+                })
+              }
+            }
+          } else if (parsed.harnessEvent === 'end') {
+            state.clearHarnessBinding(event.session_id)
+          }
+        }
+      } catch (_) { /* 认领失败不阻塞 trace 与主流程 */ }
+    }
+
+    // ─── 会话级归因 ────────────────────────────────────────────
+    // Attribute to the session-bound Story. 激活但无法归属（ambiguous/unbound）时
+    // 保持与旧逻辑相同的保守策略：歧义归因不落盘。
+    const state = require('../lib/state')
+    const resolution = state.resolveHarnessStory(event.session_id)
+    if (resolution.active && resolution.storyId) {
+      storyDirs = storyDirs.includes(resolution.storyId) ? [resolution.storyId] : []
+    } else if (resolution.active) {
+      storyDirs = [] // ambiguous / unbound: 无法归因，不记录
     } else {
       storyDirs = storyDirs.filter(id => {
         try { return JSON.parse(fs.readFileSync(path.join(plansDir, id, 'e2e-state.json'), 'utf8')).status === 'running' } catch { return false }

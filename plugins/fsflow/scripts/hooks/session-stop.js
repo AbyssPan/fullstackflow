@@ -50,13 +50,14 @@ const {
   readStateFile,
   getPhaseName,
   revokeDevPass,
-  readStdin
+  readStdin,
+  readHarnessRecords,
+  clearHarnessRecordsForStory
 } = require('../lib/state')
 const experience = require('../services/experience')
 
 // ─── 常量 ────────────────────────────────────────────────────────
 
-const HARNESS_ACTIVE_FILE = path.join(PLANS_DIR, '.harness-active')
 const GIT_TIMEOUT = 5000
 
 /** 非代码文件目录前缀，不计入 src 变更统计 */
@@ -208,80 +209,77 @@ function recordHookRejectionsFromTraces() {
 /**
  * Stop Hook 自动结束 Harness 模式（harness end）
  *
- * 触发条件：当前激活的 Story（.harness-active 标记）流程已走到最后一步——
- * e2e-state.json 中 status='completed' 且 phase >= 8（终态）。满足即删除
- * .harness-active 标记文件，关闭 Harness 模式，src/ 编辑恢复正常。
+ * v1.5 多会话语义：遍历全部激活记录（会话绑定 + pending + 旧单文件），
+ * 逐 Story 判定终态（e2e-state.json 中 status='completed' 且 phase >= 8），
+ * 走到终态的 Story 清除其全部激活记录；未终态的记录（包括其他会话的）保持不动。
  *
- * 演进说明（相对旧逻辑）：
- * 旧逻辑要求「所有活跃工作流都完成」才 end；新逻辑改为「当前激活 Story 走到
- * 终态即 end」——因为 .harness-active 一次只激活一个 Story，它走到 Phase 8
- * 终态即代表本次 Harness 主流程结束。
+ * 旧语义「当前激活 Story 走到终态即 end / 无激活时看活跃工作流数」保留为兜底分支。
  *
  * @param {Array} activeWorkflows - 活跃/暂停工作流列表（保留用于提示，不再作为 end 前提）
  * @param {Array} completedWorkflows - 已完成工作流列表
  * @returns {{ ended: boolean, message: string }}
  */
 function autoEndHarness(activeWorkflows, completedWorkflows) {
-  if (!fs.existsSync(HARNESS_ACTIVE_FILE)) {
+  const records = readHarnessRecords()
+  const all = [
+    ...records.bindings,
+    ...records.pending,
+    ...(records.legacy && records.legacy.active ? [records.legacy] : [])
+  ]
+
+  if (all.length === 0) {
     return { ended: false, message: 'Harness 模式未激活' }
   }
 
-  // 读取当前激活的 Story
-  let activeStoryId = null
-  try {
-    const flag = JSON.parse(fs.readFileSync(HARNESS_ACTIVE_FILE, 'utf-8'))
-    activeStoryId = flag && flag.active ? flag.storyId : null
-  } catch (_) { /* 标记文件损坏，视为无激活 Story */ }
-
-  // 无激活 Story 时回退到旧逻辑（无活跃工作流才关闭）
-  if (!activeStoryId) {
-    if (activeWorkflows.length > 0) {
-      return { ended: false, message: `${activeWorkflows.length} 个活跃工作流，保持 Harness 模式` }
+  // 逐 Story 判定终态，终态即清除其全部记录
+  const endedStories = []
+  const keptStories = []
+  const seen = new Set()
+  for (const rec of all) {
+    if (seen.has(rec.storyId)) continue
+    seen.add(rec.storyId)
+    const stateFile = path.join(PLANS_DIR, rec.storyId, 'e2e-state.json')
+    if (!fs.existsSync(stateFile)) {
+      keptStories.push(rec.storyId)
+      continue
     }
-    if (completedWorkflows.length === 0) {
-      return { ended: false, message: '无工作流记录，保持 Harness 模式（手动 /fsflow:end）' }
-    }
+    let state
     try {
-      fs.unlinkSync(HARNESS_ACTIVE_FILE)
-      return {
-        ended: true,
-        message: `所有工作流已完成 (${completedWorkflows.map(w => w.storyId).join(', ')})，Harness 已自动关闭`
-      }
-    } catch (e) {
-      return { ended: false, message: `标记文件删除失败: ${e.message}` }
+      state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'))
+    } catch (_) {
+      keptStories.push(rec.storyId)
+      continue
+    }
+    const isTerminal = state.status === 'completed' && Number(state.phase) >= 8
+    if (isTerminal) {
+      clearHarnessRecordsForStory(rec.storyId)
+      endedStories.push(rec.storyId)
+    } else {
+      keptStories.push(`${rec.storyId} (phase=${state.phase}, status=${state.status})`)
     }
   }
 
-  // 有激活 Story：检查它是否已走到最后一步（终态）
-  const stateFile = path.join(PLANS_DIR, activeStoryId, 'e2e-state.json')
-  if (!fs.existsSync(stateFile)) {
-    return { ended: false, message: `激活 Story ${activeStoryId} 无状态文件，保持 Harness 模式` }
-  }
-
-  let state
-  try {
-    state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'))
-  } catch (_) {
-    return { ended: false, message: `激活 Story ${activeStoryId} 状态损坏，保持 Harness 模式` }
-  }
-
-  const isTerminal = state.status === 'completed' && Number(state.phase) >= 8
-  if (!isTerminal) {
-    return { ended: false, message: `${activeStoryId} 流程未走完最后一步 (phase=${state.phase}, status=${state.status})，保持 Harness 模式` }
-  }
-
-  try {
-    fs.unlinkSync(HARNESS_ACTIVE_FILE)
+  if (endedStories.length > 0) {
+    const keptNote = keptStories.length > 0 ? `；未终态保持: ${keptStories.join(', ')}` : ''
     return {
       ended: true,
-      message: `${activeStoryId} 已走完最后一步 (Phase ${state.phase})，Harness 模式已自动关闭（harness end）`
+      message: `${endedStories.join(', ')} 已走完最后一步，激活记录已清除${keptNote}`
     }
-  } catch (e) {
-    return { ended: false, message: `标记文件删除失败: ${e.message}` }
   }
+  return { ended: false, message: `激活中的 Story 均未走完最后一步 (${keptStories.join(', ')})，保持 Harness 模式` }
 }
 
 // ─── 摘要构建 ────────────────────────────────────────────────────
+
+/** 统计当前激活记录总数（会话绑定 + pending + 旧单文件） */
+function readHarnessRecordsCount() {
+  try {
+    const r = readHarnessRecords()
+    return r.bindings.length + r.pending.length + (r.legacy && r.legacy.active ? 1 : 0)
+  } catch (_) {
+    return 0
+  }
+}
 
 function buildSummary(activeWorkflows, completedWorkflows, changedFiles, harnessResult, kbTasks) {
   const allSrcFiles = changedFiles
@@ -301,7 +299,7 @@ function buildSummary(activeWorkflows, completedWorkflows, changedFiles, harness
       status: w.state.status
     })),
     harness: {
-      active: fs.existsSync(HARNESS_ACTIVE_FILE),
+      active: readHarnessRecordsCount() > 0,
       ended: harnessResult.ended,
       message: harnessResult.message
     },

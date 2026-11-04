@@ -9,6 +9,8 @@ description: "提交前增量维护同仓知识库：定位源码与文档变化
 
 首次接入、多人协作、回执记录和 hook/CI 安装时，读取 [同仓知识维护](references/maintenance.md)。它是知识职责、规格生命周期、分支规则和提交时机的唯一说明。
 
+quick 任务的 `knowledge-receipt.json` 与按次修改的经验沉淀（compound），按 [经验片段](references/compound.md) 的分拣规则收敛到域级正文或保留在回执中。
+
 ## 授权与时机
 
 Phase 5 在 git add/commit/MR 之前执行；独立请求“更新知识库”同样适用。本次已授权就直接执行；否则先说明读取/生成成本，询问更新或延期，未答复等待。Phase 0 初始化不代表后续所有更新都获授权。Git 提交、push、MR 和服务端配置继续遵循当前会话已有授权，不把知识生成当作外部写入授权。

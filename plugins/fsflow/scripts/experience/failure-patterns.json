@@ -134,13 +134,13 @@
       "blockers": [
         "AC AC-1: failed"
       ],
-      "occurrences": 2,
+      "occurrences": 3,
       "firstSeen": "2026-11-04T09:01:57.104Z",
-      "lastSeen": "2026-11-04T09:02:37.286Z",
+      "lastSeen": "2026-11-04T09:06:09.651Z",
       "needsManualReview": false,
       "reviewStatus": "confirmed"
     }
   ],
   "version": "2.1",
-  "lastUpdated": "2026-11-04T09:02:37.286Z"
+  "lastUpdated": "2026-11-04T09:06:09.651Z"
 }

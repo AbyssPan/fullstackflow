@@ -11,6 +11,9 @@ Agent 注册名 **`task-planner`**（任务规划师，规格追踪驱动）。�
 在 `task-dag.json` 的 `files[]` 中**列全所有待修改文件**（mapper XML、DB 脚本、配置文件均不可漏）——
 该字段决定 Phase 2 的 dev-pass 写入范围，漏写的文件在 Phase 2 会被 hook 直接拒绝编辑。
 
+**方案分歧打平时（v1.5，按需）**：候选方案各有明显权衡、规划师无法自裁时，主 Agent 可派
+`oracle-reviewer`（独立评审员）对候选方案独立打分（bakeoff），结论只列证据供用户裁决，不自动选定。
+
 有 Figma 链接时，本 Phase 才处理设计稿（需求分析师只标 UI 改动点、不拉稿）：
 `use_skill("figma-to-component-map")` 针对要拆的组件精确拉取，产出 frame 清单并给 task 绑
 `figmaRefs`。真正的「按需拉稿」，避免需求阶段猜测性全量拉取。

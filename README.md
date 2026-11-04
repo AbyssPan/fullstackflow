@@ -3,7 +3,7 @@
 面向 Claude Code / CodeBuddy Code 的全栈研发工作流插件。用 `/fsflow:run` 启动需求开发，
 或用 `/fsflow:fixbugs` 修复缺陷，串联需求、规划、开发、审查、测试和交付。
 
-当前版本 **1.4.0** · 插件运行时无需 `npm install` · 支持前端、后端与多仓库任务
+当前版本 **1.5.0** · 插件运行时无需 `npm install` · 支持前端、后端与多仓库任务
 
 [快速上手](#快速上手) · [研发流程](#研发流程) · [执行与恢复](#执行与恢复) · [知识维护](#知识维护) · [安装与排障指南](INSTALL.md)
 
@@ -220,13 +220,13 @@ node .docs/llm-knowledge/tools/fsflow-kb/commands/kb-maintenance.js history --sc
 
 ## 能力与集成
 
-插件包含 6 个角色 Agent 与 17 个 Skill。模型配置位于各 Agent 文件中，需与宿主支持的模型匹配。
+插件包含 7 个角色 Agent 与 18 个 Skill。模型配置位于各 Agent 文件中，需与宿主支持的模型匹配。
 
 | 能力 | Skill |
 |---|---|
 | 工作流 | `harness-start`、`harness-conductor`、`harness-evolve`、`harness-archive`、`harness-quick` |
 | 知识库 | `kb-init`、`kb-query`、`kb-update`、`gen-project-docs` |
-| 开发与验证 | `frontend-tech-spec`、`backend-tech-spec`、`code-review`、`systematic-debugging`、`test-design-and-execution` |
+| 开发与验证 | `frontend-tech-spec`、`backend-tech-spec`、`code-review`、`systematic-debugging`、`test-design-and-execution`、`simplify-code` |
 | 辅助工具 | `api-generator`、`figma-to-component-map`、`tapd-bug-analyzer` |
 
 <details>
@@ -240,6 +240,7 @@ node .docs/llm-knowledge/tools/fsflow-kb/commands/kb-maintenance.js history --sc
 | 发布助手 | `release-assistant` | `hy3` |
 | 测试工程师 | `test-engineer` | `deepseek-v4.1-flash` |
 | 需求分析师 | `requirement-analyst` | `deepseek-v4.1-flash` |
+| 独立评审员 | `oracle-reviewer` | `GLM-5.3` |
 
 以上是配置值，实际使用模型以宿主返回为准。
 

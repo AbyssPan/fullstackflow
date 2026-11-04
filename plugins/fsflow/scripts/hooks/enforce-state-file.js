@@ -65,12 +65,13 @@ const PROTECTED_FILES = [
   'dev-pass.json'
 ]
 
-// 唯一被授权改写状态文件的脚本（相位跃迁 / 创建 / 归档）
+// 唯一被授权改写状态文件的脚本（相位跃迁 / 创建 / 归档 / quick 任务生命周期）
 const AUTHORIZED_SCRIPTS = [
   'advance-phase.js',
   'create-workflow.js',
   'archive-story.js',
-  'harness-workflow.js' // 内部 require create-workflow.js
+  'harness-workflow.js', // 内部 require create-workflow.js
+  'quick-task.js' // quick 模式: 签发/撤销 dev-pass、维护 quick 任务的 e2e-state
 ]
 
 // ─── Bash / execute_command 通道 ─────────────────────────────

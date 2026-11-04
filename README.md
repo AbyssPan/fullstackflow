@@ -32,6 +32,7 @@
 |---|---|
 | `/fsflow:run [storyId] "<需求>"` | 开发新功能或改造现有功能 |
 | `/fsflow:fixbugs [storyId] "<缺陷>"` | 分析根因并修复，可附 TAPD 信息 |
+| `/fsflow:quick [relatedStoryId] "<修改>"` | 需求交付后的小范围修改/Bug 修复，单 Agent 轻量流程 |
 | `/fsflow:status` | 查看当前任务、阶段和阻塞项 |
 | `/fsflow:end` | 结束激活会话并解除编辑门控，保留任务 |
 | `/fsflow:evolve [storyId\|all] [--check-only\|--propose-only]` | 工作流体检与改进建议 |
@@ -115,6 +116,16 @@ Git/MR 与发布动作沿用已有授权，缺少授权时在执行前确认；�
 P0/P1 门控仍逐一执行，独立审查和测试选择保持有效。
 
 指定 `full` 保留独立规划；`light` 仍需满足上述条件，证据不足时使用完整路线。
+
+### quick 轻量修改与多会话并行
+
+需求交付后的小范围修改与 Bug 修复用 `/fsflow:quick`：主 Agent 单独执行定位 → 限域 → 修改 →
+定向自测 → 收尾，免完整 8-Phase 往返。保留两条安全底线：dev-pass 按 `quick-task.json` 的
+`files[]` 精确限域（1–3 个文件，接口/迁移/Schema/权限风险触发即拒绝）；定向自测证据必须落
+`evidence[]`，完成后写轻量知识回执。超出条件时 `escalate` 升格完整 `fixbugs` 流程，已做工作不丢。
+
+激活记录按会话隔离（`.harness-active/` 目录）：不同对话框可各持一个任务并行推进，编辑互不越界；
+quick 与完整流程均不做 git 提交，由用户手动汇总提交（`kb-maintenance` Git hook 兜底知识检查）。
 
 ### 按批次开发与按需读取
 
@@ -207,11 +218,11 @@ node .docs/llm-knowledge/tools/fsflow-kb/commands/kb-maintenance.js history --sc
 
 ## 能力与集成
 
-插件包含 6 个角色 Agent 与 16 个 Skill。模型配置位于各 Agent 文件中，需与宿主支持的模型匹配。
+插件包含 6 个角色 Agent 与 17 个 Skill。模型配置位于各 Agent 文件中，需与宿主支持的模型匹配。
 
 | 能力 | Skill |
 |---|---|
-| 工作流 | `harness-start`、`harness-conductor`、`harness-evolve`、`harness-archive` |
+| 工作流 | `harness-start`、`harness-conductor`、`harness-evolve`、`harness-archive`、`harness-quick` |
 | 知识库 | `kb-init`、`kb-query`、`kb-update`、`gen-project-docs` |
 | 开发与验证 | `frontend-tech-spec`、`backend-tech-spec`、`code-review`、`systematic-debugging`、`test-design-and-execution` |
 | 辅助工具 | `api-generator`、`figma-to-component-map`、`tapd-bug-analyzer` |

@@ -191,6 +191,25 @@ function dispatchCore (storyId) {
   const result = baseResult(storyId, state)
   const phase = result.phase
 
+  // ── v1.5 quick 模式: 不走 Phase 调度，指引 quick 生命周期 ──
+  // quick 任务的 e2e-state 借用 phase=2 语义（dev-pass 兼容），但无 Agent 派单与 Phase 推进；
+  // 误 dispatch 时给出 quick 指令，避免按 Phase 2 派 fullstack-developer。
+  // escalate 已把 state.mode 重写为 fixbugs，不受此分支影响。
+  if (state.mode === 'quick' && state.quickStatus === 'in_progress') {
+    result.status = 'ready'
+    result.nextAgent = null
+    result.agentLabel = 'quick（主 Agent 直接执行）'
+    result.agentPrompt = null
+    result.advanceCommand = null
+    result.instruction = 'quick 模式不派 Agent、不推进 Phase。按 harness-quick skill 协议执行：定位 → 填写 quick-task.json files[]/acceptance → quick-task.js scope 签发限域 → 修改与定向自测 → 填 evidence → quick-task.js done。'
+    result.recovery = {
+      type: 'quick_lifecycle',
+      command: `node \${CLAUDE_PLUGIN_ROOT}/scripts/commands/quick-task.js status ${storyId}`,
+      description: '查看 quick 任务状态；生命周期命令见 quick-task.js 用法'
+    }
+    return result
+  }
+
   // ── 终态: 已归档 ──────────────────────────────────────────
   if (state.status === 'archived') {
     result.status = 'terminal'

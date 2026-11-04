@@ -55,8 +55,31 @@ function buildAdditionalContext (workflowResults) {
 
   const lines = []
 
+  let hasQuickWorkflow = false
+
   for (const wf of workflowResults) {
     const { storyId, state, unresolved } = wf
+
+    // ── v1.5 quick 任务恢复: 不注入 Phase 派单上下文 ──────────
+    // quick 模式无 Phase 调度与 Agent 派单（主 Agent 直接执行），误注入
+    // dispatch 指令会引导按 Phase 2 派 fullstack-developer。
+    if (state.mode === 'quick') {
+      hasQuickWorkflow = true
+      lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
+      lines.push(`⚡ quick 任务恢复: ${storyId}`)
+      lines.push(`   标题: ${state.title || '未知'}`)
+      lines.push(`   状态: ${state.quickStatus || 'in_progress'}（quick 模式，无 Phase 概念）`)
+      if (state.quickStatus === 'in_progress') {
+        lines.push('')
+        lines.push('按 quick 协议继续，不执行 dispatch.js、不派子 Agent：')
+        lines.push(`   1. node "\${CLAUDE_PLUGIN_ROOT}/scripts/commands/quick-task.js" status ${storyId}`)
+        lines.push('   2. 未签发限域 → 定位问题填写 quick-task.json 的 files[]/acceptance → scope 签发')
+        lines.push('   3. 已签发 → 修改限域内文件 + 定向自测 → 填 evidence → done 收尾')
+      } else {
+        lines.push('   该任务已结束（done/escalated）；escalated 的 Story 已转为完整 fixbugs，正常 dispatch。')
+      }
+      continue
+    }
 
     lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
     lines.push(`⚡ 工作流恢复: Story ${storyId}`)
@@ -143,8 +166,8 @@ function buildAdditionalContext (workflowResults) {
   lines.push('')
   lines.push('⛔ 强制规则（不可违反）:')
   lines.push('1. open-questions.json 中存在 resolved=false → 禁止推进到 Phase 1')
-  lines.push('2. 主 Agent 不亲自编写代码 → 必须 spawn 专用 Agent 执行')
-  lines.push('3. 禁止直接写/改 e2e-state.json 和 dev-pass.json → 状态机由 advance-phase.js 独占维护')
+  lines.push(`2. 主 Agent 不亲自编写代码 → 必须 spawn 专用 Agent 执行${hasQuickWorkflow ? '（例外：quick 模式的任务由主 Agent 在 dev-pass 限域内直接修改，见 harness-quick 协议）' : ''}`)
+  lines.push('3. 禁止直接写/改 e2e-state.json 和 dev-pass.json → 状态机由 advance-phase.js 独占维护（quick 任务由 quick-task.js 维护）')
   lines.push('4. 推进 Phase → 必须执行 node "${CLAUDE_PLUGIN_ROOT}/scripts/commands/advance-phase.js" <storyId> <targetPhase>')
   lines.push('5. 子 Agent 中断或未落盘产出物 → 重新 dispatch/重派对应 Agent 或转人工，禁止主 Agent 接管该 Phase 的实质工作、跑测试/编译或手写产出物')
   lines.push('')

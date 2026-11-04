@@ -64,7 +64,7 @@
 
 ### 1. Slash Command 可达性
 
-在输入框输入 `/fsflow:`，应出现 `run`、`fixbugs`、`status`、`end`、`evolve`、
+在输入框输入 `/fsflow:`，应出现 `run`、`fixbugs`、`quick`、`status`、`end`、`evolve`、
 `archive` 和兼容入口 `fullstack`。插件命令必须带命名空间，未加命名空间的短入口不会被注册。
 执行：
 

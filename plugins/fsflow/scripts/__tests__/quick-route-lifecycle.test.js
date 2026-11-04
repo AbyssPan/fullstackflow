@@ -141,6 +141,17 @@ try {
   })
 
   // ─── done ───────────────────────────────────────────────────
+  test('dispatch 误调用: quick 任务不派 Agent，指引 quick 生命周期', () => {
+    const id = firstQuickId()
+    const { dispatch } = require('../commands/dispatch')
+    const result = dispatch(id)
+    assert.equal(result.status, 'ready')
+    assert.equal(result.nextAgent, null, 'quick 不派子 Agent')
+    assert(result.instruction.includes('quick'), result.instruction)
+    assert.equal(result.recovery.type, 'quick_lifecycle')
+    // 已结束的 quick 任务走正常 terminal
+  })
+
   test('done: 证据为空拒绝（定向自测是 quick 唯一质量底线）', () => {
     const id = firstQuickId()
     const r = runQuick(['done', id])

@@ -26,6 +26,7 @@ allowed-tools: Bash, Read, Write, Glob, Grep
 |---|---|---|
 | `/fsflow:fullstack run [storyId] "<需求描述>"` | 新功能 / 页面级改造（有原型 / Figma 门控） | `use_skill("harness-start")` → mode=run |
 | `/fsflow:fullstack fixbugs [storyId] "<缺陷描述>"` | 缺陷修复（免原型文档，Phase 0 自动拉 TAPD 缺陷） | `use_skill("harness-start")` → mode=fixbugs |
+| `/fsflow:fullstack quick [relatedStoryId] "<修改描述>"` | 已交付需求的小范围修改 / Bug 修复（轻量单 Agent 流程） | `quick-task.js create` → `use_skill("harness-quick")` |
 | `/fsflow:fullstack status` | 查看工作流状态 | `node "${CLAUDE_PLUGIN_ROOT}/scripts/commands/harness-workflow.js" status` |
 | `/fsflow:fullstack end` | 结束当前激活会话、解除编辑门控 | `node "${CLAUDE_PLUGIN_ROOT}/scripts/commands/harness-workflow.js" end` |
 | `/fsflow:fullstack evolve [storyId\|all]` | 自进化体检（audit → 度量 → 诊断 → 治疗 → 验证） | `use_skill("harness-evolve")` |
@@ -50,6 +51,7 @@ allowed-tools: Bash, Read, Write, Glob, Grep
 
 ```
 run / fixbugs / (无参数)  → use_skill("harness-start")
+quick                     → 按 /fsflow:quick 协议: quick-task.js create 后 use_skill("harness-quick")
 evolve                    → use_skill("harness-evolve")
 archive                   → use_skill("harness-archive")
 status                    → 直接执行 harness-workflow.js status，转述结果

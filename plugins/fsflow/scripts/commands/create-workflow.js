@@ -289,6 +289,10 @@ function createWorkflow (storyId, title, bypass, hasFigma, mode, opts = {}) {
     status: 'running',
     mode: workflowMode, // run | fixbugs —— story-input.json 缺失时的模式回退信源
     workflowProfile: readStoryInput(storyId)?.workflowProfile || 'auto',
+    // v1.5 交付模式: story-input.deliveryMode > 环境变量 FSFLOW_DELIVERY_MODE > auto
+    // manual = P4 通过后直接进入待人工检查终态，P5-P7（Git/MR/核验/发布）不由工作流执行
+    deliveryMode: readStoryInput(storyId)?.deliveryMode ||
+      (process.env.FSFLOW_DELIVERY_MODE === 'manual' ? 'manual' : 'auto'),
     executionEvidenceRequired: true,
     createdAt: now,
     updatedAt: now,

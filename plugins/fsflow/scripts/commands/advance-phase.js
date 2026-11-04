@@ -1068,6 +1068,69 @@ if (!combinedResult.passed) {
 }
 
 // ========================
+// 🛡️ v1.5 manual 交付模式: Phase 4→5 的推进重定向为「待人工检查」终态
+// manual 模式下 P5-P7（Git 提交/MR/合入核验/云端发布）不由工作流执行——
+// 用户人工检查后手动提交全部变更。Phase 4 门控已在上方正常执行（质量底线不降），
+// 此处仅重定向交付链。知识维护时机移到人工检查后（advance 输出提示 kb-update），
+// 手动提交由 kb-maintenance Git hook 兜底检查。
+// ========================
+
+if (targetPhase === 5 && state.deliveryMode === 'manual') {
+  const now = new Date()
+
+  // 完成当前 Phase（4）
+  const currentKey = `${currentPhase}_${PHASE_SLUGS[currentPhase]}`
+  if (!state.phases) state.phases = {}
+  if (state.phases[currentKey]) {
+    state.phases[currentKey].status = 'completed'
+    state.phases[currentKey].completedAt = now.toISOString()
+  } else {
+    state.phases[currentKey] = { status: 'completed', completedAt: now.toISOString() }
+  }
+
+  // P5-P7 标记跳过（留痕，禁无声消失）
+  for (let p = 5; p <= 7; p++) {
+    state.phases[`${p}_${PHASE_SLUGS[p]}`] = {
+      status: 'skipped',
+      skipReason: 'delivery_mode_manual',
+      skippedAt: now.toISOString()
+    }
+  }
+
+  // 进入待人工检查终态
+  state.phase = 8
+  state.status = 'completed'
+  state.completedAt = now.toISOString()
+  state.updatedAt = now.toISOString()
+  state.manualDelivery = { mode: 'manual', completedAt: now.toISOString() }
+
+  // Phase 4→5 兜底撤销 dev-pass（与正常路径一致，防止残留凭证）
+  revokeDevPass(storyId)
+
+  persistWorkflowState(storyId, state)
+  trace.appendTrace(storyId, { type: 'phase_transition', phase: '8', from: String(currentPhase), to: '8', reason: 'delivery_mode_manual' })
+  trace.appendTrace(storyId, { type: 'workflow', action: 'completed', result: 'manual_delivery' })
+
+  console.log(JSON.stringify({
+    success: true,
+    storyId,
+    fromPhase: currentPhase,
+    toPhase: 8,
+    toPhaseName: getPhaseName(8),
+    deliveryMode: 'manual',
+    skippedPhases: [5, 6, 7],
+    gatePassed: true,
+    message: 'manual 交付模式: P5-P7（Git/MR/合入核验/发布）已跳过，工作流进入待人工检查终态。代码不提交，由用户人工检查后手动提交。',
+    nextAction: {
+      action: 'manual_check',
+      command: null,
+      description: '通知用户进行人工代码检查。确认后建议执行一次 kb-update 域维护（P5 的知识职责前移），随后手动提交代码；kb-maintenance Git hook 会在提交时兜底检查知识回执。'
+    }
+  }, null, 2))
+  process.exit(0)
+}
+
+// ========================
 // 推进 Phase
 // ========================
 

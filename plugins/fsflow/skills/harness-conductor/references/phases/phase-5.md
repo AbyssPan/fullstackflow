@@ -4,6 +4,10 @@
 > `PHASE_ARTIFACTS[5].fileName` 为 `null`，产出物存在性检查亦被跳过 ——
 > 本 Phase 的质量靠 Agent 自律与 git hook，不靠 policy.js。
 
+> **manual 交付模式（v1.5）**：`deliveryMode=manual` 的 Story 不会进入本 Phase——
+> advance-phase.js 在 Phase 4 门控通过后将 P5-P7 标记 skipped 并直接置为待人工检查终态，
+> 由用户人工检查后手动提交；知识维护与 kb-update 建议在用户检查确认后执行。
+
 ## 职责
 
 Agent 注册名 **`release-assistant`**（发布助手）。先按 [同仓知识维护](../../../kb-update/references/maintenance.md) 完成已授权的 kb-update 和域回执，再将代码与知识一起提交 MR。暂存后运行 `kb-maintenance.js check --staged --strict`。缺库不初始化；延期必须明确且符合项目 allow_deferred 策略。目标分支使用用户指定，不硬编码 dev。

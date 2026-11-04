@@ -109,8 +109,38 @@
       "lastSeen": "2026-09-03T09:15:51.795Z",
       "needsManualReview": false,
       "reviewStatus": "confirmed"
+    },
+    {
+      "phase": 4,
+      "failureType": "schema_validation_failed",
+      "rootCause": "1 个 schema_validation_failed 问题 (示例: Schema 校验失败: acceptance-verification.json.results[0]: should have required property 'evidenceType' [evidenceType])",
+      "resolution": "请检查 acceptance-verification.json 格式是否符合规范，参考 schemas/ 目录下的 schema 定义",
+      "storyId": "DM-P4",
+      "blockers": [
+        "Schema 校验失败: acceptance-verification.json.results[0]: should have required property 'evidenceType' [evidenceType]"
+      ],
+      "occurrences": 2,
+      "firstSeen": "2026-11-04T08:58:38.388Z",
+      "lastSeen": "2026-11-04T09:01:19.733Z",
+      "needsManualReview": false,
+      "reviewStatus": "confirmed"
+    },
+    {
+      "phase": 4,
+      "failureType": "ac_verification_failed",
+      "rootCause": "1 个 ac_verification_failed 问题 (示例: AC AC-1: failed)",
+      "resolution": "验收标准 AC-1 未通过，执行修复回路: advance-phase.js DM-FAIL 2 --fix-loop",
+      "storyId": "DM-FAIL",
+      "blockers": [
+        "AC AC-1: failed"
+      ],
+      "occurrences": 2,
+      "firstSeen": "2026-11-04T09:01:57.104Z",
+      "lastSeen": "2026-11-04T09:02:37.286Z",
+      "needsManualReview": false,
+      "reviewStatus": "confirmed"
     }
   ],
   "version": "2.1",
-  "lastUpdated": "2026-09-03T09:36:11.800Z"
+  "lastUpdated": "2026-11-04T09:02:37.286Z"
 }

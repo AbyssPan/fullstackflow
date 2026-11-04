@@ -124,8 +124,10 @@ P0/P1 门控仍逐一执行，独立审查和测试选择保持有效。
 `files[]` 精确限域（1–3 个文件，接口/迁移/Schema/权限风险触发即拒绝）；定向自测证据必须落
 `evidence[]`，完成后写轻量知识回执。超出条件时 `escalate` 升格完整 `fixbugs` 流程，已做工作不丢。
 
-激活记录按会话隔离（`.harness-active/` 目录）：不同对话框可各持一个任务并行推进，编辑互不越界；
-quick 与完整流程均不做 git 提交，由用户手动汇总提交（`kb-maintenance` Git hook 兜底知识检查）。
+激活记录按会话隔离（`.harness-active/` 目录）：不同对话框可各持一个任务并行推进，编辑互不越界。
+交付模式 `deliveryMode=manual`（story-input 字段或 `FSFLOW_DELIVERY_MODE` 环境变量）下，完整流程在
+P4 门控通过后直接进入待人工检查终态，P5–P7 不由工作流执行：代码由用户人工检查后手动提交，
+知识维护前移到检查确认后执行，`kb-maintenance` Git hook 兜底提交时的知识检查。
 
 ### 按批次开发与按需读取
 

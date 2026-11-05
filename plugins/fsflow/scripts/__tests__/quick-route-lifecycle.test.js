@@ -241,6 +241,69 @@ try {
     assert.equal(dispatchOut.nextAgent, 'requirement-analyst')
   })
 
+  // ─── CLI 直传（提速：scope/done 一条命令，免手写 JSON） ────────
+  test('CLI 直传: scope --file/--accept 一步签发，done --evidence 一步收尾', () => {
+    const r = runQuick(['create', '修复列表分页越界'])
+    assert.equal(r.status, 0, r.stderr)
+    const ids = fs.readdirSync(plans).filter(d => d.startsWith('QUICK-'))
+      .filter(d => state.readStateFile(d)?.quickStatus === 'in_progress')
+    assert.equal(ids.length, 1, 'escalated 任务不算 in_progress')
+    const id = ids[0]
+
+    // scope 一条命令直传 files/acceptance（不预写 quick-task.json）
+    const s = runQuick(['scope', id, '--file', 'src/a/fix.js', '--accept', '分页参数越界不再 500'])
+    assert.equal(s.status, 0, s.stderr)
+    const sOut = JSON.parse(s.stdout)
+    assert.equal(sOut.ok, true)
+    assert.deepEqual(sOut.data.allowedPaths, [{ repo: state.loadRepos(id).primary, path: 'src/a/fix.js' }])
+
+    // CLI 值已合并落 quick-task.json（与手写行为一致）
+    const task = JSON.parse(fs.readFileSync(path.join(plans, id, 'quick-task.json'), 'utf-8'))
+    assert.deepEqual(task.files, ['src/a/fix.js'])
+    assert.deepEqual(task.acceptance, ['分页参数越界不再 500'])
+
+    // 会话显式认领（escalate 用例残留的 pending 会造成 ambiguous 拒绝）
+    assert.ok(state.claimHarnessRecord('sess-cli-1', id), '会话认领成功')
+
+    // 限域语义与手写签发完全一致
+    assert.equal(editHook('src/a/fix.js', 'sess-cli-1').status, 0, '限域内放行')
+    assert.equal(editHook('src/b/other.js', 'sess-cli-1').status, 2, '限域外拒绝')
+
+    // done 一条命令直传 evidence
+    const d = runQuick(['done', id, '--evidence', 'node test/a.test.js → 3 passed', '--note', 'CLI 直传链路'])
+    assert.equal(d.status, 0, d.stderr)
+    const receipt = JSON.parse(fs.readFileSync(path.join(plans, id, 'knowledge-receipt.json'), 'utf-8'))
+    assert.equal(receipt.evidence.length, 1)
+    assert.equal(receipt.note, 'CLI 直传链路')
+    assert.equal(state.readStateFile(id).quickStatus, 'done')
+  })
+
+  test('CLI 直传: 多个 --file 超上限仍拒绝（防绕过上限）', () => {
+    const r = runQuick(['create', 'CLI 上限回归'])
+    assert.equal(r.status, 0, r.stderr)
+    const ids = fs.readdirSync(plans).filter(d => d.startsWith('QUICK-'))
+      .filter(d => state.readStateFile(d)?.quickStatus === 'in_progress')
+    const id = ids[0]
+    const s = runQuick(['scope', id, '--file', 'src/a/fix.js', '--file', 'src/b/other.js',
+      '--file', 'src/c.js', '--file', 'src/d.js'])
+    assert.equal(s.status, 1)
+    assert(s.stderr.includes('超过 quick 上限'))
+    runQuick(['cancel', id, '回归清理']) // 终态收尾，避免残留 in_progress 影响后续筛选
+  })
+
+  test('CLI 直传: --file=path 内联等价形式可用', () => {
+    const r = runQuick(['create', 'CLI 内联等价'])
+    assert.equal(r.status, 0, r.stderr)
+    const ids = fs.readdirSync(plans).filter(d => d.startsWith('QUICK-'))
+      .filter(d => state.readStateFile(d)?.quickStatus === 'in_progress')
+    const id = ids[0]
+    const s = runQuick(['scope', id, '--file=src/a/fix.js', '--accept=验收A'])
+    assert.equal(s.status, 0, s.stderr)
+    const task = JSON.parse(fs.readFileSync(path.join(plans, id, 'quick-task.json'), 'utf-8'))
+    assert.deepEqual(task.files, ['src/a/fix.js'])
+    assert.deepEqual(task.acceptance, ['验收A'])
+  })
+
   console.log(`Quick route lifecycle: ${count} checks passed`)
 } finally {
   fs.rmSync(root, { recursive: true, force: true })

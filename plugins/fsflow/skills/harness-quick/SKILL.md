@@ -3,7 +3,7 @@ name: harness-quick
 description: >
   quick 模式执行协议 — 需求交付后的小范围修改/Bug 修复，单 Agent 轻量流程。
   由 /fsflow:quick 创建任务后加载。覆盖定位、限域签发、修改、定向自测、
-  收尾与升格的完整闭环；不派子 Agent、不走 Phase 门控、不做 git 提交。
+  收尾与升格的完整闭环；开发/收尾不派子 Agent、不走 Phase 门控、不做 git 提交。
 ---
 
 # quick 模式执行协议
@@ -12,27 +12,38 @@ description: >
 全部在主 Agent 上下文内完成——quick 模式**豁免**「主 Agent 不亲自编写代码」的
 通用强制规则，但仅限 quick-task.json `files[]` 声明且 dev-pass 签发限域内的文件。
 
+> **速度优先原则（2026-11-05）**：quick 的存在意义是「比不用工作流只慢一点点」。
+> 每一步都选最短路径：小问题跳过知识库、定位限制阅读量、签发/收尾各一条命令、
+> 自测只跑与改动直接相关的最小验证。任何一步感到在做「仪式」而非「排障」，
+> 就是在过度执行本协议。
+
 ## 1. 定位（不派需求分析师）
 
-- 项目有 `llm-knowledge` 知识库时先 `use_skill("kb-query")` 检索相关业务域，确认现状与约定。
+**快路径优先，按问题规模选档，不要全量探索：**
+
+- **指哪打哪**（用户已指明文件/行为、单点改动）：直接读目标文件相关区间，
+  跳过知识库检索与一切探索，立即进入第 2 步。这是 quick 的高频形态。
+- **跨文件/根因不明**：派一个**只读** `code-explorer` 子 Agent（thoroughness:
+  quick/medium，问题要具体、带上已知线索），让它跨文件找根因并回报关键代码
+  位置；主 Agent 只精读它指出的区间。**不要**在主上下文里逐个全文读大文件——
+  这是 quick 慢的最大来源。派出的探索只读不改，回来后仍由主 Agent 签发限域并修改。
+- 项目有 `llm-knowledge` 知识库且问题涉及业务域约定时才 `use_skill("kb-query")`
+  检索；纯语法/局部 Bug 跳过。
 - Bug 类问题按 `systematic-debugging` 的思路最小复现、追根因，不凭猜测改代码。
 - 确定待修改文件（1–3 个）与 1–2 条可验证的验收标准（acceptance）。
 
-## 2. 限域签发
+## 2. 限域签发（一条命令，免手写 JSON）
 
-把定位结果写入 `<storyDir>/quick-task.json`（直接用文件工具，该文件不受状态保护）：
-
-```json
-{ "files": [{ "repo": "<仓库名>", "path": "src/xxx/yyy.js" }],
-  "acceptance": ["<可验证的预期>"] }
-```
-
-然后签发：
+定位完成直接签发（推荐，flags 会自动合并写入 quick-task.json，校验行为与手写完全一致）：
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/commands/quick-task.js scope <storyId>
+node ${CLAUDE_PLUGIN_ROOT}/scripts/commands/quick-task.js scope <storyId> \
+  --file src/xxx/yyy.js --file src/aaa/bbb.js --accept "<可验证的预期>"
 ```
 
+- `--file` 可重复（相对主仓库路径，最多 3 个）；`--accept` 可重复。
+- 手写 `<storyDir>/quick-task.json` 的 `files[]`/`acceptance` 再 `scope <storyId>`
+  仍然可用（需要 `repo:path` 跨仓库形态时用这条路）。
 - `files[]` 为空、超 3 个、命中迁移/Schema/权限/接口风险特征时 scope 会拒绝——
   后者执行 `escalate` 升格，不要试图绕过。
 - scope 成功后才能编辑 `src/`（dev-pass 限域，越界会被 Hook 拦截）。
@@ -47,17 +58,19 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/commands/quick-task.js scope <storyId>
 quick 跳过了独立代码审查与功能测试，定向自测证据必须留痕：
 
 - 跑与改动直接相关的单测/接口/构建或最小页面验证；执行增量 lint（项目已装 ESLint 时）。
+  **最小够用即停**：单文件改动不跑全量构建/全量测试套件。
 - 无法运行的环境在 evidence 中标注 `unverifiable` 与原因，不得声称验证通过。
-- 把证据（命令 + 结果摘要）追加写入 quick-task.json 的 `evidence[]`。
+- 证据先记在脑中或消息里，收尾时用 `--evidence` 直传（见第 5 步），不必中途写 JSON。
 
-## 5. 收尾
+## 5. 收尾（一条命令，免手写 JSON）
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/commands/quick-task.js done <storyId> --note "<本次踩坑/经验一句话，无则省略>"
+node ${CLAUDE_PLUGIN_ROOT}/scripts/commands/quick-task.js done <storyId> \
+  --evidence "<命令 + 结果摘要>" --note "<本次踩坑/经验一句话，无则省略>"
 ```
 
-done 会校验证据、写 `knowledge-receipt.json`、撤销 dev-pass 并清除激活记录。
-
+- `--evidence` 可重复，直传即落 `evidence[]`（替代手写 quick-task.json）。
+- done 会校验证据、写 `knowledge-receipt.json`、撤销 dev-pass 并清除激活记录。
 - 项目有 `llm-knowledge` 时，按 kb-update 的 changelog 片段约定把本次经验追加到
   `.docs/llm-knowledge/<domain>/changelog/`（引用 storyId 与回执）；无知识库则留回执即可。
 - **不做 git commit / push / MR**：用户会手动汇总提交全部变更。

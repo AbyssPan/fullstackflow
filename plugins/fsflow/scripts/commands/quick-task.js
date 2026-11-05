@@ -9,7 +9,9 @@
  *   - create: 生成 QUICK-YYYYMMDD-NN 任务目录，写 quick-task.json + e2e-state.json（mode=quick, phase=2）
  *             + pending 激活记录（输出 harnessEvent:'start' 供 PostToolUse 会话认领）
  *   - scope:  校验 quick-task.json 的 files[]（1-3 个文件、风险路径触发升格建议）并签发
- *             精确限域 dev-pass（Phase 2 语义复用，enforce-dev-pass 无需改动）
+ *             精确限域 dev-pass（Phase 2 语义复用，enforce-dev-pass 无需改动）；
+ *             支持 --file/--accept CLI 直传（定位完一条命令签发，免手写 JSON，值会先
+ *             合并进 quick-task.json 再走原有校验，行为与手写完全一致）
  *   - done:   校验证据非空，置终态（status=completed, phase=8），撤销 dev-pass，
  *             清除激活记录（含本会话绑定），写轻量知识回执 knowledge-receipt.json
  *   - escalate: 升格为完整 fixbugs 工作流（写 story-input.json + 重置 e2e-state 至 Phase 0），
@@ -18,8 +20,8 @@
  *
  * 用法:
  *   node quick-task.js create "<描述>" [--story <关联需求StoryId>]
- *   node quick-task.js scope <storyId>
- *   node quick-task.js done <storyId> [--note "<经验/教训一句话>"]
+ *   node quick-task.js scope <storyId> [--file <path>]... [--accept "<验收>"]...
+ *   node quick-task.js done <storyId> [--note "<经验一句话>"] [--evidence "<证据>"]...
  *   node quick-task.js escalate <storyId> "<原因>"
  *   node quick-task.js status <storyId>
  *
@@ -306,7 +308,7 @@ function cmdCreate (description, relatedStoryId) {
   ok({
     ok: true,
     harnessEvent: 'start',
-    message: `✅ quick 任务已创建\n   Story: ${id} "${desc}"\n   步骤: 1) 定位问题并填写 quick-task.json 的 files[]/acceptance  2) quick-task.js scope ${id} 签发限域  3) 修改与定向自测  4) 填写 evidence  5) quick-task.js done ${id}${staleNote}`,
+    message: `✅ quick 任务已创建\n   Story: ${id} "${desc}"\n   步骤: 1) 定位问题（明确目标文件与验收）  2) quick-task.js scope ${id} --file <路径> --accept "<验收>" 一条命令签发限域（或手写 quick-task.json 后 scope）  3) 修改与定向自测  4) quick-task.js done ${id} --evidence "<命令+结果摘要>" --note "<经验一句话>"${staleNote}`,
     data: {
       storyId: id,
       title: desc,
@@ -320,11 +322,32 @@ function cmdCreate (description, relatedStoryId) {
 
 /**
  * 签发限域: 校验 files[] 并签发精确 dev-pass
+ *
+ * @param cliFiles       CLI --file 直传的待修改文件（相对主仓库路径，可重复）
+ * @param cliAcceptance  CLI --accept/--acceptance 直传的验收标准（可重复）
  */
-function cmdScope (storyId) {
+function cmdScope (storyId, cliFiles, cliAcceptance) {
   const state = requireInProgress(storyId)
   const task = readQuickTask(storyId)
   if (!task || task._parseError) fail(`quick-task.json 不存在或损坏，请先填写`)
+
+  // CLI 直传（提速：免手写 JSON 的一步式签发）：合并进 quick-task.json 后走原有校验，
+  // 与手写 files[]/acceptance 行为完全一致（风险判定/上限/限域签发共用同一路径）
+  const cliFilesArr = (cliFiles || []).map(s => String(s).trim()).filter(Boolean)
+  const cliAccArr = (cliAcceptance || []).map(s => String(s).trim()).filter(Boolean)
+  if (cliFilesArr.length > 0 || cliAccArr.length > 0) {
+    const files = Array.isArray(task.files) ? task.files : []
+    const known = new Set(files.map(f => (typeof f === 'string' ? f : `${f.repo}:${f.path}`)))
+    for (const f of cliFilesArr) {
+      if (!known.has(f)) { files.push(f); known.add(f) }
+    }
+    task.files = files
+    if (cliAccArr.length > 0) {
+      const acc = Array.isArray(task.acceptance) ? task.acceptance : []
+      task.acceptance = acc.concat(cliAccArr.filter(a => !acc.includes(a)))
+    }
+    writeQuickTask(storyId, task)
+  }
 
   const files = Array.isArray(task.files) ? task.files : []
   if (files.length === 0) fail('files[] 为空：请先定位问题，把待修改文件写入 quick-task.json 的 files[]')
@@ -359,11 +382,19 @@ function cmdScope (storyId) {
 
 /**
  * 完成 quick 任务: 校验证据、置终态、撤销 dev-pass、清除激活记录、写知识回执
+ *
+ * @param note         --note 经验一句话（可选）
+ * @param cliEvidence  --evidence CLI 直传的定向自测证据（可重复；提速：收尾免手写 JSON）
  */
-function cmdDone (storyId, note) {
+function cmdDone (storyId, note, cliEvidence) {
   requireInProgress(storyId)
   const task = readQuickTask(storyId)
   if (!task || task._parseError) fail('quick-task.json 不存在或损坏')
+
+  const cliEvArr = (cliEvidence || []).map(s => String(s).trim()).filter(Boolean)
+  if (cliEvArr.length > 0) {
+    task.evidence = (Array.isArray(task.evidence) ? task.evidence : []).concat(cliEvArr)
+  }
 
   const evidence = Array.isArray(task.evidence) ? task.evidence : []
   if (evidence.length === 0) {
@@ -505,7 +536,7 @@ const args = process.argv.slice(2)
 const command = args[0]
 // 带值 flag 解析 positional 时连同其值一并跳过，防止 flag 值混入位置参数
 // （如 create "描述" --story <id> 时 storyId 被拼进描述）
-const VALUE_FLAGS = ['--story', '--note']
+const VALUE_FLAGS = ['--story', '--note', '--file', '--accept', '--acceptance', '--evidence']
 const positional = []
 for (let i = 0; i < args.length; i++) {
   const a = args[i]
@@ -520,16 +551,30 @@ const flagValue = (name) => {
   if (idx >= 0 && args[idx + 1] && !args[idx + 1].startsWith('--')) return args[idx + 1]
   return null
 }
+/** 可重复 flag 的全部取值（--name value 与 --name=value 均支持，按出现顺序） */
+const flagValues = (name) => {
+  const values = []
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]
+    if (a === `--${name}` && args[i + 1] !== undefined && !args[i + 1].startsWith('--')) {
+      values.push(args[i + 1])
+      i++
+    } else if (a.startsWith(`--${name}=`)) {
+      values.push(a.slice(name.length + 3))
+    }
+  }
+  return values
+}
 
 switch (command) {
   case 'create':
     cmdCreate(positional.slice(1).join(' ').replace(/^["']|["']$/g, ''), flagValue('story'))
     break
   case 'scope':
-    cmdScope(positional[1])
+    cmdScope(positional[1], flagValues('file'), flagValues('accept').concat(flagValues('acceptance')))
     break
   case 'done':
-    cmdDone(positional[1], flagValue('note'))
+    cmdDone(positional[1], flagValue('note'), flagValues('evidence'))
     break
   case 'escalate':
     cmdEscalate(positional[1], positional.slice(2).join(' ').replace(/^["']|["']$/g, ''))
@@ -546,8 +591,10 @@ switch (command) {
       '',
       '用法:',
       '  node quick-task.js create "<描述>" [--story <关联需求StoryId>]   创建 quick 任务',
-      '  node quick-task.js scope <storyId>                              校验 files[] 并签发限域 dev-pass',
+      '  node quick-task.js scope <storyId> [--file <path>]...           校验并签发限域（--file/--accept 可直传免手写 JSON）',
+      '                                     [--accept "<验收>"]...',
       '  node quick-task.js done <storyId> [--note "<经验一句话>"]        完成（校验证据、写知识回执）',
+      '                                     [--evidence "<证据>"]...    --evidence 直传定向自测证据',
       '  node quick-task.js cancel <storyId> [原因]                       取消中断/放弃的任务',
       '  node quick-task.js escalate <storyId> "<原因>"                   升格为完整 fixbugs 工作流',
       '  node quick-task.js status <storyId>                             查看状态',

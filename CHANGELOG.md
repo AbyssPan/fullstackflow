@@ -2,6 +2,27 @@
 
 ## 1.5.0（2026-11-04）
 
+### 1.5.0 追加（2026-11-05）：quick 提速——定位探索分级 + 签发/收尾一条命令
+
+场景：实测一个跨文件根因的 quick Bug 修复耗时 14.5 分钟，其中 ~10 分钟耗在主 Agent
+串行全文阅读定位（协议禁止派子 Agent），另有两次手写 quick-task.json 的往返（scope 前
+填 files/acceptance、done 前填 evidence）。对比「不用工作流直接修」明显偏慢。
+
+- **定位分级（SKILL.md）**：新增「速度优先原则」——
+  - 指哪打哪（用户已指明文件/单点改动）：直接读目标区间，跳过知识库与探索；
+  - 跨文件/根因不明：允许派**只读** `code-explorer` 子 Agent（quick/medium，带具体问题）
+    跨文件找根因，主 Agent 只精读它指出的区间；探索只读不改，签发与修改仍由主 Agent 执行；
+  - 仅问题涉及业务域约定时才走 kb-query，纯局部 Bug 跳过。
+- **一条命令签发**：`scope <storyId> --file <path>... --accept "<验收>"...`——CLI 直传值
+  先合并写入 quick-task.json 再走原有校验（上限/风险判定/限域签发与手写完全一致），
+  免去手写 JSON 往返；`--file=path` 内联形式等价，`repo:path` 跨仓库形态仍走手写 JSON。
+- **一条命令收尾**：`done <storyId> --evidence "<命令+结果摘要>"... --note "<经验>"`——
+  证据直传落 `evidence[]`，免去 done 前的手写 JSON 往返（这也是实测中手写失败重读的踩点）。
+- **自测最小够用即停（SKILL.md）**：单文件改动不跑全量构建/全量测试套件。
+- create 输出步骤、session-start quick 恢复指引同步为一条命令形态。
+- 新增 `quick-route-lifecycle.test.js` CLI 直传 3 用例（一步签发+收尾含限域放行/拒绝、
+  多 `--file` 超上限防绕过、内联形式等价），套件 12 项全过；`quick-stale-cleanup` 9 项回归通过。
+
 ### 1.5.0 追加（2026-11-05）：quick 中断任务清理
 
 场景：quick 任务发出后取消 AI 回复 / 关闭窗口，任务残留 `in_progress`、激活记录无人认领，

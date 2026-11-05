@@ -80,10 +80,10 @@ function buildAdditionalContext (workflowResults) {
           lines.push('     不要替它收尾或猜测其结果；先询问用户: 放弃 → quick-task.js cancel；继续 → 按下方步骤续做。')
         }
         lines.push('')
-        lines.push('按 quick 协议继续，不执行 dispatch.js、不派子 Agent：')
+        lines.push('按 quick 协议继续，不执行 dispatch.js、不派开发子 Agent（跨文件定位可派只读 code-explorer）：')
         lines.push(`   1. node "\${CLAUDE_PLUGIN_ROOT}/scripts/commands/quick-task.js" status ${storyId}`)
-        lines.push('   2. 未签发限域 → 定位问题填写 quick-task.json 的 files[]/acceptance → scope 签发')
-        lines.push('   3. 已签发 → 修改限域内文件 + 定向自测 → 填 evidence → done 收尾')
+        lines.push(`   2. 未签发限域 → 定位问题 → scope ${storyId} --file <路径> --accept "<验收>" 一条命令签发（或填写 quick-task.json 后 scope）`)
+        lines.push('   3. 已签发 → 修改限域内文件 + 定向自测 → done <storyId> --evidence "<命令+结果摘要>" 收尾')
       } else {
         lines.push('   该任务已结束（done/cancelled/escalated）；escalated 的 Story 已转为完整 fixbugs，正常 dispatch。')
       }

@@ -18,7 +18,11 @@
   `purgeStaleHarnessRecords()` 负责（session-start 与 quick create 时触发）。
 - session-start 的 quick 恢复块增加疑似中断提示（>24h 无活动），指引询问用户而非替旧任务收尾。
 - harness-quick skill / quick 命令补充「中断与陈旧任务」处理协议。
-- 新增 `quick-stale-cleanup.test.js`（7 项）。
+- 修复: `trace-command.js` 的 harness 命令判定漏掉 `quick-task`，导致 quick 任务的 PostToolUse
+  会话认领从未生效（一直依赖懒认领兜底，两条 pending 并存时新会话会被 ambiguous 误拒）。
+- `create` 输出新增 `activeQuickTasks`（仍新鲜的其他进行中任务）：默认并行合法不打扰；仅当用户
+  表明「取消后重新发起」时才对照清单询问是否取消旧任务——覆盖分钟级短间隔的重发场景。
+- 新增 `quick-stale-cleanup.test.js`（9 项，含同会话/新会话短间隔重新发起）。
 
 ## 1.5.0 原始发布内容（2026-11-04）
 

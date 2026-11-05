@@ -60,8 +60,10 @@ process.stdin.on('end', () => {
   const toolName = event.tool_name || ''
   const cmd = event.tool_input?.command || ''
 
-  // 1. harness 命令（advance-phase / harness-workflow / archive-story）
-  const isHarnessCmd = cmd.includes('advance-phase') || cmd.includes('harness-workflow') || cmd.includes('archive-story')
+  // 1. harness 命令（advance-phase / harness-workflow / archive-story / quick-task）
+  //    quick-task.js 的 create/done/escalate/cancel 同样输出 harnessEvent 绑定协议，
+  //    漏掉会导致 quick 任务无法被会话认领（退化为懒认领，多 pending 并存时误拒）
+  const isHarnessCmd = cmd.includes('advance-phase') || cmd.includes('harness-workflow') || cmd.includes('archive-story') || cmd.includes('quick-task')
   // 2. Skill 调用（CodeBuddy 中 tool_name 为 Skill，input 里带 skill 名）
   const isSkill = toolName === 'Skill' || toolName === 'use_skill'
   // 3. MCP 调用（tool_name 形如 mcp__<server>__<tool>）

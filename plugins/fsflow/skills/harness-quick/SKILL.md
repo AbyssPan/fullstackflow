@@ -72,13 +72,20 @@ done 会校验证据、写 `knowledge-receipt.json`、撤销 dev-pass 并清除�
 ## 中断与陈旧任务（取消回复 / 换窗口 / 隔天再来的场景）
 
 - **中断是常态，不视为失败**：任务发出后取消 AI 回复、关闭窗口，任务会留在 `in_progress`。
-  create 输出中的 `autoCancelled` / `staleActive` 字段和 session-start 恢复块会给出处理指引。
-- **新任务不受旧任务阻塞**：create 遇到旧任务照常创建；输出里出现陈旧任务信息时，
-  按下列规则向用户转述，不要自行猜测旧任务的结果，也不要停下新任务去深挖旧任务：
-  - 未签发限域的陈旧任务已被**自动取消**（无编辑权限，不存在半成品）——知会用户即可；
-  - 已签发限域的陈旧任务列出并**询问用户**：放弃 → `quick-task.js cancel <storyId> [原因]`；
-    继续 → `quick-task.js status <storyId>` 后按本协议续做；并行处理 → 无需操作。
-- **用户明确说不要了**：`quick-task.js cancel <storyId> "原因"`，不写知识回执。
+  create 输出中的 `autoCancelled` / `staleActive` / `activeQuickTasks` 字段和 session-start
+  恢复块会给出处理指引。
+- **新任务不受旧任务阻塞**：create 遇到旧任务照常创建（激活记录按会话隔离，本会话
+  PostToolUse 会认领本任务的 pending）；输出里出现旧任务信息时，按下列规则处理，
+  不要自行猜测旧任务的结果，也不要停下新任务去深挖旧任务：
+  - `autoCancelled`（未签发限域的陈旧任务）已**自动取消**——知会用户即可；
+  - `staleActive`（已签发限域、超过 24h 无活动）列出并**询问用户**：放弃 →
+    `quick-task.js cancel <storyId> [原因]`；继续 → `quick-task.js status <storyId>` 后按本协议续做；
+  - `activeQuickTasks`（仍新鲜的其他进行中任务）默认是**合法并行**，不询问、不处理；
+    仅当用户本次表述是「取消后重新发起 / 上次跑偏了 / 资料不足重发」时，才对照该清单
+    确认旧任务并询问是否取消。
+- **用户明确说不要了 / 上个任务作废**：`quick-task.js cancel <storyId> "原因"`，不写知识回执；
+  取消后立即重新发起是高频场景（间隔可能只有几分钟），处理顺序：新建任务照常走，
+  确认取消旧任务即可，两者互不阻塞。
 - 新会话接手未完成旧任务（用户要继续）：按 status 输出判断断点——未 scope 就从第 2 步开始，
   已 scope 就直接续做修改，不要重做已完成的定位。
 

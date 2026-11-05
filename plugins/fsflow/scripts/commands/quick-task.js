@@ -183,15 +183,18 @@ function cancelQuickTask (storyId, reason) {
 }
 
 /**
- * 扫描陈旧的 in_progress quick 任务（最后脚本活动超过 QUICK_STALE_TTL_MS）。
+ * 扫描所有 in_progress quick 任务，按陈旧度分流。
  * 未签发限域（files[] 为空且无有效 dev-pass）的陈旧任务可直接自动取消——
  * 它从未获得编辑权限，不存在需要保留的半成品；已签发限域的交由用户决定。
- * @returns {{ autoCancelled: Array<{storyId,description}>, staleActive: Array<{storyId,description,lastActivity,scoped}> }}
+ * 非陈旧的 in_progress 任务一并列出（可能是其他窗口正在并行，也可能是用户
+ * 取消回复后马上重新发起的旧任务——由 Agent 结合用户表述判断是否询问取消）。
+ * @returns {{ autoCancelled: Array, staleActive: Array, activeQuickTasks: Array }}
  */
 function collectStaleQuickTasks () {
   const autoCancelled = []
   const staleActive = []
-  if (!fs.existsSync(PLANS_DIR)) return { autoCancelled, staleActive }
+  const activeQuickTasks = []
+  if (!fs.existsSync(PLANS_DIR)) return { autoCancelled, staleActive, activeQuickTasks }
   for (const dir of fs.readdirSync(PLANS_DIR, { withFileTypes: true })) {
     if (!dir.isDirectory() || !dir.name.startsWith('QUICK-')) continue
     const task = readQuickTask(dir.name)
@@ -201,8 +204,18 @@ function collectStaleQuickTasks () {
     const times = [task.updatedAt, task.createdAt, state.updatedAt, state.createdAt]
       .map(t => Date.parse(t)).filter(t => !isNaN(t))
     const lastActivity = times.length > 0 ? Math.max(...times) : NaN
-    if (isNaN(lastActivity) || (Date.now() - lastActivity) <= QUICK_STALE_TTL_MS) continue
     const scoped = (Array.isArray(task.files) && task.files.length > 0) || checkDevPass(dir.name).valid
+    if (isNaN(lastActivity) || (Date.now() - lastActivity) <= QUICK_STALE_TTL_MS) {
+      // 非陈旧: 列为「其他进行中任务」，并行合法；若用户本次是取消后重新发起，
+      // Agent 应结合该清单询问是否取消旧任务
+      activeQuickTasks.push({
+        storyId: dir.name,
+        description: task.description,
+        lastActivity: isNaN(lastActivity) ? '未知' : new Date(lastActivity).toISOString(),
+        scoped
+      })
+      continue
+    }
     if (!scoped) {
       const r = cancelQuickTask(dir.name, `超过 ${QUICK_STALE_TTL_MS / 3600000}h 无活动且从未签发限域，创建新任务时自动取消`)
       if (r.ok) autoCancelled.push({ storyId: dir.name, description: task.description })
@@ -215,7 +228,7 @@ function collectStaleQuickTasks () {
       })
     }
   }
-  return { autoCancelled, staleActive }
+  return { autoCancelled, staleActive, activeQuickTasks }
 }
 
 // ─── 命令处理 ──────────────────────────────────────────────────
@@ -283,6 +296,9 @@ function cmdCreate (description, relatedStoryId) {
   if (stale.staleActive.length > 0) {
     staleNote += `\n   ⚠ 以下旧 quick 任务超过 ${QUICK_STALE_TTL_MS / 3600000}h 无活动且已签发限域，请询问用户处理:\n${stale.staleActive.map(t => `      - ${t.storyId} "${t.description}" (最后活动 ${t.lastActivity})`).join('\n')}\n      用户放弃 → quick-task.js cancel <storyId>；要继续 → 在本会话 quick-task.js status <storyId> 后按 harness-quick 协议续做；两者都要 → 并行合法，无需处理`
   }
+  if (stale.activeQuickTasks.length > 0) {
+    staleNote += `\n   ⓘ 其他进行中的 quick 任务（并行合法，无需阻塞本次创建）:\n${stale.activeQuickTasks.map(t => `      - ${t.storyId} "${t.description}" (最后活动 ${t.lastActivity})`).join('\n')}\n      仅当用户表明本次是「取消后重新发起」时，才询问是否取消旧任务: quick-task.js cancel <storyId>`
+  }
   if (purged.pendings.length + purged.bindings.length > 0) {
     staleNote += `\n   🧹 已清理 ${purged.pendings.length + purged.bindings.length} 条过期激活记录`
   }
@@ -291,7 +307,14 @@ function cmdCreate (description, relatedStoryId) {
     ok: true,
     harnessEvent: 'start',
     message: `✅ quick 任务已创建\n   Story: ${id} "${desc}"\n   步骤: 1) 定位问题并填写 quick-task.json 的 files[]/acceptance  2) quick-task.js scope ${id} 签发限域  3) 修改与定向自测  4) 填写 evidence  5) quick-task.js done ${id}${staleNote}`,
-    data: { storyId: id, title: desc, mode: 'quick', autoCancelled: stale.autoCancelled, staleActive: stale.staleActive }
+    data: {
+      storyId: id,
+      title: desc,
+      mode: 'quick',
+      autoCancelled: stale.autoCancelled,
+      staleActive: stale.staleActive,
+      activeQuickTasks: stale.activeQuickTasks
+    }
   })
 }
 

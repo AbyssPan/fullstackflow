@@ -221,6 +221,80 @@ try {
     assert.deepEqual(out.data.autoCancelled.map(t => t.storyId), [old], '1h TTL 下 2h 前的任务被自动取消')
   })
 
+  // ─── 场景 B: 短间隔取消后重新发起（几分钟内） ────────────────
+  function postToolUseClaim (stdout, sessionId) {
+    const r = cp.spawnSync(process.execPath, [path.join(pluginRoot, 'scripts/hooks/trace-command.js')], {
+      cwd: root, env: process.env, encoding: 'utf8',
+      input: JSON.stringify({
+        tool_name: 'Bash',
+        tool_input: { command: 'node quick-task.js create' },
+        session_id: sessionId,
+        tool_response: { stdout }
+      })
+    })
+    assert.ifError(r.error)
+    return r.status
+  }
+
+  test('短间隔重新发起（同会话）: 新任务绑定覆盖旧绑定，旧任务确认后取消', () => {
+    cancelAllInProgress()
+    // 第一次: 创建 A 并被本会话认领（AI 已开始处理）
+    const rA = runQuick(['create', '资料不足跑偏的任务A'])
+    const A = JSON.parse(rA.stdout).data.storyId
+    assert.equal(postToolUseClaim(rA.stdout, 'sess-resubmit'), 0)
+    assert.equal(state.readHarnessBinding('sess-resubmit').storyId, A)
+
+    // 用户取消回复，改好描述后同窗口重新发起 B
+    const rB = runQuick(['create', '补充资料后的任务B'])
+    const outB = JSON.parse(rB.stdout)
+    const B = outB.data.storyId
+    // create 输出列出仍在进行的旧任务（activeQuickTasks），但不阻塞创建
+    assert.ok(outB.data.activeQuickTasks.some(t => t.storyId === A), '旧任务进入 activeQuickTasks 清单')
+    assert.ok(outB.message.includes('并行合法'), '输出注明并行合法、仅重新发起时才询问')
+    // 本会话的绑定切换到新任务 B（旧绑定被覆盖）
+    assert.equal(postToolUseClaim(rB.stdout, 'sess-resubmit'), 0)
+    assert.equal(state.readHarnessBinding('sess-resubmit').storyId, B, '会话绑定已切换到新任务')
+
+    // B 照常执行: scope 后限域内可编辑（不被 A 的残留干扰）
+    const taskPath = path.join(plans, B, 'quick-task.json')
+    const taskB = JSON.parse(fs.readFileSync(taskPath, 'utf-8'))
+    taskB.files = ['src/a/fix.js']
+    fs.writeFileSync(taskPath, JSON.stringify(taskB, null, 2))
+    assert.equal(runQuick(['scope', B]).status, 0)
+    assert.equal(editHook('src/a/fix.js', 'sess-resubmit'), 0, '新任务限域内放行')
+
+    // 用户确认旧任务作废 → 显式取消
+    assert.equal(runQuick(['cancel', A, '跑偏了，重新发起']).status, 0)
+    assert.equal(taskOf(A).status, 'cancelled')
+  })
+
+  test('短间隔重新发起（新会话、旧任务从未认领）: 新会话认领自己的任务不受干扰', () => {
+    cancelAllInProgress()
+    // 旧任务 A 创建后 AI 回复被立即取消: pending 存在但从未被认领
+    const rA = runQuick(['create', '秒取消的任务A'])
+    const A = JSON.parse(rA.stdout).data.storyId
+    assert.equal(state.readHarnessRecords().pending.filter(p => p.storyId === A).length, 1)
+
+    // 新窗口: 创建 B，PostToolUse 按 storyId 精确认领 B（两条 fresh pending 共存）
+    const rB = runQuick(['create', '重新发起的任务B'])
+    const B = JSON.parse(rB.stdout).data.storyId
+    assert.equal(state.readHarnessRecords().pending.length, 2, '两条 fresh pending 共存')
+    assert.equal(postToolUseClaim(rB.stdout, 'sess-newwin'), 0)
+    assert.equal(state.readHarnessBinding('sess-newwin').storyId, B, '新会话精确认领自己的任务')
+
+    // B 的 scope + 编辑不受 A 的 pending 干扰
+    const taskPath = path.join(plans, B, 'quick-task.json')
+    const taskB = JSON.parse(fs.readFileSync(taskPath, 'utf-8'))
+    taskB.files = ['src/a/fix.js']
+    fs.writeFileSync(taskPath, JSON.stringify(taskB, null, 2))
+    assert.equal(runQuick(['scope', B]).status, 0)
+    assert.equal(editHook('src/a/fix.js', 'sess-newwin'), 0)
+
+    // 旧任务 A 不再需要 → 取消后 pending 清除
+    assert.equal(runQuick(['cancel', A, '不需要了']).status, 0)
+    assert.equal(state.readHarnessRecords().pending.filter(p => p.storyId === A).length, 0)
+  })
+
   console.log(`Quick stale cleanup: ${count} checks passed`)
 } finally {
   fs.rmSync(root, { recursive: true, force: true })

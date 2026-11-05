@@ -34,3 +34,10 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/commands/quick-task.js create "<修改描述>
 - quick 任务**不做 git commit / push / MR**——用户手动提交全部 quick 与完整流程的变更。
 - 修改过程中发现超出准入条件（文件数超限、接口/迁移/权限风险），执行
   `quick-task.js escalate <storyId> "<原因>"` 升格完整 fixbugs 流程，已做工作不丢失。
+
+## 中断的旧任务
+
+上次任务被取消回复或关闭窗口后会留在 `in_progress`。创建新任务时脚本自动处理：
+未签发限域的旧任务（从未获得编辑权限）直接自动取消并在输出中知会；已签发限域的会列出，
+按 harness-quick 的指引询问用户取消、继续或并行。也可手动取消：
+`node ${CLAUDE_PLUGIN_ROOT}/scripts/commands/quick-task.js cancel <storyId> [原因]`。

@@ -2,6 +2,26 @@
 
 ## 1.5.0（2026-11-04）
 
+### 1.5.0 追加（2026-11-05）：quick 中断任务清理
+
+场景：quick 任务发出后取消 AI 回复 / 关闭窗口，任务残留 `in_progress`、激活记录无人认领，
+干扰次日新会话（新会话误认旧任务、ambiguous/unbound 误拒）。
+
+- 新增 `quick-task.js cancel <storyId> [原因]`：显式取消，置 `cancelled` 终态（e2e-state
+  status 枚举新增该值）、撤销 dev-pass、清除激活记录；不写知识回执。
+- `create` 自动清理：过期 pending（>24h）与过期会话绑定（>48h）物理清除；扫描陈旧的
+  in_progress quick 任务（最后活动超过 `FSFLOW_QUICK_STALE_HOURS`，默认 24h）——
+  未签发限域的直接自动取消并知会（从未获得编辑权限，无半成品）；已签发限域的仅报告，
+  由用户决定取消 / 继续 / 并行。
+- `resolveHarnessStory` 过期判定：本会话绑定始终有效；**其他会话**的过期 pending/绑定
+  不参与归属判定——新会话不再被残留记录误拒，也不会懒认领过期任务。物理清理由
+  `purgeStaleHarnessRecords()` 负责（session-start 与 quick create 时触发）。
+- session-start 的 quick 恢复块增加疑似中断提示（>24h 无活动），指引询问用户而非替旧任务收尾。
+- harness-quick skill / quick 命令补充「中断与陈旧任务」处理协议。
+- 新增 `quick-stale-cleanup.test.js`（7 项）。
+
+## 1.5.0 原始发布内容（2026-11-04）
+
 围绕「需求交付后的人工审查 + 多会话小范围修改 + 手动提交」工作模式的一次大版本更新。
 定位：新需求走完整工作流，P3 审查通过后进入待人工检查终态即结束；后续小改动 / Bug 修复走
 quick 轻量流程，全部变更由用户手动汇总提交。

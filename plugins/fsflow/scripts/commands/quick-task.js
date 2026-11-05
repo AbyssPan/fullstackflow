@@ -47,6 +47,7 @@ const {
   checkDevPass,
   writePendingHarnessRecord,
   clearHarnessRecordsForStory,
+  purgeStaleHarnessRecords,
   getStoryDir
 } = require('../lib/state')
 
@@ -58,6 +59,15 @@ const KNOWLEDGE_RECEIPT_FILE = 'knowledge-receipt.json'
 
 /** scope 允许的最大文件数 */
 const MAX_QUICK_FILES = 3
+
+/**
+ * quick 任务陈旧判定 TTL（小时）：最后一次脚本活动（create/scope/done）超过该时长
+ * 视为疑似中断。可用环境变量 FSFLOW_QUICK_STALE_HOURS 覆盖，默认 24h。
+ */
+const QUICK_STALE_TTL_MS = (function () {
+  const h = parseInt(process.env.FSFLOW_QUICK_STALE_HOURS, 10)
+  return (isNaN(h) || h <= 0 ? 24 : h) * 3600 * 1000
+})()
 
 /** 风险路径特征：命中即拒绝 scope，建议升格完整流程 */
 const RISK_PATH_PATTERNS = [
@@ -141,6 +151,73 @@ function assessRisk (files, description) {
   return hits
 }
 
+/**
+ * 取消 quick 任务（中断/放弃的收尾）：置 cancelled 终态、撤销 dev-pass、清除激活记录。
+ * 与 done 的区别：不要求 evidence，不写知识回执。
+ * @returns {{ ok: boolean, message: string }} 供 cmdCancel 与 create 自动清理复用
+ */
+function cancelQuickTask (storyId, reason) {
+  const state = readStateFile(storyId)
+  if (!state || state._parseError) return { ok: false, message: `任务 ${storyId} 不存在或状态损坏` }
+  if (state.mode !== 'quick') return { ok: false, message: `任务 ${storyId} 不是 quick 模式` }
+  if (state.quickStatus !== 'in_progress') return { ok: false, message: `任务 ${storyId} 已结束 (${state.quickStatus})，无需取消` }
+
+  const now = new Date().toISOString()
+  const task = readQuickTask(storyId)
+  if (task && !task._parseError) {
+    task.status = 'cancelled'
+    task.cancelReason = (reason || '').trim() || '用户取消'
+    task.updatedAt = now
+    writeQuickTask(storyId, task)
+  }
+
+  state.status = 'cancelled'
+  state.quickStatus = 'cancelled'
+  state.phase = 8
+  state.updatedAt = now
+  writeStateFile(storyId, state)
+
+  revokeDevPass(storyId)
+  clearHarnessRecordsForStory(storyId)
+  return { ok: true, message: `已取消 ${storyId}${reason ? `（${reason}）` : ''}` }
+}
+
+/**
+ * 扫描陈旧的 in_progress quick 任务（最后脚本活动超过 QUICK_STALE_TTL_MS）。
+ * 未签发限域（files[] 为空且无有效 dev-pass）的陈旧任务可直接自动取消——
+ * 它从未获得编辑权限，不存在需要保留的半成品；已签发限域的交由用户决定。
+ * @returns {{ autoCancelled: Array<{storyId,description}>, staleActive: Array<{storyId,description,lastActivity,scoped}> }}
+ */
+function collectStaleQuickTasks () {
+  const autoCancelled = []
+  const staleActive = []
+  if (!fs.existsSync(PLANS_DIR)) return { autoCancelled, staleActive }
+  for (const dir of fs.readdirSync(PLANS_DIR, { withFileTypes: true })) {
+    if (!dir.isDirectory() || !dir.name.startsWith('QUICK-')) continue
+    const task = readQuickTask(dir.name)
+    const state = readStateFile(dir.name)
+    if (!task || task._parseError || task.status !== 'in_progress') continue
+    if (!state || state._parseError || state.quickStatus !== 'in_progress') continue
+    const times = [task.updatedAt, task.createdAt, state.updatedAt, state.createdAt]
+      .map(t => Date.parse(t)).filter(t => !isNaN(t))
+    const lastActivity = times.length > 0 ? Math.max(...times) : NaN
+    if (isNaN(lastActivity) || (Date.now() - lastActivity) <= QUICK_STALE_TTL_MS) continue
+    const scoped = (Array.isArray(task.files) && task.files.length > 0) || checkDevPass(dir.name).valid
+    if (!scoped) {
+      const r = cancelQuickTask(dir.name, `超过 ${QUICK_STALE_TTL_MS / 3600000}h 无活动且从未签发限域，创建新任务时自动取消`)
+      if (r.ok) autoCancelled.push({ storyId: dir.name, description: task.description })
+    } else {
+      staleActive.push({
+        storyId: dir.name,
+        description: task.description,
+        lastActivity: new Date(lastActivity).toISOString(),
+        scoped: true
+      })
+    }
+  }
+  return { autoCancelled, staleActive }
+}
+
 // ─── 命令处理 ──────────────────────────────────────────────────
 
 /**
@@ -149,6 +226,10 @@ function assessRisk (files, description) {
 function cmdCreate (description, relatedStoryId) {
   const desc = (description || '').trim() || '快速修改'
   if (relatedStoryId) assertValidStoryId(relatedStoryId)
+
+  // 清理过期激活残留 + 处理陈旧的 in_progress 任务（见 collectStaleQuickTasks）
+  const purged = purgeStaleHarnessRecords()
+  const stale = collectStaleQuickTasks()
 
   const id = generateQuickId()
   ensureStoryDir(id)
@@ -194,11 +275,23 @@ function cmdCreate (description, relatedStoryId) {
     activatedAt: now
   })
 
+  // 陈旧任务提示：自动取消的知会即可；已签发限域的需要用户决定（取消/继续/并行）
+  let staleNote = ''
+  if (stale.autoCancelled.length > 0) {
+    staleNote += `\n   🧹 已自动取消中断的旧任务: ${stale.autoCancelled.map(t => `${t.storyId}("${t.description}")`).join(', ')}`
+  }
+  if (stale.staleActive.length > 0) {
+    staleNote += `\n   ⚠ 以下旧 quick 任务超过 ${QUICK_STALE_TTL_MS / 3600000}h 无活动且已签发限域，请询问用户处理:\n${stale.staleActive.map(t => `      - ${t.storyId} "${t.description}" (最后活动 ${t.lastActivity})`).join('\n')}\n      用户放弃 → quick-task.js cancel <storyId>；要继续 → 在本会话 quick-task.js status <storyId> 后按 harness-quick 协议续做；两者都要 → 并行合法，无需处理`
+  }
+  if (purged.pendings.length + purged.bindings.length > 0) {
+    staleNote += `\n   🧹 已清理 ${purged.pendings.length + purged.bindings.length} 条过期激活记录`
+  }
+
   ok({
     ok: true,
     harnessEvent: 'start',
-    message: `✅ quick 任务已创建\n   Story: ${id} "${desc}"\n   步骤: 1) 定位问题并填写 quick-task.json 的 files[]/acceptance  2) quick-task.js scope ${id} 签发限域  3) 修改与定向自测  4) 填写 evidence  5) quick-task.js done ${id}`,
-    data: { storyId: id, title: desc, mode: 'quick' }
+    message: `✅ quick 任务已创建\n   Story: ${id} "${desc}"\n   步骤: 1) 定位问题并填写 quick-task.json 的 files[]/acceptance  2) quick-task.js scope ${id} 签发限域  3) 修改与定向自测  4) 填写 evidence  5) quick-task.js done ${id}${staleNote}`,
+    data: { storyId: id, title: desc, mode: 'quick', autoCancelled: stale.autoCancelled, staleActive: stale.staleActive }
   })
 }
 
@@ -229,6 +322,10 @@ function cmdScope (storyId) {
   }).filter(p => p.path)
 
   const devPass = issueDevPass(storyId, 2 * 60 * 60 * 1000, allowedPaths)
+
+  // 记录脚本侧活动时间（陈旧判定的依据之一：Agent 手改 quick-task.json 不更新时间戳）
+  task.updatedAt = new Date().toISOString()
+  writeQuickTask(storyId, task)
 
   ok({
     ok: true,
@@ -364,6 +461,21 @@ function cmdStatus (storyId) {
   })
 }
 
+/**
+ * 取消任务（用户明确放弃 / 中断收尾）
+ */
+function cmdCancel (storyId, reason) {
+  if (!storyId) fail('用法: node quick-task.js cancel <storyId> [原因]')
+  const r = cancelQuickTask(storyId, reason)
+  if (!r.ok) fail(r.message)
+  ok({
+    ok: true,
+    harnessEvent: 'end',
+    message: `✅ ${r.message}\n   dev-pass 已撤销、激活记录已清除；被取消的任务不写知识回执`,
+    data: { storyId, status: 'cancelled' }
+  })
+}
+
 // ─── 入口 ──────────────────────────────────────────────────────
 
 const args = process.argv.slice(2)
@@ -399,6 +511,9 @@ switch (command) {
   case 'escalate':
     cmdEscalate(positional[1], positional.slice(2).join(' ').replace(/^["']|["']$/g, ''))
     break
+  case 'cancel':
+    cmdCancel(positional[1], positional.slice(2).join(' ').replace(/^["']|["']$/g, ''))
+    break
   case 'status':
     cmdStatus(positional[1])
     break
@@ -410,10 +525,13 @@ switch (command) {
       '  node quick-task.js create "<描述>" [--story <关联需求StoryId>]   创建 quick 任务',
       '  node quick-task.js scope <storyId>                              校验 files[] 并签发限域 dev-pass',
       '  node quick-task.js done <storyId> [--note "<经验一句话>"]        完成（校验证据、写知识回执）',
+      '  node quick-task.js cancel <storyId> [原因]                       取消中断/放弃的任务',
       '  node quick-task.js escalate <storyId> "<原因>"                   升格为完整 fixbugs 工作流',
       '  node quick-task.js status <storyId>                             查看状态',
       '',
-      '用户命令: /fsflow:quick'
+      '用户命令: /fsflow:quick',
+      `陈旧判定: 最后活动超过 ${QUICK_STALE_TTL_MS / 3600000}h 的 in_progress 任务视为疑似中断`,
+      '（未签发限域的在新任务创建时自动取消；已签发限域的报告给用户决定；可用 FSFLOW_QUICK_STALE_HOURS 覆盖）'
     ].join('\n'))
     process.exit(1)
 }

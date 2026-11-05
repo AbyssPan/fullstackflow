@@ -8,7 +8,7 @@
     "storyId": { "type": "string", "minLength": 1 },
     "title": { "type": "string" },
     "phase": { "type": "integer", "minimum": 0, "maximum": 8 },
-    "status": { "type": "string", "enum": ["running", "completed", "archived", "pending"] },
+    "status": { "type": "string", "enum": ["running", "completed", "archived", "pending", "cancelled"] },
     "createdAt": { "type": "string", "format": "date-time" },
     "updatedAt": { "type": "string", "format": "date-time" },
     "bypass": { "type": "boolean" },

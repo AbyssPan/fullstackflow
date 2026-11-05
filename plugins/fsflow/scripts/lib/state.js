@@ -1602,9 +1602,11 @@ function claimHarnessRecord (sessionId, storyId = null) {
   const sid = sanitizeSessionId(sessionId)
   if (!sid) return null
   const records = readHarnessRecords()
+  // 过期的 pending 不参与认领（残留清理由 purgeStaleHarnessRecords 负责）
+  const freshPendings = records.pending.filter(p => !isStalePending(p))
   const candidates = storyId
-    ? records.pending.filter(p => p.storyId === storyId)
-    : records.pending
+    ? freshPendings.filter(p => p.storyId === storyId)
+    : freshPendings
   if (candidates.length !== 1) return null
   const target = candidates[0]
   // 同一 Story 已有本会话绑定时幂等返回，不重复认领
@@ -1651,6 +1653,56 @@ function clearHarnessRecordsForStory (storyId) {
 }
 
 /**
+ * ─── v1.5.1 中断任务过期清理 ─────────────────────────────────────
+ * 场景: 用户取消 AI 回复 / 异常关闭窗口后，pending 与会话绑定成为无人认领的残留，
+ * 会让新会话误入 ambiguous / unbound 拒绝。记录均带时间戳，超过 TTL 视为陈旧:
+ *   - pending: create 后从未被认领（正常应秒级发生）→ 默认 24h
+ *   - binding: 正常结束由 Stop 钩子清理；异常退出残留 → 默认 48h
+ * TTL 可用环境变量 FSFLOW_PENDING_TTL_HOURS / FSFLOW_BINDING_TTL_HOURS 覆盖。
+ */
+const PENDING_TTL_MS = (function () {
+  const h = parseInt(process.env.FSFLOW_PENDING_TTL_HOURS, 10)
+  return (isNaN(h) || h <= 0 ? 24 : h) * 3600 * 1000
+})()
+
+const BINDING_TTL_MS = (function () {
+  const h = parseInt(process.env.FSFLOW_BINDING_TTL_HOURS, 10)
+  return (isNaN(h) || h <= 0 ? 48 : h) * 3600 * 1000
+})()
+
+/** pending 是否已过期（时间戳缺失/非法时保守视为未过期） */
+function isStalePending (p) {
+  const t = Date.parse(p && p.pendingSince)
+  return !isNaN(t) && (Date.now() - t) > PENDING_TTL_MS
+}
+
+/** 其他会话的绑定是否已过期（本会话自己的绑定不适用此判定） */
+function isStaleBinding (b) {
+  const t = Date.parse(b && b.claimedAt)
+  return !isNaN(t) && (Date.now() - t) > BINDING_TTL_MS
+}
+
+/**
+ * 物理清除过期的 pending 与会话绑定记录
+ * @returns {{ pendings: string[], bindings: string[] }} 被清除记录的 storyId 列表
+ */
+function purgeStaleHarnessRecords () {
+  const purged = { pendings: [], bindings: [] }
+  const records = readHarnessRecords()
+  for (const p of records.pending) {
+    if (isStalePending(p)) {
+      try { fs.unlinkSync(path.join(HARNESS_ACTIVE_PATH, p.file)); purged.pendings.push(p.storyId) } catch {}
+    }
+  }
+  for (const b of records.bindings) {
+    if (isStaleBinding(b)) {
+      try { fs.unlinkSync(path.join(HARNESS_ACTIVE_PATH, b.file)); purged.bindings.push(b.storyId) } catch {}
+    }
+  }
+  return purged
+}
+
+/**
  * 解析当前工具调用（Hook 视角）应按哪个 Story 执行门控。
  *
  * 判定顺序:
@@ -1669,7 +1721,7 @@ function resolveHarnessStory (sessionId) {
   const sid = sanitizeSessionId(sessionId)
   const records = readHarnessRecords()
 
-  // 1. 本会话绑定
+  // 1. 本会话绑定（自己的绑定不受过期判定影响——会话存活多久绑定就有效多久）
   if (sid) {
     const own = records.bindings.find(b => b.sessionId === sid)
     if (own) {
@@ -1682,9 +1734,13 @@ function resolveHarnessStory (sessionId) {
     return { active: true, storyId: records.legacy.storyId, mode: 'legacy', sessionId: sid, reason: `旧版全局标记 (storyId: ${records.legacy.storyId})` }
   }
 
+  // 过期记录不参与归属判定（异常退出/取消回复留下的残留，物理清理由 purgeStaleHarnessRecords 负责）
+  const freshPendings = records.pending.filter(p => !isStalePending(p))
+  const freshBindings = records.bindings.filter(b => !isStaleBinding(b))
+
   // 3. pending 记录
-  if (records.pending.length === 1) {
-    const p = records.pending[0]
+  if (freshPendings.length === 1) {
+    const p = freshPendings[0]
     if (sid) {
       const claimed = claimHarnessRecord(sid, p.storyId)
       if (claimed) {
@@ -1695,21 +1751,21 @@ function resolveHarnessStory (sessionId) {
   }
 
   // 4. 多条 pending → 无法归属
-  if (records.pending.length > 1) {
-    return { active: true, storyId: null, mode: 'ambiguous', sessionId: sid, reason: `${records.pending.length} 条待认领激活记录，无法确定归属` }
+  if (freshPendings.length > 1) {
+    return { active: true, storyId: null, mode: 'ambiguous', sessionId: sid, reason: `${freshPendings.length} 条待认领激活记录，无法确定归属` }
   }
 
-  // 5. 其他会话有绑定，本会话未绑定
-  if (records.bindings.length > 0) {
+  // 5. 其他会话有绑定（未过期），本会话未绑定
+  if (freshBindings.length > 0) {
     // 宿主未提供 session_id（旧宿主）且全局只有一条绑定 → 沿用旧单激活语义
-    if (!sid && records.bindings.length === 1) {
-      const b = records.bindings[0]
+    if (!sid && freshBindings.length === 1) {
+      const b = freshBindings[0]
       return { active: true, storyId: b.storyId, mode: 'pending', sessionId: null, reason: `宿主未提供 session_id，按唯一绑定降级 (storyId: ${b.storyId})` }
     }
-    return { active: true, storyId: null, mode: 'unbound', sessionId: sid, reason: `${records.bindings.length} 个其他会话的 Harness 已激活，本会话未绑定 Story` }
+    return { active: true, storyId: null, mode: 'unbound', sessionId: sid, reason: `${freshBindings.length} 个其他会话的 Harness 已激活，本会话未绑定 Story` }
   }
 
-  // 6. 无任何记录
+  // 6. 无有效记录（含全部过期）
   return { active: false, storyId: null, mode: 'normal', sessionId: sid, reason: '无激活记录' }
 }
 
@@ -1899,6 +1955,9 @@ module.exports = {
   clearHarnessBinding,
   clearHarnessRecordsForStory,
   resolveHarnessStory,
+  isStalePending,
+  isStaleBinding,
+  purgeStaleHarnessRecords,
 
   // 修复回路配置
   DEFAULT_MAX_REVIEW_FIX_ROUNDS,

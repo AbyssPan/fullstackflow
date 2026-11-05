@@ -69,6 +69,19 @@ done 会校验证据、写 `knowledge-receipt.json`、撤销 dev-pass 并清除�
   `quick-task.js escalate <storyId> "<原因>"`，转完整 fixbugs 流程（dispatch 起步）。
 - 已做的定位与修改保留在 Story 目录，需求分析师会读取 quick-task.json 复用。
 
+## 中断与陈旧任务（取消回复 / 换窗口 / 隔天再来的场景）
+
+- **中断是常态，不视为失败**：任务发出后取消 AI 回复、关闭窗口，任务会留在 `in_progress`。
+  create 输出中的 `autoCancelled` / `staleActive` 字段和 session-start 恢复块会给出处理指引。
+- **新任务不受旧任务阻塞**：create 遇到旧任务照常创建；输出里出现陈旧任务信息时，
+  按下列规则向用户转述，不要自行猜测旧任务的结果，也不要停下新任务去深挖旧任务：
+  - 未签发限域的陈旧任务已被**自动取消**（无编辑权限，不存在半成品）——知会用户即可；
+  - 已签发限域的陈旧任务列出并**询问用户**：放弃 → `quick-task.js cancel <storyId> [原因]`；
+    继续 → `quick-task.js status <storyId>` 后按本协议续做；并行处理 → 无需操作。
+- **用户明确说不要了**：`quick-task.js cancel <storyId> "原因"`，不写知识回执。
+- 新会话接手未完成旧任务（用户要继续）：按 status 输出判断断点——未 scope 就从第 2 步开始，
+  已 scope 就直接续做修改，不要重做已完成的定位。
+
 ## 关键边界
 
 - 不写/改 `e2e-state.json`、`dev-pass.json`（quick-task.js 独占维护）。

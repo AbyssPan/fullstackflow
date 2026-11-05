@@ -70,13 +70,22 @@ function buildAdditionalContext (workflowResults) {
       lines.push(`   标题: ${state.title || '未知'}`)
       lines.push(`   状态: ${state.quickStatus || 'in_progress'}（quick 模式，无 Phase 概念）`)
       if (state.quickStatus === 'in_progress') {
+        // 陈旧判定: 最后活动超过 24h 视为疑似中断（用户取消回复/关闭窗口所致）
+        const staleH = parseInt(process.env.FSFLOW_QUICK_STALE_HOURS, 10)
+        const staleMs = (isNaN(staleH) || staleH <= 0 ? 24 : staleH) * 3600 * 1000
+        const acts = [state.updatedAt, state.createdAt].map(t => Date.parse(t)).filter(t => !isNaN(t))
+        const isStale = acts.length > 0 && (Date.now() - Math.max(...acts)) > staleMs
+        if (isStale) {
+          lines.push(`   ⚠ 该任务超过 ${staleMs / 3600000}h 无活动，疑似已被中断（用户取消回复或关闭窗口）。`)
+          lines.push('     不要替它收尾或猜测其结果；先询问用户: 放弃 → quick-task.js cancel；继续 → 按下方步骤续做。')
+        }
         lines.push('')
         lines.push('按 quick 协议继续，不执行 dispatch.js、不派子 Agent：')
         lines.push(`   1. node "\${CLAUDE_PLUGIN_ROOT}/scripts/commands/quick-task.js" status ${storyId}`)
         lines.push('   2. 未签发限域 → 定位问题填写 quick-task.json 的 files[]/acceptance → scope 签发')
         lines.push('   3. 已签发 → 修改限域内文件 + 定向自测 → 填 evidence → done 收尾')
       } else {
-        lines.push('   该任务已结束（done/escalated）；escalated 的 Story 已转为完整 fixbugs，正常 dispatch。')
+        lines.push('   该任务已结束（done/cancelled/escalated）；escalated 的 Story 已转为完整 fixbugs，正常 dispatch。')
       }
       continue
     }
@@ -192,6 +201,9 @@ function main () {
   } catch (e) {
     // stdin 为空或 JSON 解析失败，忽略
   }
+
+  // v1.5.1: 先清理异常退出/取消回复留下的过期激活记录（pending 24h / 绑定 48h，失败不阻塞启动）
+  try { hookUtils.purgeStaleHarnessRecords() } catch (_) { /* 清理失败不阻塞会话启动 */ }
 
   // 扫描活跃工作流（复用 hook-utils 的新版路径逻辑）
   const activeWorkflows = hookUtils.findActiveWorkflows()

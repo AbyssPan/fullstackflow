@@ -22,6 +22,7 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 const { spawnSync, execSync } = require('child_process')
+const { toPosix } = require('./helpers/platform')
 
 const PLUGIN_ROOT = path.resolve(__dirname, '..', '..')
 const KB_INIT = path.join(PLUGIN_ROOT, 'skills', 'kb-init', 'kb-init.cjs')
@@ -487,7 +488,9 @@ section('3. gen-docs: 全量/单域/裸文件名 src 兜底（修复回归）')
   const files = (dom.files && dom.files.all) || []
   ok('全量模式收集到 3 个文件', files.length === 3, JSON.stringify(files))
   ok('通配符展开 S1/S2.vue', files.some(f => f.endsWith('S1.vue')) && files.some(f => f.endsWith('S2.vue')))
-  ok('裸文件名 helper.js 兜底到 src/helper.js（修复前未实现）', files.some(f => f.endsWith('src/helper.js')))
+  // 脚本输出的路径按运行平台的分隔符拼接，断言前归一，避免 Windows 反斜杠假失败。
+  ok('裸文件名 helper.js 兜底到 src/helper.js（修复前未实现）',
+    files.some(f => toPosix(f).endsWith('src/helper.js')), JSON.stringify(files))
 
   // 单域
   const single = runScript(GEN_DOCS, ['settings'], sb)

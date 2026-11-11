@@ -13,6 +13,9 @@ let total = 0
 function test (name, fn) { fn(); total++; console.log('✓ ' + name) }
 try {
   git('init', '-q'); git('config', 'user.name', 'KB Test'); git('config', 'user.email', 'kb@example.invalid')
+  // 隔离宿主全局 core.autocrlf：否则 checkout/merge 会把 LF 转成 CRLF，严格校验的
+  // 摘要比对随平台变化（Windows 检出必失败）。
+  git('config', 'core.autocrlf', 'false'); git('config', 'core.safecrlf', 'false')
   git('config', 'core.hooksPath', path.join(root, '.git/hooks'))
   put('src/order.js', 'export const cancelMinutes = 30\n')
   put('src/user.js', 'export const enabled = true\n')

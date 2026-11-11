@@ -93,6 +93,7 @@ cd plugins/fsflow && npm run check
 
 预期输出 `✅ 插件一致性检查通过`。该检查覆盖宿主 manifest、双市场清单、命令入口、
 Skill / Agent frontmatter、文档版本/数量/模型/链接、Hook 注册与脚本引用、全部 JSON 与 JavaScript 语法。
+读取文件时统一归一为 LF，CRLF 与 LF 检出结论一致，可直接在 Windows / Linux 上作为提交前门禁。
 
 ### 4. 单元测试（仅插件开发者）
 

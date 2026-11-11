@@ -42,6 +42,9 @@ function test (name, fn) {
   }
   try {
     git('init', '-q'); git('config', 'user.name', 'KB Test'); git('config', 'user.email', 'kb@example.invalid')
+    // 隔离宿主全局 core.autocrlf：否则 checkout/merge 会把 LF 转成 CRLF，receipt 摘要与
+    // 工作区内容不一致，历史判定出现平台差异（Windows 检出必失败）。
+    git('config', 'core.autocrlf', 'false'); git('config', 'core.safecrlf', 'false')
     git('config', 'core.hooksPath', path.join(root, '.git/hooks'))
     put('src/order.js', 'export const enabled = true\n')
     put(dir + 'meta.yaml', 'git: {}\ndomains:\n  - id: order\n    path: business/order/\n    entry_files: [src/order.js]\n')

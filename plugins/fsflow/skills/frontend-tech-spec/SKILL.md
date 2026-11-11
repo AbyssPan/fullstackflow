@@ -16,6 +16,7 @@ description: 前端开发与审查规范解析。适用于页面、组件、请�
 
 - 所有前端编码与审查：读 [工程规则](references/engineering.md)，按 JS/TS、框架版本和运行端筛选。
 - 有设计稿、样式或交互变更：读 [设计与交互](references/design.md)。Figma 节点仍由 figma-to-component-map 绑定，本技能不另建流程。
+- 需要像素级还原（任务带 figmaRefs / figmaNodeId，或用户明确要求高保真）：再读 [还原执行手册](references/design-restoration.md)。只做局部样式调整时不必加载，避免整本手册进入常驻上下文。
 - 共享模块或跨页面变更：遵守 [影响面分析](../harness-conductor/references/代码检索规范.md)。
 - 完工或交接：遵守 [验证与交付](../harness-conductor/references/verification.md)。
 

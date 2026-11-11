@@ -5,6 +5,7 @@ const os = require('os')
 const path = require('path')
 const { execFileSync, spawnSync } = require('child_process')
 const { snapshot, validateCoverage } = require('../../skills/code-review/scripts/review-scope.cjs')
+const { supportsNewlineInFileName } = require('./helpers/platform')
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fsflow-review-'))
 process.env.CLAUDE_PROJECT_DIR = root
 process.env.CODEBUDDY_PROJECT_DIR = root
@@ -36,12 +37,15 @@ try {
   write('staged.js', 'module.exports = 2\n')
   git('add', 'staged.js')
   write('新建 空格.js', 'const value = 2\n')
-  write('untracked\nname.ts', 'export const x = 1\n')
+  // Windows 文件名不允许换行，该夹具仅在 POSIX 下创建；断言语义不变。
+  if (supportsNewlineInFileName) write('untracked\nname.ts', 'export const x = 1\n')
   fs.unlinkSync(path.join(root, 'deleted.js'))
   fs.renameSync(path.join(root, 'renamed.js'), path.join(root, 'moved.js'))
   write('.codebuddy/plans/S/code-review.json', '{}')
   const snap = snapshot(root, 'app')
-  assert.deepEqual(snap.files.map(f => f.path).sort(), ['staged.js', '新建 空格.js', 'untracked\nname.ts', 'deleted.js', 'renamed.js', 'moved.js'].sort())
+  const expectedPaths = ['staged.js', '新建 空格.js', 'deleted.js', 'renamed.js', 'moved.js']
+  if (supportsNewlineInFileName) expectedPaths.push('untracked\nname.ts')
+  assert.deepEqual(snap.files.map(f => f.path).sort(), expectedPaths.sort())
   assert.ok(snap.excluded.some(f => f.path.endsWith('code-review.json')))
   assert.deepEqual(validateCoverage(coverage(snap), repos), [])
   const missing = coverage(snap)

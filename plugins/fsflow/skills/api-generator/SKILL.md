@@ -49,6 +49,16 @@ description: 当用户提供 Swagger JSON 文件路径或 URL 或者 api doc 文
 3. 输出以脚本生成结果为准，不擅自改写其解析规则、命名清理规则或返回结构
 4. 如果查找不到用户要的内容，则提示用户然后退出
 
+## 生成闭环（画像 → 生成 → 确认）
+
+脚本负责机械提取；**落到项目文件前**必须先完成三步，细则见 [生成规则](references/generation-rules.md)：
+
+1. **画像**：探测请求封装层、模块组织、命名、注释、类型与响应解包方式，输出模式画像；项目首次接入时标注「无既有样本」。
+2. **生成**：按画像归类模块、命名函数、复用项目封装层、补齐 JSDoc 或类型；冲突与「可能废弃」项单独列出。
+3. **确认**：向用户展示新增 / 更新 / 跳过 / 冲突清单，确认后才算完成。
+
+用户只要脚本原始提取结果、明确不落库时，可跳过画像与确认两步。
+
 ## 运行脚本
 
 [index.js](./scripts/index.js) 处理用户传入的参数，根据参数调用 Swagger 解析脚本生成接口定义。
@@ -106,7 +116,7 @@ node ./scripts/index.js "./api-docs.json" "用户模块" "/api/user/detail"
 2. 判断用户希望按 Tag/模块提取，还是按接口路径提取
 3. 使用当前 skill 目录下的 `index.js` 执行生成命令
 4. 返回脚本原始生成结果
-5. 如果用户要求落库，再把生成结果按目标项目现有风格整合到指定文件
+5. 如果用户要求落库，按上文「生成闭环」执行：先画像，再按画像整合到目标文件，最后列出改动与冲突清单等用户确认
 
 ## 输出要求
 
@@ -181,3 +191,4 @@ export const selectRef = (data: SelectRefRequest): Promise<ApiResponse<SelectRef
 
 - `scripts/index.js`：CLI 入口，负责参数解析、文档读取与结果输出
 - `scripts/swagger-parser.js`：Swagger 解析、JSDoc 生成与 TypeScript 生成功能实现
+- `references/generation-rules.md`：项目模式画像、生成与合并规则、质量清单与确认要求

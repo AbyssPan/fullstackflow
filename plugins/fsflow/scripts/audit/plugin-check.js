@@ -21,7 +21,9 @@ function fail(message) {
 
 function readText(file) {
   try {
-    return fs.readFileSync(file, 'utf8')
+    // 统一换行为 LF：CRLF 检出与 LF 检出必须产生一致文本，否则 frontmatter 行正则
+    // 与 README 的精确匹配（如 "## License\n\nMIT"）会因尾部 \r 全部失效。
+    return fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n')
   } catch (error) {
     fail(`无法读取 ${path.relative(REPO_ROOT, file)}: ${error.message}`)
     return ''
@@ -59,7 +61,8 @@ function frontmatter(file) {
   }
   const fields = {}
   for (const line of match[1].split('\n')) {
-    const item = line.match(/^([A-Za-z][\w-]*):\s*(.*)$/)
+    // 允许行首缩进与行尾空白：YAML 折叠块（如 description: >）的值行不参与字段解析
+    const item = line.trim().match(/^([A-Za-z][\w-]*):\s*(.*)$/)
     if (item) fields[item[1]] = item[2].trim().replace(/^['"]|['"]$/g, '')
   }
   return { text, fields }
@@ -138,7 +141,7 @@ function checkMarketplaces(identity) {
 
 function checkCommands(identity) {
   const dir = path.join(PLUGIN_ROOT, 'commands')
-  const required = ['run.md', 'fixbugs.md', 'status.md', 'end.md', 'evolve.md', 'archive.md', 'fullstack.md']
+  const required = ['run.md', 'fixbugs.md', 'only.md', 'status.md', 'end.md', 'evolve.md', 'archive.md', 'fullstack.md']
   for (const name of required) {
     const file = path.join(dir, name)
     if (!fs.existsSync(file)) {
@@ -166,6 +169,38 @@ function checkCommands(identity) {
       }
     }
   }
+}
+
+/**
+ * only 命令的白名单必须指向真实技能。
+ *
+ * 技能改名或删除后，白名单会静默失效：用户敲 `/fsflow:only <旧名>` 只会得到
+ * 「技能不存在」，无法自查；把校验放在这里可以把失效提前到发布前。
+ * 白名单以 HTML 注释声明，避免从正文反引号里误提取普通词。
+ */
+function checkOnlyWhitelist() {
+  const file = path.join(PLUGIN_ROOT, 'commands/only.md')
+  if (!fs.existsSync(file)) return
+  const text = readText(file)
+  const parse = tag => {
+    const match = text.match(new RegExp(`<!--\\s*${tag}:([^>]*)-->`))
+    return match ? match[1].trim().split(/\s+/).filter(Boolean) : []
+  }
+  const allowed = parse('allowed-skills')
+  const denied = parse('denied-skills')
+  if (allowed.length === 0) {
+    fail('commands/only.md 缺少 allowed-skills 白名单声明')
+    return
+  }
+  for (const name of allowed) {
+    if (!fs.existsSync(path.join(PLUGIN_ROOT, 'skills', name, 'SKILL.md'))) {
+      fail(`commands/only.md 白名单引用了不存在的技能: ${name}`)
+    }
+  }
+  for (const name of denied) {
+    if (allowed.includes(name)) fail(`commands/only.md 白名单与拒绝列表重复: ${name}`)
+  }
+  checked.push(`${allowed.length} only 白名单技能`)
 }
 
 function checkSkillsAndAgents(identity) {
@@ -311,6 +346,7 @@ const identity = checkManifests()
 checkMarketplaces(identity)
 if (identity) {
   checkCommands(identity)
+  checkOnlyWhitelist()
   checkSkillsAndAgents(identity)
   checkDocumentation(identity)
 }

@@ -23,6 +23,7 @@ const path = require('path')
 const { spawnSync } = require('child_process')
 
 const SCRIPTS_DIR = path.resolve(__dirname, '..')
+const { toPosix } = require('./helpers/platform')
 
 // ── 沙箱: 必须在 require state.js 之前设好，PLANS_DIR 是模块加载期求值的 ──
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-flow-'))
@@ -267,7 +268,8 @@ if (out && out.success === true) {
 section('5b. 仓库检索入口')
 
 const repoSearchMissing = promptBuilder.buildRepoSearchEntries('FG1-OK', 2).join('\n')
-ok('检索入口含主仓绝对路径', repoSearchMissing.includes(SANDBOX), repoSearchMissing)
+// prompt 里的仓库根按 POSIX 输出（便于跨平台复制粘贴），断言同样归一后再比较。
+ok('检索入口含主仓绝对路径', repoSearchMissing.includes(toPosix(SANDBOX)), repoSearchMissing)
 ok('检索入口给出源码验证和当前工作区规则', /源码搜索验证/.test(repoSearchMissing) && /当前分支和工作区/.test(repoSearchMissing))
 ok('非检索 Phase 不注入代码检索入口', promptBuilder.buildRepoSearchEntries('FG1-OK', 4).length === 0)
 
@@ -319,7 +321,7 @@ for (const targetPhase of [2, 3, 4, 5]) {
   const handoff = promptBuilder.buildAgentPrompt({ storyId: 'SOURCE-EVIDENCE', targetPhase })
   ok(`Phase ${targetPhase} 能定位当前任务证据但不内联正文`,
     handoff.contractFilesToLoad.some(f => f.endsWith('development-notes/task-1.md')) &&
-    handoff.agentPrompt.includes('development-notes/task-1.md') && !handoff.agentPrompt.includes('独立证据正文'))
+    toPosix(handoff.agentPrompt).includes('development-notes/task-1.md') && !handoff.agentPrompt.includes('独立证据正文'))
   ok(`Phase ${targetPhase} 不交接上轮任务或同名目录`, !handoff.contractFilesToLoad.some(f => /task-(2|99)\.md$/.test(f)))
   if (targetPhase === 3 || targetPhase === 4) {
     ok(`Phase ${targetPhase} 保留 task-dag 输入`, handoff.contractFilesToLoad.some(f => f.endsWith('task-dag.json')))

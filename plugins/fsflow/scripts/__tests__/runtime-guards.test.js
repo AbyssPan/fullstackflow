@@ -8,6 +8,7 @@ const vm = require('vm')
 const { createRequire } = require('module')
 const cp = require('child_process')
 
+const { supportsNewlineInFileName } = require('./helpers/platform')
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fsflow-guards-'))
 const pluginRoot = path.resolve(__dirname, '../..')
 process.env.CLAUDE_PROJECT_DIR = root
@@ -115,7 +116,8 @@ try {
   })
 
   write('src/new folder/中文.js', 'const added = 1\n')
-  write('src/line\nbreak.js', 'const newline = 1\n')
+  // Windows 文件名不允许换行，该夹具仅在 POSIX 下创建。
+  if (supportsNewlineInFileName) write('src/line\nbreak.js', 'const newline = 1\n')
   write('src/$(touch should-not-exist).js', 'const literal = 1\n')
   fs.unlinkSync(path.join(root, 'src/delete.js'))
   cp.execFileSync('git', ['mv', 'src/existing.js', 'src/renamed.js'], { cwd: root })
@@ -125,7 +127,7 @@ try {
     assert.equal(gate().passed, true)
     const args = JSON.parse(fs.readFileSync(path.join(root, 'lint-args.json')))
     assert(args.includes('src/new folder/中文.js'))
-    assert(args.includes('src/line\nbreak.js'))
+    if (supportsNewlineInFileName) assert(args.includes('src/line\nbreak.js'))
     assert(args.includes('src/renamed.js'))
     assert(!args.includes('src/delete.js'))
     assert(!args.includes('src/existing.js'))

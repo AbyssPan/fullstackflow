@@ -6,6 +6,7 @@ const path = require('path')
 const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'fsflow-prompt-scope-'))
 process.env.CODEBUDDY_PROJECT_DIR = sandbox
 process.env.CLAUDE_PROJECT_DIR = sandbox
+const { toPosix } = require('./helpers/platform')
 const state = require('../lib/state')
 const { buildAgentPrompt, buildBatchSequence } = require('../services/prompt-builder')
 const { dispatch } = require('../commands/dispatch')
@@ -34,7 +35,8 @@ try {
   assert.deepEqual(batches.map(b => b.batchId), [1, 2])
   assert.match(batches[0].agentPrompt, /src\/file1.ts/)
   assert.doesNotMatch(batches[0].agentPrompt, /src\/file2.ts|FULL_DESIGN_MARKER|development-notes\/task-2.md/)
-  assert.ok(batches[1].agentPrompt.includes(path.join(sandbox, 'backend')))
+  // prompt 中仓库根按 POSIX 输出，断言前归一，避免 Windows 反斜杠造成假失败。
+  assert.ok(toPosix(batches[1].agentPrompt).includes(toPosix(path.join(sandbox, 'backend'))))
   for (const batch of batches) {
     assert.doesNotMatch(batch.agentPrompt, /phase-outcome SCOPED 2/)
     assert.match(batch.agentPrompt, /不要记录整个 Phase 2 completed/)

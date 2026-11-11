@@ -3,7 +3,7 @@
 面向 Claude Code / CodeBuddy Code 的全栈研发工作流插件。用 `/fsflow:run` 启动需求开发，
 或用 `/fsflow:fixbugs` 修复缺陷，串联需求、规划、开发、审查、测试和交付。
 
-当前版本 **1.4.0** · 插件运行时无需 `npm install` · 支持前端、后端与多仓库任务
+当前版本 **1.6.0** · 插件运行时无需 `npm install` · 支持前端、后端与多仓库任务
 
 [快速上手](#快速上手) · [研发流程](#研发流程) · [执行与恢复](#执行与恢复) · [知识维护](#知识维护) · [安装与排障指南](INSTALL.md)
 
@@ -32,6 +32,7 @@
 |---|---|
 | `/fsflow:run [storyId] "<需求>"` | 开发新功能或改造现有功能 |
 | `/fsflow:fixbugs [storyId] "<缺陷>"` | 分析根因并修复，可附 TAPD 信息 |
+| `/fsflow:only <skill> "<任务>" [--write]` | 单段执行一个技能，不建 Story、不进流程 |
 | `/fsflow:status` | 查看当前任务、阶段和阻塞项 |
 | `/fsflow:end` | 结束激活会话并解除编辑门控，保留任务 |
 | `/fsflow:evolve [storyId\|all] [--check-only\|--propose-only]` | 工作流体检与改进建议 |
@@ -39,6 +40,9 @@
 
 `storyId` 可由入口自动生成；归档命令需要明确指定任务与动作。
 兼容入口 `/fsflow:fullstack <run|fixbugs|status|end|evolve|archive> ...` 仍可使用。
+
+只做一件明确的事（审一段改动、生成一份接口定义、写一组用例）可用 `/fsflow:only`，不必进 8 Phase；
+代价是不产生 Phase 证据与 dev-pass 限域保护。现成话术见 [启动提示词模板](plugins/fsflow/docs/prompts/README.md)。
 
 ## 研发流程
 
@@ -215,6 +219,17 @@ node .docs/llm-knowledge/tools/fsflow-kb/commands/kb-maintenance.js history --sc
 | 知识库 | `kb-init`、`kb-query`、`kb-update`、`gen-project-docs` |
 | 开发与验证 | `frontend-tech-spec`、`backend-tech-spec`、`code-review`、`systematic-debugging`、`test-design-and-execution` |
 | 辅助工具 | `api-generator`、`figma-to-component-map`、`tapd-bug-analyzer` |
+
+前端侧规则按条件读取，不全量常驻：
+
+| 文件 | 何时读取 |
+|---|---|
+| `frontend-tech-spec/references/engineering.md` | 所有前端编码与审查；类型 / 请求 / 状态 / 安全 / 性能 / 注释 / 不确定处理七章 |
+| `frontend-tech-spec/references/design.md` | 有设计稿或样式变更；含「设计稿 / 项目约定 / 功能必需」三段分级判定 |
+| `frontend-tech-spec/references/design-restoration.md` | 任务带 `figmaRefs` 或要求像素级还原；Token、布局映射、测量精度、组件库共存、还原核对清单 |
+| `test-design-and-execution/references/browser.md` | 浏览器验证；环境就绪、进程生命周期、侦察后行动、Red-Green 回归成立条件 |
+| `code-review/references/frontend.md` | 前端审查；设计还原与 Token 可判定项、误报边界 |
+| `api-generator/references/generation-rules.md` | Swagger 生成落库；项目模式画像 → 生成 → 确认 |
 
 <details>
 <summary>角色注册名与配置模型</summary>

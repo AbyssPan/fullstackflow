@@ -1065,6 +1065,9 @@ function checkPhase3Gate (storyId, result, state) {
   try {
     const crData = JSON.parse(fs.readFileSync(crJsonPath, 'utf-8'))
     const workflow = state || readStateFile(storyId) || {}
+    // 存量文件 BLOCKER 的 id 集合：已由 review_blocker_stale_file 单独分流，
+    // 下方 openBlockers 循环跳过，避免同一问题双 blocker。
+    const staleIssueIds = new Set()
     if (workflow.reviewCoverageRequired || crData.coverage) {
       const errors = validateCoverage(crData.coverage, loadRepos(storyId), crData.issues || [])
       // 分流：STALE_FILE_BLOCKER（存量文件被本次变更破坏的跨文件问题）走修复回路；
@@ -1072,6 +1075,10 @@ function checkPhase3Gate (storyId, result, state) {
       // coverage-invalid 死锁——BLOCKER 修不了（无开发权限）、门控也过不了。
       const staleFileErrors = errors.filter(e => e.startsWith('STALE_FILE_BLOCKER'))
       const coverageErrors = errors.filter(e => !e.startsWith('STALE_FILE_BLOCKER'))
+      for (const e of staleFileErrors) {
+        const m = /^STALE_FILE_BLOCKER ((?:B|W|S)\d+):/.exec(e)
+        if (m) staleIssueIds.add(m[1])
+      }
       if (coverageErrors.length) {
         result.blockers.push(structuredError(
           'review_coverage_invalid', coverageErrors.join('; '), 2,
@@ -1086,7 +1093,9 @@ function checkPhase3Gate (storyId, result, state) {
         ))
         result.passed = false
       }
-      if (errors.length) return
+      // 只有纯格式错误（coverageErrors）才提前返回等审查师修报告；
+      // stale-file 分流属实质问题，继续走 openBlockers 循环把其余 BLOCKER 报全。
+      if (coverageErrors.length) return
       for (const repo of crData.coverage.repositories) {
         for (const file of repo.files.filter(f => f.status === 'skipped')) {
           result.warnings.push(`审查跳过 ${repo.project}/${file.path}: ${file.reason}`)
@@ -1098,6 +1107,7 @@ function checkPhase3Gate (storyId, result, state) {
     )
     if (openBlockers.length > 0) {
       for (const b of openBlockers) {
+        if (staleIssueIds.has(b.id)) continue // 已由 review_blocker_stale_file 分流，不重复推
         result.blockers.push(structuredError(
           'code_review_blocker',
           `BLOCKER ${b.id}: ${b.title} (${b.file}${b.line ? ':' + b.line : ''})`,

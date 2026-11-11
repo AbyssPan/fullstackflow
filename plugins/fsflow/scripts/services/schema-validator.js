@@ -302,6 +302,13 @@ if (require.main === module) {
   }
   let failed = false
   for (const artifact of artifacts) {
+    // validateArtifact 对不存在的文件返回 valid（存在性由门控的 checkPhaseArtifact 负责），
+    // 但 CLI 是给 Agent 落盘后自检用的：文件不存在 = 写错位置/拼错名，必须报错而非假 ✓。
+    if (!fs.existsSync(path.join(PLANS_DIR, storyId, artifact))) {
+      failed = true
+      console.log(`✗ ${artifact} 文件不存在（${path.join(PLANS_DIR, storyId, artifact)}）——确认已在正确 Story 目录落盘`)
+      continue
+    }
     const result = validateArtifact(storyId, artifact)
     if (!result.valid) {
       failed = true

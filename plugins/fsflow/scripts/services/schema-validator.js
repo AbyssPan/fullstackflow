@@ -278,3 +278,37 @@ module.exports = {
   getPhaseArtifacts,
   getRegisteredSchemas
 }
+
+// ─── CLI 自检入口 ─────────────────────────────────────────────────
+// 供产出 Agent 落盘后实跑校验（比"对照 schema 肉眼核对"可靠，历史失败模式
+// schema_validation_failed 的主要来源就是肉眼确认）：
+//   node schema-validator.js <storyId> <artifact.json> [more.json ...]
+//   node schema-validator.js <storyId> --phase <phaseNum>   # 校验该 Phase 全部产出物
+// exit 0 = 全部合法；exit 1 = 有错误（stdout 逐条列出字段路径与原因）。
+if (require.main === module) {
+  const args = process.argv.slice(2)
+  const storyId = args[0]
+  let artifacts = []
+  if (!storyId) {
+    console.error('用法: node schema-validator.js <storyId> <artifact.json> [...] | <storyId> --phase <phaseNum>')
+    process.exit(2)
+  }
+  if (args[1] === '--phase') {
+    const phaseNum = Number(args[2])
+    if (!Number.isInteger(phaseNum)) { console.error('--phase 需要数字'); process.exit(2) }
+    artifacts = getPhaseArtifacts(phaseNum)
+  } else {
+    artifacts = args.slice(1)
+  }
+  let failed = false
+  for (const artifact of artifacts) {
+    const result = validateArtifact(storyId, artifact)
+    if (!result.valid) {
+      failed = true
+      for (const err of result.errors) console.log(`✗ ${err}`)
+    } else {
+      console.log(`✓ ${artifact} valid`)
+    }
+  }
+  process.exit(failed ? 1 : 0)
+}

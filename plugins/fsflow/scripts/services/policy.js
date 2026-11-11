@@ -336,6 +336,13 @@ const RECOVERY_SUGGESTIONS = {
     action: '由代码审查师补齐审查覆盖、更新过期证据或校正问题位置；保持 Phase 3',
     autoFixable: false
   },
+  // Phase 3→4: open BLOCKER 指向未变更的存量文件（本次变更破坏的跨文件影响）
+  review_blocker_stale_file: {
+    level: 4,
+    action: '走修复回路定向修复被破坏的存量文件，修复产生 diff 后进入审查快照',
+    autoFixable: false,
+    resolution: 'advance-phase.js <storyId> 2 --fix-loop'
+  },
   // Phase 3→4: code-review.json 不存在
   code_review_missing: {
     level: 4,
@@ -1060,14 +1067,26 @@ function checkPhase3Gate (storyId, result, state) {
     const workflow = state || readStateFile(storyId) || {}
     if (workflow.reviewCoverageRequired || crData.coverage) {
       const errors = validateCoverage(crData.coverage, loadRepos(storyId), crData.issues || [])
-      if (errors.length) {
+      // 分流：STALE_FILE_BLOCKER（存量文件被本次变更破坏的跨文件问题）走修复回路；
+      // 其余仍是覆盖记录格式错误（不回退开发）。混在一起会把 fix-loop 卡死成
+      // coverage-invalid 死锁——BLOCKER 修不了（无开发权限）、门控也过不了。
+      const staleFileErrors = errors.filter(e => e.startsWith('STALE_FILE_BLOCKER'))
+      const coverageErrors = errors.filter(e => !e.startsWith('STALE_FILE_BLOCKER'))
+      if (coverageErrors.length) {
         result.blockers.push(structuredError(
-          'review_coverage_invalid', errors.join('; '), 2,
+          'review_coverage_invalid', coverageErrors.join('; '), 2,
           '由代码审查师重新核对范围、版本、逐文件记录和问题位置，更新 code-review.json；不回退开发阶段'
         ))
         result.passed = false
-        return
       }
+      if (staleFileErrors.length) {
+        result.blockers.push(structuredError(
+          'review_blocker_stale_file', staleFileErrors.map(e => e.replace(/^STALE_FILE_BLOCKER /, '')).join('; '), 4,
+          'open BLOCKER 指向未变更的存量文件（本次变更破坏的跨文件影响）：执行 advance-phase.js <storyId> 2 --fix-loop 定向修复该文件；修复产生 diff 后进入审查快照，复审时关闭问题'
+        ))
+        result.passed = false
+      }
+      if (errors.length) return
       for (const repo of crData.coverage.repositories) {
         for (const file of repo.files.filter(f => f.status === 'skipped')) {
           result.warnings.push(`审查跳过 ${repo.project}/${file.path}: ${file.reason}`)

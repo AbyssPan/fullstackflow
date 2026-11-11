@@ -35,7 +35,7 @@ TS/JS 先判断运行端，不能把 React 规则用于 Node 服务；Vue/小程
 ## 覆盖与输出
 
 每个快照文件追加 `status: reviewed` 与简短 `evidence`（查了哪段变更、关联入口及结论），或 `status: skipped` 与具体 `reason`。禁止只为满足门控批量标 reviewed。每个跳过项在最终报告说明其影响；理由存在不代表风险已解决。
-工作流报告沿用 code-review.json，新增 `coverage: { version: 1, repositories: [各仓快照与审查记录] }`。快照的 root/head/base/fingerprint 原样保留，不能为了通过检查覆盖旧证据；内容变化后重新审查受影响文件并刷新快照。
+工作流报告沿用 code-review.json，新增 `coverage: { version: 1, repositories: [各仓快照与审查记录] }`。快照的 root/head/base/fingerprint **必须逐字段来自第 1 步 review-scope.cjs 的输出**——fingerprint 是组合指纹（`sha256(JSON[路径,类型,workDiff,indexDiff]+内容)`），手算或占位值必然与门控实时重算不一致；正确做法是把脚本输出 JSON 原样合入 coverage，仅按 path 追加 status/evidence/reason。不能为了通过检查覆盖旧证据；内容变化后重新审查受影响文件并刷新快照。
 问题 file 统一为仓库根相对路径，跨仓必须填 project。行号缺省指工作区，整个文件删除时指 base；仅暂存内容的问题填 lineVersion=index，删除片段可填 lineVersion=base，普通问题可显式填 worktree。固定问题保留旧 ID/位置，以 status 记录解决情况。
 现有 issues/summary 契约不变，详细字段见 `scripts/schemas/code-review.schema.json`。规则定位写入 notes，例如 `rule: java.md / Logic Error Detection`，不在用户报告中加入外部项目介绍。
 新工作流 Phase 3 门控核对仓库、文件覆盖、指纹和未关闭问题位置；旧工作流未含 coverage 时保持原行为。机械校验只保证范围与记录一致，不能证明审查判断正确。

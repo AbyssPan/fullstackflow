@@ -114,7 +114,21 @@ function validateCoverage (coverage, repos, issues = []) {
     const project = issue.project || repos.primary
     const repo = currentByProject.get(project)
     const file = repo && repo.files.find(f => f.path === issue.file)
-    if (!file) { errors.push(issue.id + ': 问题文件不在本轮审查范围'); continue }
+    if (!file) {
+      // 区分两类「不在快照」：文件在 base 中被跟踪但本次无 diff → 本次变更破坏了
+      // 未触碰的存量文件（跨文件影响，如删列/删字段导致存量 SQL/调用方失效），
+      // 属合法 BLOCKER，应走修复回路（修复产生 diff 后自然进入快照）；
+      // 路径在 base 中也不存在 → 覆盖记录错误（假路径）。
+      let trackedInBase = false
+      const ctx = currentByProject.get(project)
+      if (ctx) {
+        try { git(ctx.root, ['cat-file', '-e', ctx.base + ':' + issue.file], { stdio: ['pipe', 'ignore', 'ignore'] }); trackedInBase = true } catch (_) {}
+      }
+      errors.push(trackedInBase
+        ? 'STALE_FILE_BLOCKER ' + issue.id + ': 问题指向未变更的存量文件（' + issue.file + '），本次变更破坏了它'
+        : issue.id + ': 问题文件不在本轮审查范围')
+      continue
+    }
     if (issue.line == null) continue
     const match = /^(\d+)(?:-(\d+))?$/.exec(String(issue.line))
     const start = match && Number(match[1])

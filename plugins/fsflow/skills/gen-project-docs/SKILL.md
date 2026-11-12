@@ -124,4 +124,4 @@ description: "自动生成项目结构化知识库文档。按项目画像（pro
 - 域: settings | 文件: 更新 overview.md
 ```
 
-维护模式使用 [同仓知识维护](../kb-update/references/maintenance.md) 中的按域回执与独立 changelog 条目，提交前更新正文，Phase 6 只核验。首次全量生成后逐域及 common 记录审查结果；初始骨架不能标为 updated。
+维护模式使用 [同仓知识维护](../kb-update/references/maintenance.md) 中的按域回执与独立 changelog 条目，提交前更新正文（合入核验由服务端 CI / 用户承接）。首次全量生成后逐域及 common 记录审查结果；初始骨架不能标为 updated。

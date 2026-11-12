@@ -23,7 +23,7 @@
  *   - 实现 Claude Code Level 4 Autocompact 的简化版: 只保存关键决策 + 契约路径 + 待办，不保存完整对话
  *   - 设计原则 (来自 Harness Engineering 指南): 对话历史占 60-80% context，是压缩核心；
  *     渐进式压缩（先轻量摘要，必要时升级）；预算跟踪需跨压缩边界
- *   - 无固定必需文件的 Phase（2/5/6/7）从运行时取证；开发说明另按当前任务枚举交接
+ *   - 无固定必需文件的 Phase（2/5）从运行时取证；开发说明另按当前任务枚举交接
  *   - mustCheck 注入是「声明-消费一致性」在教训维度的落地：教训结构化写入，检查层确定性验证
  *
  * @module context-refresh
@@ -66,7 +66,7 @@ function generatePhaseSummary (storyId, phase) {
     summaryLines.push(`- **${a.name}**: \`${a.path}\``)
     if (a.summary) summaryLines.push(`  - ${a.summary}`)
   }
-  // 无固定产出物的 Phase（2/5/6/7）从运行时取证；开发说明入口在下方交接清单。
+  // 无固定产出物的 Phase（2/5）从运行时取证；开发说明入口在下方交接清单。
   if (artifacts.length === 0) {
     summaryLines.push(...getRuntimeEvidence(storyId, phase))
   }
@@ -215,7 +215,7 @@ function getPhaseArtifacts (storyId, phase) {
   return artifacts
 }
 
-// ─── 运行时取证（Phase 2/5/6/7 无固定必需文件，从真相源提取产出物）────
+// ─── 运行时取证（Phase 2/5 无固定必需文件，从真相源提取产出物）────
 
 /** 改动文件列表封顶条数 */
 const CAP_LIMIT = 15
@@ -344,115 +344,15 @@ function evidenceGitCommits (storyId) {
 }
 
 /**
- * 简化解析 meta.yaml 的 git.hash 字段（仅匹配 git: 块下的 hash）
- * @param {string} content - meta.yaml 文本
- * @returns {string} hash 值，未找到返回空串
- */
-function parseMetaHash (content) {
-  return require('../lib/kb.cjs').parseMeta(content).git.hash
-}
-
-/**
- * Phase 6 取证：汇总显式合入核验结果，补充当前工作区回执状态；旧库兼容 hash 信息
- * 只陈述事实，不把 hash 不一致断言为失败（Phase 6 时序陷阱）。
- * @param {string} storyId - Story ID
- * @returns {string[]} summary 段落行
- */
-function evidenceKbRefresh (storyId) {
-  const lines = []
-  const entries = readTrace(storyId)
-  const latestOutcome = entries
-    .filter(e => e.type === 'phase_outcome' && String(e.phase) === '6')
-    .pop()
-  if (latestOutcome) {
-    const detail = latestOutcome.details && (latestOutcome.details.reason || latestOutcome.details.error || latestOutcome.details.summary)
-    lines.push(`- Phase 6 结果: \`${latestOutcome.result}\`${detail ? `（${detail}）` : ''}`)
-  }
-  if (latestOutcome && latestOutcome.result === 'skipped_by_user') {
-    const reason = latestOutcome.details && latestOutcome.details.reason
-    const explanation = reason === 'knowledge_base_update_declined'
-      ? '用户跳过本次知识库增量更新'
-      : reason === 'knowledge_base_not_initialized'
-        ? '项目未初始化知识库，本次跳过更新'
-        : '本次知识库更新已留痕跳过'
-    lines.push(`- ${explanation}；该结果不阻断 Phase 7`)
-    return lines
-  }
-
-  const repos = loadRepos(storyId)
-  let foundAny = false
-  for (const [repoName, root] of Object.entries(repos.repos)) {
-    try {
-      if (!root || !fs.existsSync(root)) continue
-      // 知识库根已从 .docs/llm-knowledge/frontend 改为 .docs/llm-knowledge（去掉 frontend 硬编码层）
-      // 向后兼容：先找新路径，找不到回退旧 frontend 路径
-      const newMetaPath = path.join(root, '.docs', 'llm-knowledge', 'meta.yaml')
-      const legacyMetaPath = path.join(root, '.docs', 'llm-knowledge', 'frontend', 'meta.yaml')
-      const metaPath = fs.existsSync(newMetaPath) ? newMetaPath : (fs.existsSync(legacyMetaPath) ? legacyMetaPath : null)
-      if (!metaPath) continue
-      foundAny = true
-      if (fs.existsSync(path.join(root, '.docs/llm-knowledge/maintenance.json'))) {
-        const review = require('../lib/kb-maintenance.cjs').check(root)
-        lines.push(`- \`${repoName}\`: 当前工作区知识待核实 ${review.pending.length} 项；结构检查${review.passed ? '通过' : '失败'}（不是实际合入版本核验）`)
-        for (const warning of review.warnings) lines.push(`  - ${warning}`)
-        continue
-      }
-      let recordedHash = ''
-      try {
-        recordedHash = parseMetaHash(fs.readFileSync(metaPath, 'utf-8'))
-      } catch (e) { /* 解析失败按空处理 */ }
-      const head = safeGit(root, 'rev-parse HEAD')
-      const stat = fs.statSync(metaPath)
-      lines.push(`- \`${repoName}\`: 记录 hash \`${recordedHash ? recordedHash.slice(0, 8) : 'N/A'}\``)
-      lines.push(`  - 当前 HEAD \`${head ? head.slice(0, 8) : 'N/A'}\``)
-      lines.push(`  - 最后更新 ${stat.mtime.toISOString()}`)
-      if (recordedHash && head && recordedHash !== head) {
-        lines.push(`  - ⚠️ 记录 hash 与当前 HEAD 不一致（陈述事实，不判失败）`)
-      }
-    } catch (e) { /* 单仓库失败跳过 */ }
-  }
-  if (!foundAny) {
-    lines.push('- 未找到知识库 meta.yaml（`.docs/llm-knowledge/meta.yaml`）')
-  }
-  return lines
-}
-
-/**
- * Phase 7 取证：从 trace 读部署事件，无则显式声明缺失
- * @param {string} storyId - Story ID
- * @returns {string[]} summary 段落行
- */
-function evidenceDeploy (storyId) {
-  const lines = []
-  const entries = readTrace(storyId)
-  // 部署证据可能记录为 git/deploy 事件或 agent_result，宽松匹配 details 含 env/buildNumber
-  const deployEntries = entries.filter(e => {
-    const d = e.details || {}
-    return d.env || d.buildNumber || d.deployUrl || e.type === 'deploy'
-  })
-  if (deployEntries.length === 0) {
-    lines.push('- ⚠️ 未记录部署证据（trace 中无 env/buildNumber/deployUrl）')
-    return lines
-  }
-  for (const e of capList(deployEntries)) {
-    const d = e.details || {}
-    lines.push(`- 环境 \`${d.env || 'N/A'}\`${d.buildNumber ? ` 构建号 \`${d.buildNumber}\`` : ''}${d.deployUrl ? ` URL ${d.deployUrl}` : ''}`)
-  }
-  return lines
-}
-
-/**
  * 按 Phase 分发运行时取证，返回 summary 段落行
  * @param {string} storyId - Story ID
- * @param {number} phase - Phase 编号（2/5/6/7）
+ * @param {number} phase - Phase 编号（2/5）
  * @returns {string[]} summary 段落行
  */
 function getRuntimeEvidence (storyId, phase) {
   switch (phase) {
     case 2: return evidenceCodeChanges(storyId)
     case 5: return evidenceGitCommits(storyId)
-    case 6: return evidenceKbRefresh(storyId)
-    case 7: return evidenceDeploy(storyId)
     default: return []
   }
 }

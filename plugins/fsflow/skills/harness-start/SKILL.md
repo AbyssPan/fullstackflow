@@ -19,7 +19,7 @@ description: >
 | 原型/Figma 链接，或新增/开发/实现功能 | `run` |
 | 两类信号并存或都没有 | 询问一次；仍无法确定则用 `run` |
 
-`run` 和 `fixbugs` 共用同一条 8 Phase 流水线，分支由 `story-input.json` 和脚本处理。
+`run` 和 `fixbugs` 共用同一条 6 Phase 流水线，分支由 `story-input.json` 和脚本处理。
 
 ## 2. 写输入并启动
 

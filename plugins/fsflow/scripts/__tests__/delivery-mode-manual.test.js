@@ -5,7 +5,7 @@
  * 覆盖:
  *   - createWorkflow: story-input.deliveryMode / 环境变量 FSFLOW_DELIVERY_MODE / 默认 auto 三级取值
  *   - advance-phase 4→5 (manual): 门控正常执行后重定向为待人工检查终态
- *     （phase=8 completed，P5-P7 skipped 留痕，dev-pass 兜底撤销，输出 manual_check 指引）
+ *     （phase=6 completed，P5 skipped 留痕，dev-pass 兜底撤销，输出 manual_check 指引）
  *   - advance-phase 4→5 (auto): 行为不变（phase=5 running），确认 manual 分支不影响默认路径
  */
 
@@ -91,7 +91,7 @@ try {
   })
 
   // ─── advance-phase 4→5 重定向 ───────────────────────────────
-  test('manual: Phase 4→5 重定向为待人工检查终态（P5-P7 跳过留痕、dev-pass 撤销）', () => {
+  test('manual: Phase 4→5 重定向为待人工检查终态（P5 跳过留痕、dev-pass 撤销）', () => {
     fixturePhase4('DM-P4', 'manual')
     // 构造残留 dev-pass 验证兜底撤销
     state.issueDevPass('DM-P4', 3600000, [{ repo: state.loadRepos('DM-P4').primary, path: 'src/**' }])
@@ -100,18 +100,16 @@ try {
     const out = parseOut(r.stdout)
     assert.equal(out.success, true)
     assert.equal(out.deliveryMode, 'manual')
-    assert.equal(out.toPhase, 8)
-    assert.deepEqual(out.skippedPhases, [5, 6, 7])
+    assert.equal(out.toPhase, 6)
+    assert.deepEqual(out.skippedPhases, [5])
     assert.equal(out.nextAction.action, 'manual_check')
 
     const st = state.readStateFile('DM-P4')
-    assert.equal(st.phase, 8)
+    assert.equal(st.phase, 6)
     assert.equal(st.status, 'completed')
     assert.equal(st.phases['4_e2e_verification'].status, 'completed')
     assert.equal(st.phases['5_git_submit'].status, 'skipped')
     assert.equal(st.phases['5_git_submit'].skipReason, 'delivery_mode_manual')
-    assert.equal(st.phases['6_knowledge_base_update'].status, 'skipped')
-    assert.equal(st.phases['7_deployment'].status, 'skipped')
     assert.equal(state.checkDevPass('DM-P4').valid, false, 'dev-pass 已兜底撤销')
   })
 

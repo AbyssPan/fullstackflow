@@ -20,15 +20,15 @@
  *     查看当前归档状态
  *   --dry-run       预览将要归档的文件清单，不实际移动
  *   --round <N>     archive 缺省自动取最大轮次 +1，restore 缺省自动取最新轮次
- *   --force         archive: 未达终态 (phase < 8) 时强制归档；restore: 覆盖 root 同名文件
+ *   --force         archive: 未达终态 (phase < 6) 时强制归档；restore: 覆盖 root 同名文件
  *   --keep-archive  restore 时保留归档副本（默认移动，归档目录会被清空）
  *
  * 使用场景:
- *   - 工作流走完 Phase 7、dispatch.js 输出 status=terminal 后，主 Agent 执行 archive 收尾，
+ *   - 工作流走完 Phase 5（commit 完即终态）、dispatch.js 输出 status=terminal 后，主 Agent 执行 archive 收尾，
  *     把 Story 目录清空以免污染下一次开发
  *   - advance-phase.js 以"Story 已归档"拒绝 --rollback / --fix-loop 时，先执行 restore 复档
  *     恢复操作能力，再继续推进
- *   - 归档前用 --dry-run 核对将要移走的文件清单；中途放弃的 Story (phase < 8) 用 --force 强制归档
+ *   - 归档前用 --dry-run 核对将要移走的文件清单；中途放弃的 Story (phase < 6) 用 --force 强制归档
  *   - 用 list / status 排查"这个 Story 归档了没、归档在第几轮"，尤其 root 已被清空、
  *     e2e-state.json 不可见时
  *
@@ -36,7 +36,7 @@
  *   - 归档后 root 目录清空，所有文件（含 e2e-state.json / trace.jsonl / repos.json）都进入
  *     archive/round-{N}/；dev-pass.json 属于残留文件，不进入归档而是直接删除。
  *   - 防重复归档：root 无文件即判定为已归档，拒绝再次 archive，需先执行 restore。
- *   - 终态检查：phase < 8 时默认拒绝归档，需 --force；归档会写入 state.status='archived'
+ *   - 终态检查：phase < 6 时默认拒绝归档，需 --force；归档会写入 state.status='archived'
  *     以及 archivedAt / archiveRound / archiveDir。
  *   - restore 默认移动（归档目录随之清空），--keep-archive 改为复制以保留归档副本；
  *     root 存在同名文件时需 --force 覆盖，否则先报冲突清单。
@@ -199,10 +199,10 @@ function cmdArchive(storyId, opts) {
     process.exit(1)
   }
 
-  // 3. 终态检查（phase < 8 需 --force）
-  if (state.phase < 8 && !opts.force) {
+  // 3. 终态检查（phase < 6 需 --force）
+  if (state.phase < 6 && !opts.force) {
     console.log(JSON.stringify({
-      error: `Story 未达终态 (当前 Phase ${state.phase})，建议达到 Phase 8 后再归档`,
+      error: `Story 未达终态 (当前 Phase ${state.phase})，建议达到 Phase 6（终态）后再归档`,
       hint: '如需强制归档，添加 --force'
     }, null, 2))
     process.exit(1)
@@ -603,7 +603,7 @@ if (!storyId || !command) {
     '    归档: 将 root 目录全部文件移入 archive/round-{N}/（含 e2e-state / trace / repos）',
     '    --dry-run    预览归档清单，不实际移动',
     '    --round <N>  指定轮次编号（缺省自动检测）',
-    '    --force      非终态 (phase<8) 强制归档',
+    '    --force      非终态 (phase<6) 强制归档',
     '',
     '  node archive-story.js <storyId> restore [--round <N>] [--force] [--keep-archive]',
     '    复档: 将 archive/round-{N}/ 全部文件恢复到 root（完全复原）',

@@ -268,17 +268,15 @@ function listStoryDirs () {
 
 // ─── Phase 定义 ─────────────────────────────────────────────────
 
-/** Phase slug 映射 (0-8) */
+/** Phase slug 映射 (0-6) */
 const PHASE_SLUGS = [
   'requirement_analysis',    // 0
   'task_planning',           // 1
   'development',             // 2
   'code_review',             // 3
   'e2e_verification',        // 4
-  'git_submit',              // 5
-  'knowledge_base_update',   // 6
-  'deployment',              // 7
-  'completed'                // 8 — 工作流终态
+  'git_submit',              // 5 — 终态前的最后一个 Phase
+  'completed'                // 6 — 工作流终态（Phase 5 完成即进入）
 ]
 
 /** Phase 中文名称 */
@@ -288,10 +286,8 @@ const PHASE_NAMES = [
   '代码开发',       // 2
   '代码审查',       // 3
   '功能测试',       // 4
-  'Git提交',        // 5
-  '合入版本知识核验', // 6
-  '云端部署',       // 7
-  '工作流完成'      // 8 — 工作流终态
+  'Git提交',        // 5 — commit + 推分支（MR 可选）
+  '工作流完成'      // 6 — 工作流终态
 ]
 
 /**
@@ -329,9 +325,7 @@ const PHASE_ARTIFACTS = {
       { fileName: 'acceptance-verification.json', description: '验收对账契约', contract: true }
     ]
   },
-  5: { artifacts: [{ fileName: null, description: 'Git commit + push', contract: false }] },
-  6: { artifacts: [{ fileName: null, description: '用户同意后已增量更新；用户拒绝更新或未初始化时已留痕跳过', contract: false }] },
-  7: { artifacts: [{ fileName: null, description: '部署 URL + 构建号', contract: false }] }
+  5: { artifacts: [{ fileName: null, description: 'Git commit + push（MR 可选）', contract: false }] }
 }
 
 // ─── Phase → Agent 映射 ──────────────────────────────────────────
@@ -345,7 +339,7 @@ const PHASE_ARTIFACTS = {
  *   - `label` 仅供人类阅读（日志/文档），禁止用于 Spawn。
  *   - Phase→Agent 是确定性查表，不需要 LLM 推理。
  *     此表取代了原 agents/dispatcher.md 中的映射表。
- *   - Phase 8 为终态，无 Agent。
+ *   - Phase 6 为终态（Phase 5 commit 完即结束），无 Agent。
  */
 const PHASE_AGENTS = {
   0: {
@@ -376,24 +370,14 @@ const PHASE_AGENTS = {
   5: {
     agent: 'release-assistant',
     label: '发布助手',
-    instruction: '提交前按已获授权执行 kb-update，核实规格并记录按域维护回执；把代码与知识一起暂存，通过 staged 严格检查后执行已授权的 git commit/push/MR，目标分支沿用用户指定。禁止使用 --no-verify'
-  },
-  6: {
-    agent: 'release-assistant',
-    label: '发布助手',
-    instruction: '核验 Phase 5 提交前更新的知识与实际合入版本：meta.yaml 不存在时直接留痕跳过；维护模式运行 kb-maintenance.js check --ref <实际合入提交> --strict，复用已确认的更新或延期结果。无法取得合入版本或检查失败则记录 completed_with_errors。旧任务尚未维护时回功能分支补充 MR，不直接覆盖主分支。不询问初始化，不初始化、不全量生成，不重复生成知识正文'
-  },
-  7: {
-    agent: 'release-assistant',
-    label: '发布助手',
-    instruction: '发布收尾：前端项目通过 devops MCP 触发云端构建和部署，回报部署 URL + 构建号；后端项目跳过云端部署，确认 MR 合并后汇报分支与变更清单即收尾'
+    instruction: '把代码（含知识文档，若提交前已按授权执行 kb-update 增量维护）暂存，通过 staged 严格检查后执行已授权的 git commit/push 到用户指定分支（未授权的 git 提交须先向用户确认）；MR 仅在用户明确要求时创建，不强制。若发现用户已人工完成提交（git status 已跟踪文件干净、git log 有新提交），用 trace.js phase-outcome 记录 submitted 并附实际 commit hash，直接推进终态，不重复提交。Phase 5 完成即工作流终态，随后归档收尾。禁止使用 --no-verify'
   }
 }
 
 /**
  * 获取指定 Phase 的 Agent 信息
  * @param {number} phase - Phase 编号
- * @returns {{ agent: string, label: string, instruction: string }|null} 终态(8)或越界返回 null
+ * @returns {{ agent: string, label: string, instruction: string }|null} 终态(6)或越界返回 null
  */
 function getPhaseAgent (phase) {
   return PHASE_AGENTS[phase] || null

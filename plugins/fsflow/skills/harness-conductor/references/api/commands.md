@@ -61,7 +61,7 @@ HARNESS_RUN_BUILD=1 node $HARNESS/advance-phase.js <id> 3     # 启用本地编�
 但 conductor 不使用该旧 prompt，恢复后重新 dispatch 获取持久化上下文。
 `nextAgent` / `agentPrompt` 的唯一来源是重新执行 `dispatch.js`，不可从推进结果自行拼装 Spawn。
 
-入参约束：targetPhase 范围 0~8（8 为完成终态），普通推进步长必须 +1；重复请求当前阶段为幂等操作。
+入参约束：targetPhase 范围 0~6（6 为完成终态，Phase 5 commit 完即进入），普通推进步长必须 +1；重复请求当前阶段为幂等操作。
 脚本拒绝越界和跨阶请求；倒退必须使用 `--rollback`。
 参数解析：第一个纯数字视为 storyId，最后一个纯数字视为 targetPhase。
 
@@ -124,7 +124,7 @@ node $HARNESS/archive-story.js <storyId> status
 
 归档后 root 清空，全部文件（含 `e2e-state.json` / `trace.jsonl` / `repos.json`）进
 `archive/round-{N}/`；`dev-pass.json` 属残留，直接删除不归档。
-`phase < 8` 时默认拒绝归档，需 `--force`。root 无文件即判定已归档，拒绝重复归档。
+`phase < 6` 时默认拒绝归档，需 `--force`。root 无文件即判定已归档，拒绝重复归档。
 `restore` 默认**移动**（归档目录随之清空），`--keep-archive` 改为复制。
 
 ⚠️ Story 处于归档状态时，`advance-phase.js` 的 `--rollback` / `--fix-loop` 会被守卫拦截，
@@ -140,5 +140,5 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/audit/metrics-aggregator.js   # 指标聚合
 ```
 
 `harness-audit.js` 检查 `settings.json` / `e2e-state` / 产出物完整性 —— 排查「流程行为不符预期」
-时先跑它。`metrics-aggregator.js` 在 Phase 7 完成时由 `advance-phase.js` 自动触发一次，
+时先跑它。`metrics-aggregator.js` 在 Phase 5（Git提交）完成时由 `advance-phase.js` 自动触发一次，
 也可手动执行做跨 Story 统计。

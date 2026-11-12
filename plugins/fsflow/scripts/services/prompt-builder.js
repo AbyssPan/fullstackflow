@@ -31,8 +31,8 @@
  *   - v3 token 优化（2026-09）: v2 把成本从 prompt 挪到了工具调用，于是「让谁去读什么」
  *     成了新的成本项。三处收敛，判据都是「这个 Phase 到底用不用得上」:
  *       1. Story 背景资料（bug 分析报告，实测真实项目 10.5~27.5 KB）只在 Phase 0-1 注入。
- *          原实现无 Phase 过滤，Phase 5/6/7 的发布助手也被要求去读它 —— 做 git commit /
- *          知识库更新 / 云端部署根本用不上。报告在 Phase 0-1 已消化进契约文件。
+ *          原实现无 Phase 过滤，Phase 5 的发布助手也被要求去读它 —— 做 git commit /
+ *          推分支根本用不上。报告在 Phase 0-1 已消化进契约文件。
  *       2. 全 Phase 常驻约束收敛为 1 条；代码检索约束只在 Phase 0-2 按需注入。
  *          已在 agent .md 里写明的通用规则不再重复计费。
  *       3. 契约文件路径只打一次（原来相对 + 绝对各打一遍）。
@@ -153,9 +153,9 @@ function readContractContents (storyId, contractFiles) {
  * v2（需求10）：不再内联截断背景资料（如 bug 分析报告可能很长，截断后丢失
  * 代码定位/根因等关键事实），改为只给文件路径，Agent 自行读取完整内容。
  *
- * v3：**只在 Phase 0-1 注入**。原实现无 Phase 过滤，Phase 1~7 全都被要求去读同一份
+ * v3：**只在 Phase 0-1 注入**。原实现无 Phase 过滤，Phase 1~5 全都被要求去读同一份
  * 报告 —— 实测真实项目里 bug 分析报告 10.5~27.5 KB（约 3.5~9.2K token），
- * 而 Phase 5/6/7 的发布助手在做 git commit / 知识库更新 / 云端部署，压根用不上它。
+ * 而 Phase 5 的发布助手在做 git commit / 推分支，压根用不上它。
  * 报告的价值在 Phase 0（产出事实）与 Phase 1（据此拆 task）就已经被消化进
  * requirement-analysis.md / acceptance-criteria.json / task-dag.json，
  * 后续 Phase 读这些产出物即可，不必回头读原始报告。

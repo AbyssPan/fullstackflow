@@ -12,7 +12,7 @@
  *             精确限域 dev-pass（Phase 2 语义复用，enforce-dev-pass 无需改动）；
  *             支持 --file/--accept CLI 直传（定位完一条命令签发，免手写 JSON，值会先
  *             合并进 quick-task.json 再走原有校验，行为与手写完全一致）
- *   - done:   校验证据非空，置终态（status=completed, phase=8），撤销 dev-pass，
+ *   - done:   校验证据非空，置终态（status=completed, phase=6），撤销 dev-pass，
  *             清除激活记录（含本会话绑定），写轻量知识回执 knowledge-receipt.json
  *   - escalate: 升格为完整 fixbugs 工作流（写 story-input.json + 重置 e2e-state 至 Phase 0），
  *             已完成的定位与修改保留在 Story 目录供需求分析师复用
@@ -175,7 +175,7 @@ function cancelQuickTask (storyId, reason) {
 
   state.status = 'cancelled'
   state.quickStatus = 'cancelled'
-  state.phase = 8
+  state.phase = 6
   state.updatedAt = now
   writeStateFile(storyId, state)
 
@@ -419,10 +419,10 @@ function cmdDone (storyId, note, cliEvidence) {
   }
   fs.writeFileSync(path.join(getStoryDir(storyId), KNOWLEDGE_RECEIPT_FILE), JSON.stringify(receipt, null, 2), 'utf-8')
 
-  // 终态: status=completed + phase=8（session-stop autoEnd 语义一致）
+  // 终态: status=completed + phase=6（session-stop autoEnd 语义一致）
   const state = readStateFile(storyId)
   state.status = 'completed'
-  state.phase = 8
+  state.phase = 6
   state.quickStatus = 'done'
   state.updatedAt = now
   state.phases = state.phases || {}

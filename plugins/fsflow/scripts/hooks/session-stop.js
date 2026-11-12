@@ -20,7 +20,7 @@
  *     不清理会留下可被 enforce-dev-pass.js 误信的过期凭证，src/ 限域出现空窗。
  *   - 本轮触发过 Hook 拒绝（越界编辑、跳 Phase、写状态文件）：
  *     不沉淀到经验库，同样的失败模式会在下一轮、下一个 Story 反复重演，门控只能一直硬拦而无法自省。
- *   - Story 已走完 Phase 8 但 .harness-active 未关闭：
+ *   - Story 已走完 Phase 6（终态）但 .harness-active 未关闭：
  *     不自动结束会让 src/ 持续处于限域保护下，后续正常的非 Harness 编辑被无谓拦截。
  *
  * 说明:
@@ -34,7 +34,7 @@
  *       5. 输出 session 变更摘要
  *   - 各环节独立 try/catch，单点失败不阻塞整体收尾。
  *   - autoEndHarness 演进说明：旧逻辑要求「所有活跃工作流都完成」才 end；新逻辑改为「当前激活 Story
- *     走到终态（status='completed' 且 phase >= 8）即 end」——因为 .harness-active 一次只激活一个 Story，
+ *     走到终态（status='completed' 且 phase >= 6）即 end」——因为 .harness-active 一次只激活一个 Story，
  *     它走到终态即代表本次 Harness 主流程结束。无激活 Story 时回退到旧逻辑。
  *   - additionalContext 超过 MAX_CONTEXT_CHARS(8000) 时逐级降级：完整 → 去掉 src 文件清单 → 只保留核心计数。
  *   - 诊断日志走 stderr，不污染 stdout 的 JSON 输出。
@@ -210,7 +210,7 @@ function recordHookRejectionsFromTraces() {
  * Stop Hook 自动结束 Harness 模式（harness end）
  *
  * v1.5 多会话语义：遍历全部激活记录（会话绑定 + pending + 旧单文件），
- * 逐 Story 判定终态（e2e-state.json 中 status='completed' 且 phase >= 8），
+ * 逐 Story 判定终态（e2e-state.json 中 status='completed' 且 phase >= 6），
  * 走到终态的 Story 清除其全部激活记录；未终态的记录（包括其他会话的）保持不动。
  *
  * 旧语义「当前激活 Story 走到终态即 end / 无激活时看活跃工作流数」保留为兜底分支。
@@ -250,7 +250,7 @@ function autoEndHarness(activeWorkflows, completedWorkflows) {
       keptStories.push(rec.storyId)
       continue
     }
-    const isTerminal = state.status === 'completed' && Number(state.phase) >= 8
+    const isTerminal = state.status === 'completed' && Number(state.phase) >= 6
     if (isTerminal) {
       clearHarnessRecordsForStory(rec.storyId)
       endedStories.push(rec.storyId)

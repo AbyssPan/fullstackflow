@@ -132,12 +132,6 @@ const RECOVERY_SUGGESTIONS = {
     action: '重新 dispatch，询问是否执行独立测试，等待用户回答后记录选择',
     autoFixable: false
   },
-  // Phase 6→7: 知识库分支尚未留下可审计结果
-  phase6_outcome_missing: {
-    level: 4,
-    action: '执行 Phase 6 知识库分支，并用 trace.js phase-outcome 记录结果',
-    autoFixable: false
-  },
   // Phase 0→1: open-questions 有 blocking 未解决
   blocking_unresolved: {
     level: 4,
@@ -321,7 +315,7 @@ const RECOVERY_SUGGESTIONS = {
   // Phase 2→3: 本地编译失败
   build_failed: {
     level: 2,
-    action: '本地复现并修复编译错误（SCSS/模板/语法），不要把编译问题留给云端构建',
+    action: '本地复现并修复编译错误（SCSS/模板/语法），不要把编译问题留给项目 CI/CD',
     autoFixable: false
   },
   // Phase 3→4: code-review 含 BLOCKER 关键词
@@ -565,10 +559,8 @@ function runGateCheck (storyId, phaseNum, state) {
     checkPhase3Gate(storyId, result, state)
   } else if (phaseNum === 4) {
     checkPhase4Gate(storyId, result)
-  } else if (phaseNum === 6) {
-    checkPhase6Gate(storyId, result)
   }
-  if (phaseNum === 7 || (state?.executionEvidenceRequired && [2, 5].includes(phaseNum))) {
+  if (state?.executionEvidenceRequired && [2, 5].includes(phaseNum)) {
     // fix-verification is the current implementation-repair receipt; other executions need an outcome.
     const fixing = phaseNum === 2 && fs.existsSync(path.join(PLANS_DIR, storyId, 'fix-request.json'))
     if (!fixing) checkExecutionOutcome(storyId, phaseNum, state, result)
@@ -940,14 +932,14 @@ function checkPhase1Gate (storyId, state, result) {
  *
  * 历史缺陷: Phase 2 此前无任何专项检查（PHASE_ARTIFACTS[2].fileName 为 null，
  *   产出物存在性检查被跳过），Phase 2→3 等价于无条件通过。结果是 SCSS
- *   `/deep/ ... ::after` 编译错误逃过全部本地门控，直到 Phase 7 云端构建才暴露。
+ *   `/deep/ ... ::after` 编译错误逃过全部本地门控，直到项目 CI/CD 构建才暴露。
  *
  * 设计取舍:
  *   - lint 只跑**本次变更文件**，避免仓库存量问题导致门控永久阻塞
  *   - 编译校验默认关闭: 构建无法增量，大项目/多项目单次耗时不可控（上限 900s），
  *     且 fix-loop 每轮回退 Phase 2 都会再触发一次全量构建，是流程阻塞的主因。
  *     需要时设 `HARNESS_RUN_BUILD=1` 显式启用。
- *   - 代价: 关闭后 SCSS/模板编译错误失去本地拦截，只能到 Phase 7 云端构建暴露
+ *   - 代价: 关闭后 SCSS/模板编译错误失去本地拦截，只能由项目 CI/CD 暴露
  *   - 未检测到变更时降级为 warning（可能代码已提交或本 Story 无代码改动），不误阻塞
  */
 function checkPhase2Gate (storyId, state, result) {
@@ -1046,7 +1038,7 @@ function checkPhase2Gate (storyId, state, result) {
   // 编译校验关闭是全局默认行为，与是否检测到变更无关，故在循环外只提示一次 ——
   // 放在循环内会随仓库数重复出现，淹没真正的 warning。
   if (process.env.HARNESS_RUN_BUILD !== '1') {
-    result.warnings.push('编译校验默认关闭（设 HARNESS_RUN_BUILD=1 启用），SCSS/模板编译错误将只能在 Phase 7 云端构建暴露')
+    result.warnings.push('编译校验默认关闭（设 HARNESS_RUN_BUILD=1 启用），SCSS/模板编译错误将只能在项目 CI/CD 构建暴露')
   }
 }
 
@@ -1248,16 +1240,20 @@ function checkPhase4Gate (storyId, result) {
 }
 
 /**
- * Phase 6→7 门控：知识库分支必须留下显式结果。
+ * 执行结果门控：Phase 2/5（executionEvidenceRequired 时）必须留下显式结果。
  *
- * Phase 6 没有文件型产物；若不做此检查，dispatch 在断点恢复时会把它
- * 误判为已就绪并直接推进。最后一条 phase_outcome 是唯一信源，允许的终态为：
- * 允许 updated / skipped_by_user / completed_with_errors。初始化只能在 Phase 0 执行。
+ * Phase 5 没有文件型产物；若不做此检查，dispatch 在断点恢复时会把它
+ * 误判为已就绪并直接推进。最后一条 phase_outcome 是唯一信源，Phase 5 允许的终态为：
+ * 允许 submitted / skipped_by_user（commit+推分支完成即 submitted；MR 不再强制）。
+ *
+ * Phase 5 人工提交兜底：trace 无结果时，若所有涉及仓库的已跟踪文件均已干净
+ * （git status --porcelain --untracked-files=no 为空，即本 Story 变更已全部提交），
+ * 视为用户已人工提交，放行进入终态并 warning 留痕 —— 人工提交了代码也算流程完成。
  * @param {string} storyId - Story ID
  * @param {Object} result - runGateCheck 聚合结果
  */
 function checkExecutionOutcome (storyId, phase, state, result) {
-  const allowed = { 2: ['completed'], 5: ['submitted', 'skipped_by_user'], 7: ['deployed', 'not_applicable', 'skipped_by_user'] }
+  const allowed = { 2: ['completed'], 5: ['submitted', 'skipped_by_user'] }
   const startedAt = state?.phases?.[`${phase}_${require('../lib/state').PHASE_SLUGS[phase]}`]?.startedAt
   let latest
   try {
@@ -1271,36 +1267,50 @@ function checkExecutionOutcome (storyId, phase, state, result) {
   } catch { /* missing outcome */ }
   if (!latest || !allowed[phase].includes(latest.result) ||
       !Array.isArray(latest.details?.evidence) || !latest.details.evidence.some(e => typeof e === 'string' && e.trim())) {
+    if (phase === 5 && allTrackedChangesCommitted(storyId, result)) return
     result.passed = false
     result.blockers.push(structuredError('execution_outcome_missing', `Phase ${phase} 尚无本轮执行结果和证据`, 4,
-      `由阶段 Agent 完成实际工作后执行 trace.js phase-outcome ${storyId} ${phase} <${allowed[phase].join('|')}>，details.evidence 记录文件/自测结果、提交或发布结果；跳过须引用用户决定`))
+      `由阶段 Agent 完成实际工作后执行 trace.js phase-outcome ${storyId} ${phase} <${allowed[phase].join('|')}>，details.evidence 记录文件/自测结果或提交结果；跳过须引用用户决定`))
   }
 }
 
-function checkPhase6Gate (storyId, result) {
-  const tracePath = path.join(getStoryDir(storyId), 'trace.jsonl')
-  let latest = null
-
-  if (fs.existsSync(tracePath)) {
-    const lines = fs.readFileSync(tracePath, 'utf-8').split('\n').filter(Boolean)
-    for (const line of lines) {
+/**
+ * Phase 5 人工提交兜底判定：所有涉及仓库的已跟踪文件均无未提交变更。
+ *
+ * 至少需要一个存在且为 git 仓库的仓库根；全部 porcelain（忽略 untracked）为空才返回 true。
+ * 仓库缺失 / git 不可用 / 任一仓库有未提交变更均返回 false（维持 blocker，不误放行）。
+ * @param {string} storyId - Story ID
+ * @param {Object} result - runGateCheck 聚合结果（用于写 warning）
+ * @returns {boolean}
+ */
+function allTrackedChangesCommitted (storyId, result) {
+  let checked = 0
+  let allClean = true
+  try {
+    const repos = loadRepos(storyId)
+    for (const [repoName, root] of Object.entries(repos.repos || {})) {
+      if (!root || !fs.existsSync(path.join(root, '.git'))) continue
+      checked++
       try {
-        const entry = JSON.parse(line)
-        if (entry.type === 'phase_outcome' && String(entry.phase) === '6') latest = entry
-      } catch (_) { /* 容错：坏行不影响其他 trace 证据 */ }
+        const status = require('child_process').execSync(
+          'git status --porcelain --untracked-files=no', { cwd: root, encoding: 'utf8', timeout: 15000 }
+        )
+        if (status.trim()) {
+          allClean = false
+          break
+        }
+      } catch (e) {
+        allClean = false
+        result?.warnings?.push(`Phase 5 人工提交兜底: 仓库 ${repoName} git status 检查失败（${(e.message || '').slice(0, 80)}），按未提交处理`)
+        break
+      }
     }
+  } catch { /* repos.json 缺失或损坏：无仓库可判定 */ }
+  if (checked > 0 && allClean) {
+    result?.warnings?.push(`Phase 5 无 trace 提交凭证，但 ${checked} 个涉及仓库的已跟踪文件均无未提交变更（用户已人工提交），放行进入终态`)
+    return true
   }
-
-  const allowed = new Set(['updated', 'skipped_by_user', 'completed_with_errors'])
-  if (!latest || !allowed.has(latest.result)) {
-    result.blockers.push(structuredError(
-      'phase6_outcome_missing',
-      'Phase 6 尚无有效核验记录：核实实际合入版本及 Phase 5 的知识更新/延期结果；缺库留痕跳过，无法核验或失败明确记录，不在主分支生成正文',
-      4,
-      `执行 Phase 6 分支后运行 trace.js phase-outcome ${storyId} 6 <updated|skipped_by_user|completed_with_errors>`
-    ))
-    result.passed = false
-  }
+  return false
 }
 
 /**
@@ -1642,7 +1652,6 @@ module.exports = {
   checkPhase1Gate,
   checkPhase3Gate,
   checkPhase4Gate,
-  checkPhase6Gate,
   checkContractRegression,
   matchRecoverySuggestion,
   attemptAutoRecovery

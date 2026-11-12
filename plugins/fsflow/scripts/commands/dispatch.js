@@ -344,7 +344,7 @@ function dispatchCore (storyId) {
       return result
     }
 
-    // 无对应 Agent（不应发生，Phase 0-7 均有 Agent）
+    // 无对应 Agent（不应发生，Phase 0-5 均有 Agent）
     result.status = 'blocked'
     result.recovery = {
       type: 'no_agent_for_phase',

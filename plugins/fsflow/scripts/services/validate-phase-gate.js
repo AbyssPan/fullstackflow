@@ -101,19 +101,9 @@ const PHASE_GATE_CONDITIONS = {
   },
   5: {
     name: 'Git提交',
-    description: 'Phase 5 开始前需要 Phase 4 通过 + AC 全量验收（CCHF）',
+    description: 'Phase 5 开始前需要 Phase 4 通过 + AC 全量验收（CCHF），完成后即进入终态',
     prerequisites: ['phase0Completed', 'phase1Completed', 'phase2Completed', 'phase3Completed', 'phase4Completed'],
     completionChecks: ['acceptanceVerificationPassed']
-  },
-  6: {
-    name: '知识库更新',
-    description: 'Phase 6 开始前需要 Phase 5 完成（建议但不强制阻断部署）',
-    prerequisites: ['phase0Completed', 'phase1Completed', 'phase2Completed', 'phase3Completed', 'phase4Completed', 'phase5Completed']
-  },
-  7: {
-    name: '云端部署',
-    description: 'Phase 7 开始前需要 Phase 5 完成（Phase 6 失败不阻断）',
-    prerequisites: ['phase0Completed', 'phase1Completed', 'phase2Completed', 'phase3Completed', 'phase4Completed', 'phase5Completed']
   }
 }
 

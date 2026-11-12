@@ -1,5 +1,5 @@
 ---
-description: 启动 FullstackFlow 新功能开发工作流（8 Phase）
+description: 启动 FullstackFlow 新功能开发工作流（6 Phase，commit 完即终态）
 argument-hint: '[storyId] "需求描述"'
 allowed-tools: Bash, Read, Write, Glob, Grep
 ---

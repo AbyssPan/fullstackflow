@@ -8,7 +8,7 @@
  *   5. dispatch 是 prompt 唯一出口；advance-phase.js 只返回推进结果
  *   5b. 仓库路径与 cwd 检索入口注入
  *   5c. review-only 显式跳过独立功能测试，full 保留测试门控
- *   6. Phase 0 唯一知识库前置确认 + Phase 6 仅增量收尾
+ *   6. Phase 0 唯一知识库前置确认 + Phase 5 commit 完即终态（Phase 6/7 已删除）
  *
  * 无外部依赖，用临时沙箱（同时覆盖 CODEBUDDY/CLAUDE_PROJECT_DIR），跑完自动清理。
  *
@@ -379,49 +379,71 @@ ok('Phase 0 缺库时先询问，再支持 kb-init + gen-project-docs 全量生�
 ok('Phase 0 用户拒绝后留痕并继续需求分析', /phase-outcome <storyId> 0 skipped_by_user/.test(p0Kb.agentPrompt) && /继续需求分析/.test(p0Kb.agentPrompt))
 ok('Phase 2 不再注入初始化确认逻辑', !/知识库前置确认/.test(p2Kb.agentPrompt) && !/use_skill\("kb-init"\)/.test(p2Kb.agentPrompt) && !/gen-project-docs/.test(p2Kb.agentPrompt))
 
-// ═══════════════════════════════════════════════════════════
-section('6. Phase 5 提交前维护，Phase 6 核验合入版本')
+// ════════════════════════════════════════════════════════════
+section('6. Phase 5 commit 完即终态（Phase 6/7 已删除）')
 
-const dir6 = storyDir('KB6-SKIP')
-fs.mkdirSync(dir6, { recursive: true })
-fs.writeFileSync(path.join(dir6, 'e2e-state.json'), JSON.stringify({
-  storyId: 'KB6-SKIP', phase: 6, status: 'running'
+const dir5 = storyDir('P5-TERM')
+fs.mkdirSync(dir5, { recursive: true })
+fs.writeFileSync(path.join(dir5, 'e2e-state.json'), JSON.stringify({
+  storyId: 'P5-TERM', phase: 5, status: 'running', executionEvidenceRequired: true
 }))
 
-const p6 = promptBuilder.buildAgentPrompt({ storyId: 'KB6-SKIP', targetPhase: 6, summaryPhase: 5 })
-ok('Phase 6 prompt 先检查 meta.yaml', /meta\.yaml/.test(p6.agentPrompt))
-ok('Phase 5 prompt 要求提交前维护知识', /提交前/.test(promptBuilder.buildAgentPrompt({ storyId: 'KB6-SKIP', targetPhase: 5 }).agentPrompt) && /kb-update/.test(promptBuilder.buildAgentPrompt({ storyId: 'KB6-SKIP', targetPhase: 5 }).agentPrompt))
-ok('Phase 6 核验实际合入版本且不重复生成正文', /实际合入提交/.test(p6.agentPrompt) && /不重复生成知识正文/.test(p6.agentPrompt))
-ok('Phase 6 缺库时直接留痕跳过', /meta\.yaml/.test(p6.agentPrompt) && /不存在时直接留痕跳过/.test(p6.agentPrompt))
-ok('Phase 6 不再询问或执行初始化', /不询问初始化/.test(p6.agentPrompt) && /不初始化、不全量生成/.test(p6.agentPrompt))
+const p5 = promptBuilder.buildAgentPrompt({ storyId: 'P5-TERM', targetPhase: 5 })
+ok('Phase 5 prompt 聚焦 commit+push', /commit\/push/.test(p5.agentPrompt))
+ok('Phase 5 prompt 声明 MR 可选不强制', /MR 仅在用户明确要求时创建/.test(p5.agentPrompt))
+ok('Phase 5 prompt 保留 --no-verify 禁令', /--no-verify/.test(p5.agentPrompt))
 
-const missingOutcomeGate = policy.runGateCheck('KB6-SKIP', 6, state.readStateFile('KB6-SKIP'))
-ok('Phase 6 无结果证据时禁止直接进 Phase 7', missingOutcomeGate.blockers.some(b =>
-  b.type === 'phase6_outcome_missing'))
+ok('终态(6) 无 Agent', state.getPhaseAgent(6) === null)
+ok('PHASE_SLUGS 收敛为 0-6（6 为 completed 终态）',
+  state.PHASE_SLUGS.length === 7 && state.PHASE_SLUGS[6] === 'completed' &&
+  state.PHASE_NAMES[6] === '工作流完成')
+ok('Phase 6/7 运行时取证已移除', contextRefresh.getRuntimeEvidence('P5-TERM', 6).length === 0 &&
+  contextRefresh.getRuntimeEvidence('P5-TERM', 7).length === 0)
+ok('PHASE_ARTIFACTS 不再含 6/7', !state.PHASE_ARTIFACTS[6] && !state.PHASE_ARTIFACTS[7])
 
-trace.tracePhaseOutcome('KB6-SKIP', 6, 'skipped_by_user', {
-  reason: 'knowledge_base_not_initialized'
+const missingGate = policy.runGateCheck('P5-TERM', 5, state.readStateFile('P5-TERM'))
+ok('Phase 5 无结果证据时禁止进入终态', missingGate.blockers.some(b => b.type === 'execution_outcome_missing'))
+
+trace.tracePhaseOutcome('P5-TERM', 5, 'submitted', {
+  evidence: ['commit abc1234 已推送到 feature 分支（MR 未创建，用户未要求）']
 })
-const kbEvidence = contextRefresh.getRuntimeEvidence('KB6-SKIP', 6)
-ok('缺库 skipped_by_user 结果可读取', contextRefresh.readTrace('KB6-SKIP').some(e =>
-  e.type === 'phase_outcome' && e.phase === '6' && e.result === 'skipped_by_user'))
-ok('summary 能呈现 skipped_by_user', kbEvidence.some(line => /skipped_by_user/.test(line)),
-  JSON.stringify(kbEvidence))
-ok('skipped_by_user 证据不阻断 Phase 7', kbEvidence.some(line => /不阻断 Phase 7/.test(line)),
-  JSON.stringify(kbEvidence))
-const skippedOutcomeGate = policy.runGateCheck('KB6-SKIP', 6, state.readStateFile('KB6-SKIP'))
-ok('skipped_by_user 记录可恢复放行', skippedOutcomeGate.passed,
-  JSON.stringify(skippedOutcomeGate.blockers))
-ok('缺库证据不误报用户拒绝初始化', kbEvidence.some(line => /项目未初始化知识库/.test(line)) &&
-  !kbEvidence.some(line => /用户拒绝初始化/.test(line)))
+const submittedGate = policy.runGateCheck('P5-TERM', 5, state.readStateFile('P5-TERM'))
+ok('submitted 记录可放行进入终态', submittedGate.passed, JSON.stringify(submittedGate.blockers))
 
-trace.tracePhaseOutcome('KB6-SKIP', 6, 'skipped_by_user', {
-  reason: 'knowledge_base_update_declined'
+trace.tracePhaseOutcome('P5-TERM', 5, 'skipped_by_user', {
+  reason: 'git_submit_declined', evidence: ['用户决定自行提交']
 })
-const declinedEvidence = contextRefresh.getRuntimeEvidence('KB6-SKIP', 6)
-ok('拒绝增量更新可恢复放行', policy.runGateCheck('KB6-SKIP', 6, state.readStateFile('KB6-SKIP')).passed)
-ok('拒绝更新的摘要与缺库区分', declinedEvidence.some(line => /用户跳过本次知识库增量更新/.test(line)) &&
-  !declinedEvidence.some(line => /未初始化|拒绝初始化/.test(line)), JSON.stringify(declinedEvidence))
+const skippedGate = policy.runGateCheck('P5-TERM', 5, state.readStateFile('P5-TERM'))
+ok('skipped_by_user 记录可放行', skippedGate.passed, JSON.stringify(skippedGate.blockers))
+
+// 人工提交兜底：无 trace 凭证但涉及仓库已跟踪文件全部干净 → 放行 + warning 留痕
+const dir5b = storyDir('P5-MANUAL')
+fs.mkdirSync(dir5b, { recursive: true })
+fs.writeFileSync(path.join(dir5b, 'e2e-state.json'), JSON.stringify({
+  storyId: 'P5-MANUAL', phase: 5, status: 'running', executionEvidenceRequired: true
+}))
+const manualRepo = path.join(SANDBOX, 'repo-clean')
+fs.mkdirSync(manualRepo, { recursive: true })
+fs.writeFileSync(path.join(dir5b, 'repos.json'), JSON.stringify({ primary: 'main', repos: { main: manualRepo } }))
+spawnSync('git', ['init', '-q'], { cwd: manualRepo })
+spawnSync('git', ['config', 'user.email', 't@t'], { cwd: manualRepo })
+spawnSync('git', ['config', 'user.name', 't'], { cwd: manualRepo })
+fs.writeFileSync(path.join(manualRepo, 'a.js'), 'base')
+spawnSync('git', ['add', '.'], { cwd: manualRepo })
+spawnSync('git', ['commit', '-q', '-m', 'base'], { cwd: manualRepo })
+const manualGateClean = policy.runGateCheck('P5-MANUAL', 5, state.readStateFile('P5-MANUAL'))
+ok('人工提交兜底: 工作区干净时无 trace 凭证也放行', manualGateClean.passed, JSON.stringify(manualGateClean.blockers))
+ok('人工提交兜底: 放行时 warning 留痕', manualGateClean.warnings.some(w => /人工提交/.test(w)),
+  JSON.stringify(manualGateClean.warnings))
+
+const manualGateDirty = (() => {
+  fs.writeFileSync(path.join(manualRepo, 'a.js'), 'modified')
+  const gate = policy.runGateCheck('P5-MANUAL', 5, state.readStateFile('P5-MANUAL'))
+  spawnSync('git', ['checkout', '--', '.'], { cwd: manualRepo })
+  return gate
+})()
+ok('人工提交兜底: 工作区有未提交变更时仍阻断', manualGateDirty.blockers.some(b => b.type === 'execution_outcome_missing'),
+  JSON.stringify(manualGateDirty.blockers))
 
 // ════════════════════════════════════════════════════════════
 try {

@@ -22,7 +22,7 @@
  *     dev-pass 限域精度 / Skill 与 MCP 资源使用），并合并洞察到全局经验库
  *
  * 使用场景:
- *   - 自动触发: Phase 7 完成时由 commands/advance-phase.js 通过 execSync 调用，
+ *   - 自动触发: Phase 5（Git提交）完成时由 commands/advance-phase.js 通过 execSync 调用，
  *     把本 Story 的洞察合并进全局经验库（超时或失败均非阻塞）
  *   - 自动消费: hooks/session-start.js 与 services/prompt-builder.js 通过
  *     experience.getMetricsInsights(phase) 读取全局洞察，按 targetPhase 注入 Agent prompt
@@ -151,7 +151,7 @@ function aggregateMetrics () {
     totalStories++
 
     // Story 完成状态
-    if (state.status === 'completed' || (state.phase >= 7 && state.phases && state.phases['7_deployment'] && state.phases['7_deployment'].status === 'completed')) {
+    if (state.status === 'completed' || (state.phase >= 5 && state.phases && state.phases['5_git_submit'] && state.phases['5_git_submit'].status === 'completed')) {
       completedStories++
     }
 

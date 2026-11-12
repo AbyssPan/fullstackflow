@@ -72,7 +72,8 @@ const {
   ensureReposJson,
   STORY_INPUT_FILE,
   DEFAULT_MAX_REVIEW_FIX_ROUNDS,
-  DEFAULT_MAX_TEST_FIX_ROUNDS
+  DEFAULT_MAX_TEST_FIX_ROUNDS,
+  PHASE_SLUGS
 } = require('../lib/state')
 const { validateFile } = require('../services/schema-validator')
 
@@ -290,7 +291,7 @@ function createWorkflow (storyId, title, bypass, hasFigma, mode, opts = {}) {
     mode: workflowMode, // run | fixbugs —— story-input.json 缺失时的模式回退信源
     workflowProfile: readStoryInput(storyId)?.workflowProfile || 'auto',
     // v1.5 交付模式: story-input.deliveryMode > 环境变量 FSFLOW_DELIVERY_MODE > auto
-    // manual = P4 通过后直接进入待人工检查终态，P5-P7（Git/MR/核验/发布）不由工作流执行
+    // manual = P4 通过后直接进入待人工检查终态，P5（Git 提交/推分支）不由工作流执行
     deliveryMode: readStoryInput(storyId)?.deliveryMode ||
       (process.env.FSFLOW_DELIVERY_MODE === 'manual' ? 'manual' : 'auto'),
     executionEvidenceRequired: true,
@@ -317,17 +318,8 @@ function createWorkflow (storyId, title, bypass, hasFigma, mode, opts = {}) {
     phases: {}
   }
 
-  // 初始化所有 Phase 的状态
-  const phaseKeys = [
-    '0_requirement_analysis',
-    '1_task_planning',
-    '2_development',
-    '3_code_review',
-    '4_e2e_verification',
-    '5_git_submit',
-    '6_knowledge_base_update',
-    '7_deployment'
-  ]
+  // 初始化所有 Phase 的状态（从 PHASE_SLUGS 派生并排除终态项，与 state.js 保持单一信源）
+  const phaseKeys = PHASE_SLUGS.slice(0, -1).map((slug, i) => `${i}_${slug}`)
 
   for (let i = 0; i < phaseKeys.length; i++) {
     if (bypass && i < initialPhase) {

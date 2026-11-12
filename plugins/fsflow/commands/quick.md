@@ -1,5 +1,5 @@
 ---
-description: 需求交付后的小范围修改或 Bug 修复，单 Agent 轻量流程（免完整 8-Phase）
+description: 需求交付后的小范围修改或 Bug 修复，单 Agent 轻量流程（免完整 6-Phase）
 argument-hint: '[relatedStoryId] "<修改描述>"'
 allowed-tools: Bash, Read, Write, Glob, Grep
 ---
@@ -8,7 +8,7 @@ allowed-tools: Bash, Read, Write, Glob, Grep
 
 用户参数：`$ARGUMENTS`
 
-定位：**已交付需求后续的小范围调整与 Bug 修复**。免完整流水线（P0–P7 多 Agent 往返），
+定位：**已交付需求后续的小范围调整与 Bug 修复**。免完整流水线（P0–P5 多 Agent 往返），
 由主 Agent 单独执行，保留 dev-pass 编辑限域与证据留痕两条安全底线。
 
 ## 准入条件（不满足则改走 /fsflow:fixbugs）

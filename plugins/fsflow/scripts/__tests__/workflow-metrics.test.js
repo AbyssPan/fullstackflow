@@ -84,7 +84,7 @@ try {
   assert.equal(collectMetrics(id).phases[3].tokens.total, 49, 'background launch is not completion')
   const cli = spawnSync(process.execPath, [path.join(__dirname, '../commands/workflow-metrics.js'), id, '--json'], { encoding: 'utf8' })
   assert.equal(cli.status, 0)
-  assert.equal(JSON.parse(cli.stdout).phases.length, 8)
+  assert.equal(JSON.parse(cli.stdout).phases.length, 6)
   const persisted = saveMetrics(id)
   const saved = JSON.parse(fs.readFileSync(persisted.json, 'utf8'))
   assert.equal(saved.schemaVersion, 1)

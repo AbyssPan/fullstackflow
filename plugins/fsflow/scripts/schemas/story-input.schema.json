@@ -11,7 +11,7 @@
     },
     "deliveryMode": {
       "type": "string", "enum": ["auto", "manual"], "default": "auto",
-      "description": "交付模式：auto=P5-P7 由工作流执行 Git/MR/知识核验/发布；manual=P4 通过后直接进入待人工检查终态，不提交代码、不触发云端构建，知识维护由用户在人工检查后执行（kb-maintenance Git hook 兜底）。缺省 auto；项目级默认可用环境变量 FSFLOW_DELIVERY_MODE=manual 覆盖"
+      "description": "交付模式：auto=P5（commit+推分支，MR 可选）由工作流执行；manual=P4 通过后直接进入待人工检查终态，不提交代码，知识维护由用户在人工检查后执行（kb-maintenance Git hook 兜底）。缺省 auto；项目级默认可用环境变量 FSFLOW_DELIVERY_MODE=manual 覆盖"
     },
     "mode": {
       "type": "string",

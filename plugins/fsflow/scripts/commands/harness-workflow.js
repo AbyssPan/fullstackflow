@@ -33,7 +33,7 @@
  *     开启 dev-pass 强制校验（此后编辑 src/ 需持 pass），
  *     同时建好工作流状态文件
  *   - harness-start skill 的两步初始化：先写 story-input.json，再 start --input 一步建流
- *   - 工作流走到 Phase 7 完成、归档收尾后，用户执行 `/fsflow:end`，主 Agent 调用 end 删除标记，
+ *   - 工作流走到 Phase 5 完成（commit 完即终态）、归档收尾后，用户执行 `/fsflow:end`，主 Agent 调用 end 删除标记，
  *     解除编辑限制
  *   - 主 Agent 或用户想确认「harness 是否还开着、当前 Story 停在哪一 Phase、涉及哪些仓库」时执行 status
  *   - 已有 Story 未走标准激活流程时，可直接用 start 补一次激活；若已激活则拒绝并提示先 end
@@ -276,7 +276,7 @@ function cmdResume(storyId) {
   const state = readStateFile(id)
   if (!state || state._parseError) fail('已有工作流不存在或状态损坏，无法恢复')
   if (state.status === 'archived') fail('Story 已归档，请先 restore 再恢复')
-  if (state.status === 'completed' || state.phase >= 8) fail('Story 已完成；新的缺陷需创建独立 fixbugs Story')
+  if (state.status === 'completed' || state.phase >= 6) fail('Story 已完成；新的缺陷需创建独立 fixbugs Story')
   if (!Number.isInteger(state.phase) || state.phase < 0) fail('工作流 phase 无效，无法恢复')
   // v1.5 多会话: 移除「另一 Story 激活中则拒绝」的限制 ——
   // 其他会话（对话框）持有别的 Story 是合法的并行场景；本会话恢复自己的 Story 即可。

@@ -1,4 +1,4 @@
-# 8 Phase 流水线索引（按需读取）
+# 6 Phase 流水线索引（按需读取）
 
 > 本目录从 `harness-conductor/SKILL.md` 与已删除的 `harness-run/SKILL.md` 附录 A/B/D 外移。
 > **不要整目录通读**：`advance-phase.js` 在 Phase N→N+1 报门控失败时，只读 `phase-N.md`。
@@ -12,10 +12,8 @@
 | 2 | 代码开发 | `fullstack-developer` | 代码变更（git diff）+ `development-notes/<taskId>.md` 交付说明 | `checkPhase2Gate` |
 | 3 | 代码审查 | `code-reviewer` | `code-review.json` | `checkPhase3Gate` |
 | 4 | 功能测试 | `test-engineer` | `test-report.md` `acceptance-verification.json` | `checkPhase4Gate` |
-| 5 | 知识维护与 Git 提交 | `release-assistant` | 知识正文/回执 + commit/push/MR | 暂存区检查、Git hook 与服务端候选合并检查；状态机保留通用门控 |
-| 6 | 合入版本知识核验 | `release-assistant` | 实际合入版本核验，复用提交前结果；缺库或失败留痕 | `checkPhase6Gate` |
-| 7 | 发布收尾 | `release-assistant` | 前端：部署 URL + 构建号；后端：合并分支 + 变更清单（跳过云端部署） | 仅产出物存在性 |
-| 8 | —（终态） | — | 流程结束 | — |
+| 5 | Git 提交（终 Phase） | `release-assistant` | （可选）知识正文/回执 + commit/push（MR 可选） | 暂存区检查、Git hook 与服务端候选合并检查；状态机保留通用门控 |
+| 6 | —（终态） | — | 流程结束（Phase 5 commit 完即进入） | — |
 
 门控产出物清单唯一信源：`lib/state.js` 的 `PHASE_ARTIFACTS`。按任务命名的开发说明由上下文枚举交接，不增加旧任务的文件存在性门控。
 Phase→Agent 唯一信源：`lib/state.js` 的 `PHASE_AGENTS`，由 `dispatch.js` 以 `nextAgent` 输出。

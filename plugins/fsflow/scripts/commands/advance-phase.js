@@ -3,7 +3,7 @@
  * advance-phase.js — Phase 门控裁定与状态跃迁的唯一执行者
  *
  * 职责:
- *   - 独立校验 targetPhase 入参合法性（范围 0~8（8 为完成态）、步长必须为 +1），越权一律拒绝
+ *   - 独立校验 targetPhase 入参合法性（范围 0~6（6 为完成态）、步长必须为 +1），越权一律拒绝
  *   - 委托 policy.js 执行门控校验，失败时输出结构化 blockers 与 nextAction
  *   - 门控通过后在 e2e-state.json 中完成相位跃迁，并签发/撤销 dev-pass
  *   - 生成 phase-N-summary.md 上下文摘要、委托 prompt-builder 构造下个 Agent 的 prompt
@@ -56,7 +56,7 @@
  *     summary 生成、trace 记录、度量聚合失败均不阻塞推进。
  *   - Agent prompt 统一委托 services/prompt-builder.js 构造，与 dispatch.js 共用同一信源，
  *     避免出现两份自称权威的 prompt 来源迫使主 Agent 自行拼接。
- *   - Phase 7 完成时自动触发 audit/metrics-aggregator.js 聚合度量，并标记工作流为 completed 终态。
+ *   - Phase 5（Git提交）完成时自动触发 audit/metrics-aggregator.js 聚合度量，并标记工作流为 completed 终态。
  *
  * @module advance-phase
  */
@@ -188,7 +188,7 @@ const currentPhaseName = getPhaseName(currentPhase)
 //         写出 phase: 99 / phases["99_undefined"] 这类污染状态。
 // ========================
 
-const MAX_PHASE = PHASE_SLUGS.length - 1 // Includes Phase 8, the completed terminal.
+const MAX_PHASE = PHASE_SLUGS.length - 1 // Includes Phase 6, the completed terminal (Phase 5 完成即终态).
 
 if (targetPhase < 0 || targetPhase > MAX_PHASE) {
   console.log(JSON.stringify({
@@ -1069,7 +1069,7 @@ if (!combinedResult.passed) {
 
 // ========================
 // 🛡️ v1.5 manual 交付模式: Phase 4→5 的推进重定向为「待人工检查」终态
-// manual 模式下 P5-P7（Git 提交/MR/合入核验/云端发布）不由工作流执行——
+// manual 模式下 P5（Git 提交/推分支）不由工作流执行——
 // 用户人工检查后手动提交全部变更。Phase 4 门控已在上方正常执行（质量底线不降），
 // 此处仅重定向交付链。知识维护时机移到人工检查后（advance 输出提示 kb-update），
 // 手动提交由 kb-maintenance Git hook 兜底检查。
@@ -1088,17 +1088,15 @@ if (targetPhase === 5 && state.deliveryMode === 'manual') {
     state.phases[currentKey] = { status: 'completed', completedAt: now.toISOString() }
   }
 
-  // P5-P7 标记跳过（留痕，禁无声消失）
-  for (let p = 5; p <= 7; p++) {
-    state.phases[`${p}_${PHASE_SLUGS[p]}`] = {
-      status: 'skipped',
-      skipReason: 'delivery_mode_manual',
-      skippedAt: now.toISOString()
-    }
+  // P5 标记跳过（留痕，禁无声消失）
+  state.phases['5_git_submit'] = {
+    status: 'skipped',
+    skipReason: 'delivery_mode_manual',
+    skippedAt: now.toISOString()
   }
 
   // 进入待人工检查终态
-  state.phase = 8
+  state.phase = MAX_PHASE
   state.status = 'completed'
   state.completedAt = now.toISOString()
   state.updatedAt = now.toISOString()
@@ -1108,23 +1106,23 @@ if (targetPhase === 5 && state.deliveryMode === 'manual') {
   revokeDevPass(storyId)
 
   persistWorkflowState(storyId, state)
-  trace.appendTrace(storyId, { type: 'phase_transition', phase: '8', from: String(currentPhase), to: '8', reason: 'delivery_mode_manual' })
+  trace.appendTrace(storyId, { type: 'phase_transition', phase: String(MAX_PHASE), from: String(currentPhase), to: String(MAX_PHASE), reason: 'delivery_mode_manual' })
   trace.appendTrace(storyId, { type: 'workflow', action: 'completed', result: 'manual_delivery' })
 
   console.log(JSON.stringify({
     success: true,
     storyId,
     fromPhase: currentPhase,
-    toPhase: 8,
-    toPhaseName: getPhaseName(8),
+    toPhase: MAX_PHASE,
+    toPhaseName: getPhaseName(MAX_PHASE),
     deliveryMode: 'manual',
-    skippedPhases: [5, 6, 7],
+    skippedPhases: [5],
     gatePassed: true,
-    message: 'manual 交付模式: P5-P7（Git/MR/合入核验/发布）已跳过，工作流进入待人工检查终态。代码不提交，由用户人工检查后手动提交。',
+    message: 'manual 交付模式: P5（Git 提交/推分支）已跳过，工作流进入待人工检查终态。代码不提交，由用户人工检查后手动提交。',
     nextAction: {
       action: 'manual_check',
       command: null,
-      description: '通知用户进行人工代码检查。确认后建议执行一次 kb-update 域维护（P5 的知识职责前移），随后手动提交代码；kb-maintenance Git hook 会在提交时兜底检查知识回执。'
+      description: '通知用户进行人工代码检查。确认后建议执行一次 kb-update 域维护（可选），随后手动提交代码；kb-maintenance Git hook 会在提交时兜底检查知识回执。'
     }
   }, null, 2))
   process.exit(0)
@@ -1173,7 +1171,7 @@ const completedPhaseArtifacts = phaseArtifacts && phaseArtifacts[currentPhase]
 if (completedPhaseArtifacts && Array.isArray(completedPhaseArtifacts.artifacts) &&
     !(currentPhase === 4 && state.verificationMode === 'review-only')) {
   const allMissing = completedPhaseArtifacts.artifacts.every(art => {
-    // Phase 2/5/6/7 产出物不是文件（git diff / commit / 部署），跳过
+    // Phase 2/5 产出物不是文件（git diff / commit），跳过
     if (!art.fileName) return false
     try {
       const artPath = path.join(PLANS_DIR, storyId, art.fileName)
@@ -1326,8 +1324,8 @@ if (devPass) {
 // 避免在一次循环中构造、输出两份完整 prompt。
 result.nextAction = 'rerun_dispatch'
 
-// Phase 7 完成时自动触发度量聚合 + 标记工作流为 completed（终态）
-if (currentPhase === 7 && targetPhase > 7) {
+// Phase 5（Git提交）完成时自动触发度量聚合 + 标记工作流为 completed（终态）
+if (targetPhase === MAX_PHASE && currentPhase < MAX_PHASE) {
   // 度量聚合
   try {
     const { execSync } = require('child_process')
@@ -1335,15 +1333,15 @@ if (currentPhase === 7 && targetPhase > 7) {
     if (fs.existsSync(aggregatorPath)) {
       execSync(`node "${aggregatorPath}"`, { timeout: 15000, stdio: ['pipe', 'pipe', 'pipe'], cwd: PROJECT_ROOT })
       console.log('  ✓ 度量聚合已完成，洞察已合并到全局经验库')
-      trace.appendTrace(storyId, { type: 'metrics_aggregation', phase: '7', result: 'success' })
+      trace.appendTrace(storyId, { type: 'metrics_aggregation', phase: String(MAX_PHASE), result: 'success' })
     } else {
       // 路径不存在时显式告警，避免 existsSync 静默跳过导致度量永不聚合
       console.log('  ⚠ 度量聚合脚本不存在（非阻塞）: ' + aggregatorPath)
-      trace.appendTrace(storyId, { type: 'metrics_aggregation', phase: '7', result: 'skipped', reason: 'aggregator_not_found: ' + aggregatorPath })
+      trace.appendTrace(storyId, { type: 'metrics_aggregation', phase: String(MAX_PHASE), result: 'skipped', reason: 'aggregator_not_found: ' + aggregatorPath })
     }
   } catch (e) {
     console.log('  ⚠ 度量聚合失败（非阻塞）: ' + (e.message || '').slice(0, 100))
-    trace.appendTrace(storyId, { type: 'metrics_aggregation', phase: '7', result: 'failed', reason: (e.message || '').slice(0, 200) })
+    trace.appendTrace(storyId, { type: 'metrics_aggregation', phase: String(MAX_PHASE), result: 'failed', reason: (e.message || '').slice(0, 200) })
   }
 
   // 标记工作流为终态（completed）

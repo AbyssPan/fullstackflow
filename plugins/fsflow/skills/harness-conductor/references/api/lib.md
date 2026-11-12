@@ -15,7 +15,7 @@
 |------|------|
 | `PROJECT_ROOT` `PLANS_DIR` | 项目根 / `.codebuddy/plans` |
 | `DEV_PASS_TTL` | dev-pass 有效期（2h） |
-| `PHASE_SLUGS` `PHASE_NAMES` | 0~8 的英文 slug / 中文名，索引 8 是终态 |
+| `PHASE_SLUGS` `PHASE_NAMES` | 0~6 的英文 slug / 中文名，索引 6 是终态（Phase 5 commit 完即进入） |
 | `PHASE_ARTIFACTS` | **产出物清单唯一信源**，门控 / prompt / summary 都从此读 |
 | `PHASE_AGENTS` `getPhaseAgent(phase)` | **Phase→Agent 唯一信源**，`agent` 是注册名，`label` 仅供人读 |
 

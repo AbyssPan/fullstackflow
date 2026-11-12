@@ -175,7 +175,7 @@ try {
 
     const st = state.readStateFile(id)
     assert.equal(st.status, 'completed')
-    assert.equal(st.phase, 8)
+    assert.equal(st.phase, 6)
     assert.equal(st.quickStatus, 'done')
 
     const finalTask = JSON.parse(fs.readFileSync(taskPath, 'utf-8'))

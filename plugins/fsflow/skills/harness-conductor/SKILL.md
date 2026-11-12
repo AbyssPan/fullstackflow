@@ -3,13 +3,13 @@ name: harness-conductor
 description: >
   Harness 工作流编排器 — 调度 Agent、管理 Phase 推进、错误恢复决策。
   由 harness-start 交棒后加载，也可在已有工作流中途直接加载继续编排。
-  骨架含三步循环与铁律；8 Phase 门控详情与脚本 API 文档在 references/ 下按需读取。
+  骨架含三步循环与铁律；6 Phase 门控详情与脚本 API 文档在 references/ 下按需读取。
 ---
 
 # Harness Conductor — 工作流编排器
 
 > **渐进式披露**：本文档只保留每次循环必用的**骨架**（核心原则、执行流程、Spawn 前置注入、铁律）。
-> 条件性内容已外移到 `references/`：8 Phase 逐相门控（`phases/phase-N.md`）、
+> 条件性内容已外移到 `references/`：6 Phase 逐相门控（`phases/phase-N.md`）、
 > 脚本 API（`api/*.md`）、错误恢复、代码检索、工作流生命周期、Prompt 单一信源。
 > 用到时按索引表 `read_file`，避免常驻 context 浪费。
 
@@ -131,7 +131,7 @@ HARNESS=${CLAUDE_PLUGIN_ROOT}/scripts/commands
 
 运行时的权威来源是 `scripts/lib/state.js` 的 `PHASE_AGENTS`，由 `dispatch.js` 查表后以
 `nextAgent` 或 `batches[].agent` 字段输出。**主 Agent 使用对应注册名，不查任何表。**
-需要人读的 8 Phase 总表（名称 / 注册名 / 产出物 / 门控实现）见 `references/phases/README.md`。
+需要人读的 6 Phase 总表（名称 / 注册名 / 产出物 / 门控实现）见 `references/phases/README.md`。
 
 两条必守：
 
@@ -162,11 +162,11 @@ HARNESS=${CLAUDE_PLUGIN_ROOT}/scripts/commands
 | 激活/查看/归档/复档工作流 | `references/工作流生命周期.md` |
 | 理解为何不能加工 prompt | `references/Agent-Prompt-单一信源.md` |
 
-### 8 Phase 详情
+### 6 Phase 详情
 
 | 场景 | 读取文件 |
 |------|---------|
-| `advance-phase.js` 在 Phase N→N+1 报门控失败 | `references/phases/phase-N.md`（N=0~7，只读当前那一个） |
+| `advance-phase.js` 在 Phase N→N+1 报门控失败 | `references/phases/phase-N.md`（N=0~5，只读当前那一个） |
 | 需要核对某 Phase 该产出什么 / Story 目录结构 / 通用门控 | `references/phases/README.md` |
 
 `phase-N.md` 统一 5 段：职责与 Agent 注册名 → 产出物清单 → 出门门控（级别 + failureType）

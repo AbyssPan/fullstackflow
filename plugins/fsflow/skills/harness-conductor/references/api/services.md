@@ -51,7 +51,7 @@
 未登记的 failureType 会命中 `RECOVERY_SUGGESTIONS.unknown`（level 3）并产生 warning，
 提示补录为独立条目 —— 见到这个 warning 就该往 `RECOVERY_SUGGESTIONS` 加条目。
 
-各 Phase 门控细节见 `../phases/phase-<N>.md`（N=0~7）。注意 `checkPhase2Gate` 未导出（内部调用）。
+各 Phase 门控细节见 `../phases/phase-<N>.md`（N=0~5）。注意 `checkPhase2Gate` 未导出（内部调用）。
 
 ## context-refresh.js — 上下文刷新
 

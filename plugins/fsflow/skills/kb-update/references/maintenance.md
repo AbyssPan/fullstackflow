@@ -54,9 +54,9 @@ node "$KB" check --strict
 `record` 只是保存本次人工/Agent 审查声明及当前源码/文档 Git blob 摘要，不能自动证明语义正确。必须先读证据、改文档，再执行；不能为消除报错而盲目重签。没有文档变化时使用 `status unchanged` 并写明原因。延期使用 `status deferred`、具体原因和 `spec-review deferred`，由项目 allow_deferred 控制是否允许合并。延期回执记录现状以识别后续变化，查询仍展示延期状态。
 
 4. 只暂存本次任务的代码、知识、回执和变更条目。暂存后再运行 `check --staged --strict`；这会发现“工作区已更新但未提交对应源码/文档”的部分暂存问题。正常开发的 pre-commit 只拦结构错误，待核实项提示而不妨碍中间提交。
-5. 在同一个 MR 中审查代码和知识，按已批准的提交、push 与 MR 操作交付。若相关文件又变化，重新核实受影响 scope。cherry-pick 必须带上对应知识与回执，并在目标分支复核；不要复制整个环境分支的知识覆盖目标分支。
+5. 在同一个变更中审查代码和知识，按已批准的提交、push 操作交付（MR 仅用户要求时创建）。若相关文件又变化，重新核实受影响 scope。cherry-pick 必须带上对应知识与回执，并在目标分支复核；不要复制整个环境分支的知识覆盖目标分支。
 
-## 合并检查与 Phase 6
+## 合并检查与 CI（合入核验由服务端承接）
 
 项目 `.gitlab-ci.yml` 引用安装后的 `tools/fsflow-kb/templates/kb-gitlab-ci.yml`。维护者启用 merged results pipelines / merge trains，并将此 job 设为合并必过项；这些服务端配置不会由安装脚本自动修改。GitLab 功能可用性由所在实例/套餐决定。模板在普通 source-only MR 流水线上明确失败，避免把单分支成功当作候选合并成功。
 
@@ -69,7 +69,7 @@ CI 对候选合并提交运行 `check --ref <候选提交> --base <目标提交>
 
 结果包含结构错误、各 scope 的 evidence_changed / not_reviewed、延期及其原因。来源摘要变化只表示需要复核；自然语言矛盾、动态配置和跨仓运行行为仍需契约测试与领域审查。未登记的语义依赖不可能仅靠摘要发现。冲突返回功能分支处理，再检查最新候选版本；不在主分支由 AI 重写知识来掩盖冲突。
 
-Phase 6 只核验实际合入版本和提交前的更新/延期结果，不再次询问同一项更新、不生成正文。无法取得实际合入版本时明确未验证，不能拿本地旧 HEAD 代替。独立源码索引可在需要时重建；查询检测扫描版本不符会降级到当前 Git 文件及源码查证。
+合入版本核验由服务端 CI 与用户承接（工作流 Phase 5 commit 完即终态，不再有独立的合入核验阶段）：CI 对候选合并提交核验更新/延期结果。无法取得实际合入版本时明确未验证，不能拿本地旧 HEAD 代替。独立源码索引可在需要时重建；查询检测扫描版本不符会降级到当前 Git 文件及源码查证。
 
 ## Changelog 生命周期与历史查询
 
@@ -85,7 +85,7 @@ node "$KB" prune --base origin/main --dry-run
 node "$KB" prune --base origin/main --apply
 ```
 
-前两条等价且只读。`candidates` 列出待删文件及原因，`retained` 列出保留文件及原因，`deleted` 列出实际删除文件。执行时重新计算并复核计划，与 record 共用写锁。删除后审查 diff，将指定文件的删除纳入普通维护 MR，并执行 `check --staged --strict`；不要为了清理无关日志盲目重签回执。不在 record、pre-commit 或 Phase 6 中自动清空目录。
+前两条等价且只读。`candidates` 列出待删文件及原因，`retained` 列出保留文件及原因，`deleted` 列出实际删除文件。执行时重新计算并复核计划，与 record 共用写锁。删除后审查 diff，将指定文件的删除纳入普通维护变更，并执行 `check --staged --strict`；不要为了清理无关日志盲目重签回执。不在 record 或 pre-commit 中自动清空目录。
 
 仅在以下条件全部满足时删除：
 
